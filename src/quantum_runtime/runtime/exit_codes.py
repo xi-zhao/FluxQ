@@ -77,6 +77,19 @@ def exit_code_for_export(result: Any) -> int:
     return EXIT_COMPILE_FAILURE
 
 
+def exit_code_for_inspect(result: Any) -> int:
+    """Map an inspect report to the documented CLI exit codes."""
+    status = str(getattr(result, "status", "ok"))
+    issues = list(getattr(result, "issues", []) or [])
+    errors = list(getattr(result, "errors", []) or [])
+
+    if status == "ok" and not issues and not errors:
+        return EXIT_OK
+    if errors:
+        return EXIT_INVALID_INPUT
+    return EXIT_DEGRADED
+
+
 def _as_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -92,7 +105,16 @@ def _any_backend_status(backends: dict[str, Any], expected: str) -> bool:
 
 
 def _is_workspace_issue(issue: str) -> bool:
-    return issue == "workspace_root_missing" or issue.startswith("workspace_manifest_missing") or issue.startswith("missing_directories:")
+    return (
+        issue == "workspace_root_missing"
+        or issue == "workspace_manifest_missing"
+        or issue == "workspace_manifest_invalid"
+        or issue == "active_spec_missing"
+        or issue == "active_spec_invalid"
+        or issue == "active_report_missing"
+        or issue == "active_report_invalid"
+        or issue.startswith("missing_directories:")
+    )
 
 
 def _status_of(value: Any) -> str | None:

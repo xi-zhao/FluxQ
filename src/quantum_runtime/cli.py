@@ -23,6 +23,7 @@ from quantum_runtime.runtime.exit_codes import (
     exit_code_for_doctor,
     exit_code_for_exec,
     exit_code_for_export,
+    exit_code_for_inspect,
 )
 from quantum_runtime.workspace import WorkspaceManager
 
@@ -245,8 +246,12 @@ def inspect_command(
     report = inspect_workspace(workspace)
     if json_output:
         typer.echo(report.model_dump_json(indent=2))
-        return
-    typer.echo(f"revision={report.revision}")
+        raise typer.Exit(code=exit_code_for_inspect(report))
+    if report.status == "ok":
+        typer.echo(f"revision={report.revision}")
+    else:
+        typer.echo(f"inspect status: {report.status}; revision={report.revision}")
+    raise typer.Exit(code=exit_code_for_inspect(report))
 
 
 @app.command("doctor")

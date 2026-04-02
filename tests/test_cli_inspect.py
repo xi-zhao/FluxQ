@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.workspace import WorkspaceManager
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +42,41 @@ def test_qrun_inspect_json_summarizes_current_workspace_state(tmp_path: Path) ->
     assert payload["artifacts"]["qiskit_code"].endswith("artifacts/qiskit/main.py")
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert "qiskit" in payload["backend_capabilities"]
+
+
+def test_qrun_inspect_json_returns_exit_code_2_for_missing_manifest(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    handle = WorkspaceManager.load_or_init(workspace)
+    handle.paths.workspace_json.unlink()
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 2, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "degraded"
+    assert "workspace_manifest_missing" in payload["issues"]
+    assert payload["qspec"]["status"] == "missing"
+    assert payload["workspace"]["current_revision"] == "unknown"
+
+
+def test_qrun_inspect_json_returns_exit_code_3_for_invalid_qspec_json(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    handle = WorkspaceManager.load_or_init(workspace)
+    (handle.root / "specs" / "current.json").write_text("{not valid json")
+    (handle.root / "reports" / "latest.json").write_text(
+        "{\"artifacts\": {}, \"diagnostics\": {}}"
+    )
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 3, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "error"
+    assert "active_spec_invalid_json" in payload["errors"]
+    assert payload["workspace"]["current_revision"] != ""
