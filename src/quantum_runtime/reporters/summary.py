@@ -8,6 +8,7 @@ def summarize_report(report: dict[str, object]) -> str:
     status = str(report.get("status", "unknown"))
     revision = report.get("revision", "unknown")
     qspec_path = report.get("qspec", {}).get("path", "unknown")  # type: ignore[union-attr]
+    semantics = report.get("semantics", {})  # type: ignore[assignment]
     artifacts = report.get("artifacts", {})  # type: ignore[assignment]
     diagnostics = report.get("diagnostics", {})  # type: ignore[assignment]
     backend_reports = report.get("backend_reports", {})  # type: ignore[assignment]
@@ -17,6 +18,8 @@ def summarize_report(report: dict[str, object]) -> str:
     simulation_status = simulation.get("status", "unknown") if isinstance(simulation, dict) else "unknown"
     warnings = len(report.get("warnings", [])) if isinstance(report.get("warnings", []), list) else 0
     errors = len(errors_list) if isinstance(errors_list, list) else 0
+    pattern = semantics.get("pattern", "unknown") if isinstance(semantics, dict) else "unknown"
+    parameter_count = semantics.get("parameter_count", "unknown") if isinstance(semantics, dict) else "unknown"
     artifact_names = ",".join(sorted(str(name) for name in artifacts.keys())[:4]) if isinstance(artifacts, dict) else "none"
     backend_summary = (
         ",".join(
@@ -39,7 +42,7 @@ def summarize_report(report: dict[str, object]) -> str:
     )
 
     summary = (
-        f"status={status}; revision={revision}; qspec={qspec_path}; artifacts={artifact_names}; "
+        f"status={status}; revision={revision}; pattern={pattern}; params={parameter_count}; qspec={qspec_path}; artifacts={artifact_names}; "
         f"simulation={simulation_status}; backends={backend_summary}; warnings={warnings}; "
         f"errors={errors}; first_error={first_error}; next={next_step}."
     )

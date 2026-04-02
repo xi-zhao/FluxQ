@@ -205,6 +205,8 @@ def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: P
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+    assert payload["subject"]["pattern"] == "ghz"
+    assert payload["subject"]["parameter_count"] == 0
 
 
 def test_qrun_bench_json_returns_exit_code_4_for_unknown_backend(

@@ -33,11 +33,14 @@ def test_run_structural_benchmark_reports_qiskit_and_classiq_statuses(
     report = run_structural_benchmark(qspec, handle, ["qiskit-local", "classiq"])
 
     assert report.status == "degraded"
+    assert report.subject["pattern"] == "ghz"
+    assert report.subject["parameter_count"] == 0
     assert report.backends["qiskit-local"].status == "ok"
     assert report.backends["qiskit-local"].width == 4
     assert report.backends["qiskit-local"].depth == 5
     assert report.backends["qiskit-local"].transpiled_depth == 5
     assert report.backends["qiskit-local"].two_qubit_gates == 3
+    assert report.backends["qiskit-local"].details["resource_source"] == "qiskit_local"
     assert any("local" in note.lower() for note in report.backends["qiskit-local"].notes)
     assert report.backends["classiq"].status == "dependency_missing"
     assert report.backends["classiq"].reason == "classiq_not_installed"
@@ -81,6 +84,7 @@ def test_run_structural_benchmark_uses_classiq_synthesis_metrics(
 
     classiq = report.backends["classiq"]
     assert report.status == "ok"
+    assert report.subject["semantic_hash"].startswith("sha256:")
     assert classiq.status == "ok"
     assert classiq.width == 8
     assert classiq.depth == 11
@@ -89,6 +93,7 @@ def test_run_structural_benchmark_uses_classiq_synthesis_metrics(
     assert classiq.transpiled_two_qubit_gates == 5
     assert classiq.measure_count == 4
     assert classiq.details["resource_source"] == "classiq_synthesis"
+    assert classiq.details["parameter_count"] == 0
     assert classiq.details["synthesis_metrics"] == {
         "width": 8,
         "depth": 11,
@@ -129,4 +134,5 @@ def test_run_structural_benchmark_falls_back_when_classiq_metrics_missing(
     assert classiq.transpiled_two_qubit_gates == 3
     assert classiq.measure_count == 4
     assert classiq.details["resource_source"] == "qspec_baseline"
+    assert classiq.details["semantic_hash"].startswith("sha256:")
     assert any("fallback" in note.lower() for note in classiq.notes)

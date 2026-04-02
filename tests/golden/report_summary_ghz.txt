@@ -1,1 +1,1 @@
-status=ok; revision=<revision>; qspec=<qspec_path>; artifacts=diagram_png,diagram_txt,qspec; simulation=ok; backends=none; warnings=0; errors=0; first_error=none; next=Review the generated artifacts and diagnostics report for the next backend step..
+status=ok; revision=<revision>; pattern=ghz; params=0; qspec=<qspec_path>; artifacts=diagram_png,diagram_txt,qspec; simulation=ok; backends=none; warnings=0; errors=0; first_error=none; next=Review the generated artifacts and diagnostics report for the next backend step..

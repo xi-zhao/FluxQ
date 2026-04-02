@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from quantum_runtime.qspec import QSpec
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
 from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
 
@@ -116,16 +116,23 @@ def _load_qspec_summary(path: Path) -> tuple[dict[str, Any], list[str]]:
     except json.JSONDecodeError:
         return {"status": "error", "path": str(path)}, ["active_spec_invalid_json"]
 
+    semantics = summarize_qspec_semantics(qspec)
     return (
         {
             "status": "ok",
             "path": str(path),
             "goal": qspec.goal,
             "program_id": qspec.program_id,
+            "pattern": semantics["pattern"],
+            "layers": semantics["layers"],
+            "parameter_count": semantics["parameter_count"],
+            "semantic_hash": semantics["semantic_hash"],
             "registers": {
                 "qubits": qspec.registers[0].size,
                 "cbits": qspec.registers[1].size,
             },
+            "parameters": semantics["parameters"],
+            "pattern_args": semantics["pattern_args"],
             "body_nodes": len(qspec.body),
         },
         [],
@@ -179,8 +186,31 @@ def _build_provenance(
     )
     provenance.setdefault(
         "qspec",
-        {
-            "path": str(active_spec_path),
-        },
+        _inspect_qspec_provenance(latest_report=latest_report, active_spec_path=active_spec_path),
+    )
+    provenance.setdefault(
+        "subject",
+        _inspect_subject_provenance(latest_report=latest_report),
     )
     return provenance
+
+
+def _inspect_qspec_provenance(*, latest_report: dict[str, Any], active_spec_path: Path) -> dict[str, Any]:
+    semantic_hash = None
+    nested_qspec = latest_report.get("qspec")
+    if isinstance(nested_qspec, dict):
+        semantic_hash = nested_qspec.get("semantic_hash")
+
+    payload: dict[str, Any] = {"path": str(active_spec_path)}
+    if semantic_hash is not None:
+        payload["semantic_hash"] = semantic_hash
+    return payload
+
+
+def _inspect_subject_provenance(*, latest_report: dict[str, Any]) -> dict[str, Any]:
+    nested_provenance = latest_report.get("provenance")
+    if isinstance(nested_provenance, dict):
+        subject = nested_provenance.get("subject")
+        if isinstance(subject, dict):
+            return subject
+    return {}

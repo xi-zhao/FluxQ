@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from quantum_runtime.backends import run_classiq_backend
 from quantum_runtime.diagnostics.resources import estimate_resources
 from quantum_runtime.diagnostics.transpile_validate import validate_target_constraints
-from quantum_runtime.qspec import QSpec
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace import WorkspaceHandle
 
 
@@ -34,6 +34,7 @@ class BenchmarkReport(BaseModel):
 
     status: Literal["ok", "degraded", "error"]
     backends: dict[str, BackendBenchmark]
+    subject: dict[str, Any] = Field(default_factory=dict)
 
 
 def run_structural_benchmark(
@@ -42,6 +43,7 @@ def run_structural_benchmark(
     backends: list[str],
 ) -> BenchmarkReport:
     """Compare structural backend outputs without making hardware claims."""
+    subject = summarize_qspec_semantics(qspec)
     entries: dict[str, BackendBenchmark] = {}
     for backend in backends:
         normalized = backend.strip()
@@ -60,6 +62,12 @@ def run_structural_benchmark(
                 transpiled_two_qubit_gates=transpile_report.transpiled_two_qubit_gates,
                 measure_count=resources.measure_count,
                 notes=["Local Qiskit structural benchmark"],
+                details={
+                    "resource_source": "qiskit_local",
+                    "parameter_count": resources.parameter_count,
+                    "parameter_names": resources.parameter_names,
+                    "semantic_hash": subject["semantic_hash"],
+                },
             )
             continue
 
@@ -73,6 +81,7 @@ def run_structural_benchmark(
                         backend=normalized,
                         synthesis_metrics=synthesis_metrics,
                         baseline_resources=resources,
+                        subject=subject,
                     )
                 else:
                     benchmark = BackendBenchmark(
@@ -87,7 +96,12 @@ def run_structural_benchmark(
                         notes=[
                             "Classiq benchmark used fallback QSpec baseline resources because synthesis metrics were unavailable",
                         ],
-                        details={"resource_source": "qspec_baseline"},
+                        details={
+                            "resource_source": "qspec_baseline",
+                            "parameter_count": resources.parameter_count,
+                            "parameter_names": resources.parameter_names,
+                            "semantic_hash": subject["semantic_hash"],
+                        },
                     )
                 entries[normalized] = benchmark
             else:
@@ -110,6 +124,7 @@ def run_structural_benchmark(
     return BenchmarkReport(
         status=_derive_status(entries),
         backends=entries,
+        subject=subject,
     )
 
 
@@ -141,6 +156,7 @@ def _benchmark_from_synthesis_metrics(
     backend: str,
     synthesis_metrics: dict[str, int],
     baseline_resources: Any,
+    subject: dict[str, Any],
 ) -> BackendBenchmark:
     width = synthesis_metrics.get("width")
     depth = synthesis_metrics.get("depth")
@@ -173,6 +189,9 @@ def _benchmark_from_synthesis_metrics(
         details={
             "resource_source": "classiq_synthesis",
             "synthesis_metrics": synthesis_metrics,
+            "parameter_count": baseline_resources.parameter_count,
+            "parameter_names": baseline_resources.parameter_names,
+            "semantic_hash": subject["semantic_hash"],
         },
     )
 

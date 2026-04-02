@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace.manager import WorkspaceHandle
 
 
@@ -15,6 +16,7 @@ def write_report(
     workspace: WorkspaceHandle,
     revision: str,
     input_data: dict[str, Any],
+    qspec: QSpec,
     qspec_path: Path,
     artifacts: dict[str, Any],
     diagnostics: dict[str, Any],
@@ -23,6 +25,7 @@ def write_report(
     errors: list[str],
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
+    semantics = summarize_qspec_semantics(qspec)
     status = _derive_report_status(
         warnings=warnings,
         errors=errors,
@@ -37,11 +40,14 @@ def write_report(
             revision=revision,
             input_data=input_data,
             qspec_path=qspec_path,
+            semantics=semantics,
         ),
         "qspec": {
             "path": str(qspec_path),
             "hash": _sha256_file(qspec_path),
+            "semantic_hash": semantics["semantic_hash"],
         },
+        "semantics": semantics,
         "artifacts": artifacts,
         "diagnostics": diagnostics,
         "backend_reports": backend_reports,
@@ -73,6 +79,7 @@ def _build_provenance(
     revision: str,
     input_data: dict[str, Any],
     qspec_path: Path,
+    semantics: dict[str, Any],
 ) -> dict[str, Any]:
     """Create a stable provenance block for replay and inspection."""
     return {
@@ -85,6 +92,13 @@ def _build_provenance(
         "qspec": {
             "path": str(qspec_path),
             "hash": _sha256_file(qspec_path),
+            "semantic_hash": semantics["semantic_hash"],
+        },
+        "subject": {
+            "pattern": semantics["pattern"],
+            "width": semantics["width"],
+            "layers": semantics["layers"],
+            "parameter_count": semantics["parameter_count"],
         },
     }
 

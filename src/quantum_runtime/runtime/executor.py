@@ -207,6 +207,7 @@ def _execute_qspec(
         workspace=handle,
         revision=revision,
         input_data=input_data,
+        qspec=qspec,
         qspec_path=qspec_path,
         artifacts=artifacts,
         diagnostics=diagnostics,

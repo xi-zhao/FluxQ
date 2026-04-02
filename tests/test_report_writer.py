@@ -34,6 +34,7 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
         workspace=handle,
         revision=revision,
         input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=qspec,
         qspec_path=qspec_path,
         artifacts={
             "qspec": str(qspec_path),
@@ -60,10 +61,15 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert payload["revision"] == revision
     assert payload["qspec"]["path"] == str(qspec_path)
+    assert payload["qspec"]["semantic_hash"] == payload["semantics"]["semantic_hash"]
     assert payload["provenance"]["workspace_root"] == str(handle.root)
     assert payload["provenance"]["revision"] == revision
     assert payload["provenance"]["input"]["mode"] == "intent"
     assert payload["provenance"]["input"]["path"] == "examples/intent-ghz.md"
+    assert payload["provenance"]["subject"]["pattern"] == "ghz"
+    assert payload["provenance"]["subject"]["parameter_count"] == 0
+    assert payload["semantics"]["pattern"] == "ghz"
+    assert payload["semantics"]["parameter_count"] == 0
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
     assert payload["artifacts"]["diagram_png"] == str(diagrams.png_path)
@@ -88,6 +94,7 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
         workspace=handle,
         revision=revision,
         input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=qspec,
         qspec_path=qspec_path,
         artifacts={
             "qspec": str(qspec_path),
@@ -130,6 +137,7 @@ def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
         workspace=handle,
         revision=revision,
         input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")),
         qspec_path=qspec_path,
         artifacts={"qspec": str(qspec_path)},
         diagnostics={"simulation": {"status": "ok", "shots": 32}},
