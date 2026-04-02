@@ -45,6 +45,17 @@ def test_emit_supported_classiq_patterns_without_error() -> None:
         assert "create_model(main)" in result.source
 
 
+def test_emit_bell_classiq_source_allocates_semantic_register_width() -> None:
+    intent = parse_intent_text("Create a Bell pair and measure both qubits.")
+    qspec = plan_to_qspec(intent)
+
+    result = emit_classiq_source(qspec)
+
+    assert result.status == "ok"
+    assert result.source is not None
+    assert "allocate(2, q)" in result.source
+
+
 def test_emit_parameterized_qaoa_classiq_source_reflects_layers_and_edges() -> None:
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
     qspec = plan_to_qspec(intent)

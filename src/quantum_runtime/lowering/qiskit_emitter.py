@@ -79,13 +79,15 @@ def build_qiskit_circuit(qspec: QSpec) -> QuantumCircuit:
         for control in range(size - 1):
             circuit.cx(control, control + 1)
     elif pattern_node.pattern == "bell":
+        if size != 2:
+            raise ValueError("Bell pattern requires exactly 2 qubits.")
         circuit.h(0)
         circuit.cx(0, 1)
     elif pattern_node.pattern == "qft":
-        for target in range(size):
-            for control in range(target):
-                circuit.cp(math.pi / (2 ** (target - control)), target, control)
+        for target in range(size - 1, -1, -1):
             circuit.h(target)
+            for control in range(target - 1, -1, -1):
+                circuit.cp(math.pi / (2 ** (target - control)), target, control)
         for index in range(size // 2):
             circuit.swap(index, size - index - 1)
     elif pattern_node.pattern == "hardware_efficient_ansatz":
@@ -172,11 +174,11 @@ def _render_bell() -> list[str]:
 
 def _render_qft(size: int) -> list[str]:
     lines: list[str] = []
-    for target in range(size):
-        for control in range(target):
+    for target in range(size - 1, -1, -1):
+        lines.append(f"    qc.h({target})")
+        for control in range(target - 1, -1, -1):
             angle = f"math.pi / {2 ** (target - control)}"
             lines.append(f"    qc.cp({angle}, {target}, {control})")
-        lines.append(f"    qc.h({target})")
     for index in range(size // 2):
         lines.append(f"    qc.swap({index}, {size - index - 1})")
     return lines

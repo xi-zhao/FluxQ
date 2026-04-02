@@ -112,6 +112,31 @@ def test_validate_qspec_rejects_parameterized_qaoa_without_layer_parameters() ->
     assert "gamma" in str(exc.value).lower() or "beta" in str(exc.value).lower()
 
 
+def test_validate_qspec_rejects_bell_pattern_with_non_two_qubit_register() -> None:
+    invalid = QSpec(
+        program_id="prog_bell_3",
+        goal="Create a Bell pair on three qubits.",
+        registers=[
+            Register(kind="qubit", name="q", size=3),
+            Register(kind="cbit", name="c", size=3),
+        ],
+        body=[
+            PatternNode(pattern="bell", args={"register": "q", "size": 3}),
+            MeasureNode(
+                qubits=["q[0]", "q[1]", "q[2]"],
+                cbits=["c[0]", "c[1]", "c[2]"],
+            ),
+        ],
+        constraints=Constraints(shots=256),
+    )
+
+    with pytest.raises(QSpecValidationError) as exc:
+        validate_qspec(invalid)
+
+    assert "bell" in str(exc.value).lower()
+    assert "2" in str(exc.value)
+
+
 def test_execute_qspec_normalizes_before_persisting_artifacts(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
     handle = WorkspaceManager.load_or_init(workspace)

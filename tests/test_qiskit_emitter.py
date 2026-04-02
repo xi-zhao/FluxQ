@@ -6,6 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+from qiskit import QuantumCircuit
+from qiskit.circuit.library import QFTGate
+from qiskit.quantum_info import Operator
+
 from quantum_runtime.intent.parser import parse_intent_file, parse_intent_text
 from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.lowering.qiskit_emitter import (
@@ -74,6 +79,19 @@ def test_emit_supported_patterns_without_error() -> None:
         assert "def build_circuit()" in source
 
 
+def test_build_qft_circuit_matches_qiskit_reference_up_to_global_phase() -> None:
+    intent = parse_intent_text("Build a 5-qubit QFT circuit.")
+    qspec = plan_to_qspec(intent)
+
+    emitted = build_qiskit_circuit(qspec)
+    emitted.remove_final_measurements()
+
+    reference = QuantumCircuit(5)
+    reference.append(QFTGate(5), range(5))
+
+    assert _equivalent_up_to_global_phase(emitted, reference)
+
+
 def test_emit_parameterized_qaoa_source_and_circuit_reflect_layers_and_edges() -> None:
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
     qspec = plan_to_qspec(intent)
@@ -89,3 +107,19 @@ def test_emit_parameterized_qaoa_source_and_circuit_reflect_layers_and_edges() -
     assert counts["rz"] == 8
     assert counts["rx"] == 8
     assert counts["cx"] == 16
+
+
+def _equivalent_up_to_global_phase(left: QuantumCircuit, right: QuantumCircuit) -> bool:
+    left_matrix = Operator(left).data
+    right_matrix = Operator(right).data
+
+    phase = None
+    for row in range(right_matrix.shape[0]):
+        for column in range(right_matrix.shape[1]):
+            if abs(right_matrix[row, column]) > 1e-9:
+                phase = left_matrix[row, column] / right_matrix[row, column]
+                break
+        if phase is not None:
+            break
+
+    return phase is not None and bool(np.allclose(left_matrix, phase * right_matrix))

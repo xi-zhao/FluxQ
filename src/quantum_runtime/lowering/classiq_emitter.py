@@ -42,6 +42,8 @@ def emit_classiq_source(qspec: QSpec) -> ClassiqEmitResult:
         return ClassiqEmitResult(status="ok", source=source)
 
     if pattern_node.pattern == "bell":
+        if size != 2:
+            raise ValueError("Bell pattern requires exactly 2 qubits.")
         source = _render_source(
             imports=["CX", "H", "Output", "QArray", "QBit", "allocate", "create_model", "qfunc"],
             helper_name="bell_pair",
@@ -50,7 +52,7 @@ def emit_classiq_source(qspec: QSpec) -> ClassiqEmitResult:
                 "    CX(q[0], q[1])",
             ],
             main_lines=[
-                "    allocate(2, q)",
+                f"    allocate({size}, q)",
                 "    bell_pair(q)",
             ],
         )

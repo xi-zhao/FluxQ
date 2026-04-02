@@ -159,6 +159,9 @@ def _validate_parameters(qspec: QSpec, issues: list[str]) -> None:
         if not isinstance(node, PatternNode):
             continue
         size = int(node.args.get("size", qspec.registers[0].size))
+        if node.pattern == "bell":
+            if size != 2 or qspec.registers[0].size != 2:
+                issues.append("bell pattern requires exactly 2 qubits")
         if node.pattern == "hardware_efficient_ansatz":
             layers = int(node.args.get("layers", 1))
             if layers <= 0:
