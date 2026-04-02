@@ -45,6 +45,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - aionrs integration examples: `docs/aionrs-integration.md`
 - sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
 - sample hooks: `integrations/aionrs/hooks.example.toml`
+- reports include stable provenance metadata for replay and inspection
 
 ## Workspace Layout
 

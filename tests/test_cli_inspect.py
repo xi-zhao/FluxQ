@@ -39,6 +39,9 @@ def test_qrun_inspect_json_summarizes_current_workspace_state(tmp_path: Path) ->
     assert payload["revision"].startswith("rev_")
     assert payload["qspec"]["goal"].lower().startswith("generate a 4-qubit ghz")
     assert payload["qspec"]["registers"]["qubits"] == 4
+    assert payload["provenance"]["workspace_root"] == str(workspace)
+    assert payload["provenance"]["input"]["mode"] == "intent"
+    assert payload["provenance"]["input"]["path"].endswith("examples/intent-ghz.md")
     assert payload["artifacts"]["qiskit_code"].endswith("artifacts/qiskit/main.py")
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert "qiskit" in payload["backend_capabilities"]
@@ -60,6 +63,9 @@ def test_qrun_inspect_json_returns_exit_code_2_for_missing_manifest(tmp_path: Pa
     assert "workspace_manifest_missing" in payload["issues"]
     assert payload["qspec"]["status"] == "missing"
     assert payload["workspace"]["current_revision"] == "unknown"
+    assert payload["provenance"]["workspace_root"] == str(workspace)
+    assert payload["provenance"]["input"]["mode"] == "report"
+    assert payload["provenance"]["report"]["path"].endswith("reports/latest.json")
 
 
 def test_qrun_inspect_json_returns_exit_code_3_for_invalid_qspec_json(tmp_path: Path) -> None:
@@ -80,3 +86,5 @@ def test_qrun_inspect_json_returns_exit_code_3_for_invalid_qspec_json(tmp_path: 
     assert payload["status"] == "error"
     assert "active_spec_invalid_json" in payload["errors"]
     assert payload["workspace"]["current_revision"] != ""
+    assert payload["provenance"]["workspace_root"] == str(workspace)
+    assert payload["provenance"]["input"]["mode"] == "report"

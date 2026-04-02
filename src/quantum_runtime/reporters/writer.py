@@ -32,6 +32,12 @@ def write_report(
         "status": status,
         "revision": revision,
         "input": input_data,
+        "provenance": _build_provenance(
+            workspace=workspace,
+            revision=revision,
+            input_data=input_data,
+            qspec_path=qspec_path,
+        ),
         "qspec": {
             "path": str(qspec_path),
             "hash": _sha256_file(qspec_path),
@@ -59,6 +65,28 @@ def write_report(
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
+
+
+def _build_provenance(
+    *,
+    workspace: WorkspaceHandle,
+    revision: str,
+    input_data: dict[str, Any],
+    qspec_path: Path,
+) -> dict[str, Any]:
+    """Create a stable provenance block for replay and inspection."""
+    return {
+        "workspace_root": str(workspace.root),
+        "revision": revision,
+        "input": {
+            "mode": str(input_data.get("mode", "unknown")),
+            "path": str(input_data.get("path", "unknown")),
+        },
+        "qspec": {
+            "path": str(qspec_path),
+            "hash": _sha256_file(qspec_path),
+        },
+    }
 
 
 def _derive_report_status(

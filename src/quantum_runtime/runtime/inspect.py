@@ -19,6 +19,7 @@ class InspectReport(BaseModel):
     status: Literal["ok", "degraded", "error"]
     revision: str
     workspace: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     qspec: dict[str, Any]
     artifacts: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
@@ -62,6 +63,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
             "active_report_path": str(active_report_path),
         }
     )
+    revision = manifest.current_revision if manifest is not None else "unknown"
 
     if workspace_root.exists():
         missing_directories = [str(path) for path in paths.required_directories() if not path.exists()]
@@ -78,14 +80,21 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     latest_report, report_issues, report_errors = _load_report_payload(active_report_path)
     issues.extend(report_issues)
     errors.extend(report_errors)
+    provenance = _build_provenance(
+        latest_report=latest_report,
+        workspace_root=workspace_root,
+        revision=revision,
+        active_spec_path=active_spec_path,
+        active_report_path=active_report_path,
+    )
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
-    revision = manifest.current_revision if manifest is not None else "unknown"
 
     return InspectReport(
         status=status,
         revision=revision,
         workspace=workspace_info,
+        provenance=provenance,
         qspec=qspec_summary,
         artifacts=latest_report.get("artifacts", {}) if isinstance(latest_report, dict) else {},
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
@@ -136,3 +145,42 @@ def _load_report_payload(path: Path) -> tuple[dict[str, Any], list[str], list[st
         return {}, [], ["active_report_invalid_json"]
 
     return payload, [], []
+
+
+def _build_provenance(
+    *,
+    latest_report: dict[str, Any],
+    workspace_root: Path,
+    revision: str,
+    active_spec_path: Path,
+    active_report_path: Path,
+) -> dict[str, Any]:
+    """Return a stable provenance block for inspect output."""
+    provenance: dict[str, Any] = {}
+    if isinstance(latest_report, dict):
+        nested = latest_report.get("provenance")
+        if isinstance(nested, dict):
+            provenance.update(nested)
+
+    provenance.setdefault("workspace_root", str(workspace_root))
+    provenance.setdefault("revision", revision)
+    provenance.setdefault(
+        "input",
+        {
+            "mode": "report",
+            "path": str(active_report_path),
+        },
+    )
+    provenance.setdefault(
+        "report",
+        {
+            "path": str(active_report_path),
+        },
+    )
+    provenance.setdefault(
+        "qspec",
+        {
+            "path": str(active_spec_path),
+        },
+    )
+    return provenance

@@ -60,6 +60,10 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert payload["revision"] == revision
     assert payload["qspec"]["path"] == str(qspec_path)
+    assert payload["provenance"]["workspace_root"] == str(handle.root)
+    assert payload["provenance"]["revision"] == revision
+    assert payload["provenance"]["input"]["mode"] == "intent"
+    assert payload["provenance"]["input"]["path"] == "examples/intent-ghz.md"
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
     assert payload["artifacts"]["diagram_png"] == str(diagrams.png_path)
