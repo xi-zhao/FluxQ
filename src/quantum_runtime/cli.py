@@ -9,7 +9,14 @@ import typer
 from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
-from quantum_runtime.runtime import execute_intent, execute_qspec, inspect_workspace, run_doctor
+from quantum_runtime.runtime import (
+    execute_intent,
+    execute_qspec,
+    export_artifact,
+    inspect_workspace,
+    list_backends,
+    run_doctor,
+)
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -18,6 +25,8 @@ app = typer.Typer(
     no_args_is_help=True,
     help="Deterministic quantum runtime CLI for agent hosts.",
 )
+backend_app = typer.Typer(add_completion=False, help="Backend discovery helpers.")
+app.add_typer(backend_app, name="backend")
 
 
 @app.command("init")
@@ -98,6 +107,44 @@ def bench_command(
         return
 
     typer.echo(f"Benchmark status: {benchmark.status}")
+
+
+@app.command("export")
+def export_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains specs/current.json.",
+    ),
+    output_format: str = typer.Option(
+        ...,
+        "--format",
+        help="One of: qiskit, qasm3, classiq-python.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Re-export one artifact from the current workspace QSpec."""
+    qspec_path = workspace / "specs" / "current.json"
+    if not qspec_path.exists():
+        if json_output:
+            typer.echo('{"status":"error","reason":"missing_qspec"}')
+            raise typer.Exit(code=3)
+        raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+
+    result = export_artifact(workspace_root=workspace, output_format=output_format)
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+        raise typer.Exit(code=0 if result.status == "ok" else 4)
+
+    typer.echo(result.path or result.reason or result.status)
 
 
 @app.command("exec")
@@ -208,6 +255,22 @@ def doctor_command(
         typer.echo(report.model_dump_json(indent=2))
         return
     typer.echo(f"doctor status: {report.status}")
+
+
+@backend_app.command("list")
+def backend_list_command(
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """List known runtime backends and their availability."""
+    report = list_backends()
+    if json_output:
+        typer.echo(report.model_dump_json(indent=2))
+        return
+    typer.echo(", ".join(sorted(report.backends)))
 
 
 def main() -> None:
