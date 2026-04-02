@@ -12,6 +12,9 @@ class WorkspacePaths:
 
     root: Path
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "root", self.root.resolve())
+
     @property
     def workspace_json(self) -> Path:
         return self.root / "workspace.json"

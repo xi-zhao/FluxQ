@@ -192,13 +192,10 @@ def _build_provenance(
         "subject",
         _inspect_subject_provenance(latest_report=latest_report),
     )
-    provenance.setdefault(
-        "artifacts",
-        _inspect_artifact_provenance(
-            latest_report=latest_report,
-            workspace_root=workspace_root,
-            revision=revision,
-        ),
+    provenance["artifacts"] = _inspect_artifact_provenance(
+        latest_report=latest_report,
+        workspace_root=workspace_root,
+        revision=revision,
     )
     return provenance
 

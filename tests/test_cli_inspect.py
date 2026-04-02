@@ -161,6 +161,49 @@ def test_qrun_inspect_json_reports_classiq_artifact_snapshot_aliases(
     )
 
 
+def test_qrun_inspect_json_reconstructs_partial_artifact_provenance(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report_path = workspace / "reports" / "latest.json"
+    report = json.loads(report_path.read_text())
+    report["provenance"]["artifacts"] = {
+        "snapshot_root": report["provenance"]["artifacts"]["snapshot_root"],
+        "current_root": report["provenance"]["artifacts"]["current_root"],
+        "paths": {},
+        "current_aliases": {},
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 0, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["provenance"]["artifacts"]["paths"]["qspec"].endswith(
+        f"specs/history/{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["paths"]["report"].endswith(
+        f"reports/history/{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"].endswith("specs/current.json")
+    assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
+
+
 def test_qrun_inspect_json_returns_exit_code_2_for_missing_manifest(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
     handle = WorkspaceManager.load_or_init(workspace)

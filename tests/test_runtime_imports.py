@@ -98,6 +98,25 @@ def test_resolve_report_file_rejects_missing_report_path(tmp_path: Path) -> None
     assert excinfo.value.code == "report_file_missing"
 
 
+def test_resolve_report_file_supports_relative_workspace_roots(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    workspace = Path("tmp-review-relative-workspace")
+
+    result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
+
+    assert result.status == "ok"
+    report_file = workspace / "reports" / "latest.json"
+    resolution = resolve_report_file(report_file)
+
+    assert resolution.workspace_root.is_absolute()
+    assert resolution.report_path.is_absolute()
+    assert resolution.qspec_path.is_absolute()
+    assert resolution.qspec_path == resolution.workspace_root / "specs" / "history" / "rev_000001.json"
+    assert resolution.load_report()["artifacts"]["report"] == str(
+        resolution.workspace_root / "reports" / "history" / "rev_000001.json"
+    )
+
+
 def _seed_workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / ".quantum"
     result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
