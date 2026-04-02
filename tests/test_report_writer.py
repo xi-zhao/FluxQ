@@ -60,7 +60,7 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     payload = json.loads(latest_path.read_text())
     assert payload["status"] == "ok"
     assert payload["revision"] == revision
-    assert payload["qspec"]["path"] == str(qspec_path)
+    assert payload["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
     assert payload["qspec"]["semantic_hash"] == payload["semantics"]["semantic_hash"]
     assert payload["semantics"]["semantic_hash"] == payload["semantics"]["execution_hash"]
     assert payload["semantics"]["workload_hash"].startswith("sha256:")
@@ -75,7 +75,9 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert payload["semantics"]["parameter_count"] == 0
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
-    assert payload["artifacts"]["diagram_png"] == str(diagrams.png_path)
+    assert payload["artifacts"]["diagram_png"] == str(
+        handle.root / "artifacts" / "history" / revision / "figures" / "circuit.png"
+    )
     assert "suggestions" in payload
     assert report == payload
 
@@ -135,8 +137,9 @@ def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> No
     assert artifact_provenance["current_aliases"]["qiskit_code"] == str(
         handle.root / "artifacts" / "qiskit" / "main.py"
     )
+    assert artifact_provenance["current_aliases"]["diagram_txt"] == str(handle.root / "figures" / "circuit.txt")
     assert artifact_provenance["current_aliases"]["diagram_png"] == str(
-        handle.root / "artifacts" / "figures" / "circuit.png"
+        handle.root / "figures" / "circuit.png"
     )
 
 
@@ -178,6 +181,45 @@ def test_write_report_records_report_and_qspec_aliases_in_artifact_provenance(
     )
 
 
+def test_write_report_canonicalizes_current_alias_artifacts(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    revision = handle.reserve_revision()
+
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec_path = handle.root / "specs" / "current.json"
+    qspec_path.parent.mkdir(parents=True, exist_ok=True)
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    qiskit_alias = handle.root / "artifacts" / "qiskit" / "main.py"
+    qiskit_alias.parent.mkdir(parents=True, exist_ok=True)
+    qiskit_alias.write_text("from qiskit import QuantumCircuit\n")
+
+    report = write_report(
+        workspace=handle,
+        revision=revision,
+        input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=qspec,
+        qspec_path=qspec_path,
+        artifacts={
+            "qspec": str(qspec_path),
+            "qiskit_code": str(qiskit_alias),
+        },
+        diagnostics={"simulation": {"status": "ok", "shots": 32}},
+        backend_reports={},
+        warnings=[],
+        errors=[],
+    )
+
+    assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qspec"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["report"] == str(handle.root / "reports" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qiskit_code"] == str(
+        handle.root / "artifacts" / "history" / revision / "qiskit" / "main.py"
+    )
+    assert report["provenance"]["artifacts"]["current_aliases"]["qiskit_code"] == str(qiskit_alias)
+
+
 def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()
@@ -217,9 +259,10 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
 
     summary = summarize_report(report)
     golden = (PROJECT_ROOT / "tests" / "golden" / "report_summary_ghz.txt").read_text().strip()
+    canonical_qspec_path = handle.root / "specs" / "history" / f"{revision}.json"
     normalized_summary = (
-        summary.replace(revision, "<revision>")
-        .replace(str(qspec_path), "<qspec_path>")
+        summary.replace(str(canonical_qspec_path), "<qspec_path>")
+        .replace(revision, "<revision>")
         .replace(",report", "")
     )
 

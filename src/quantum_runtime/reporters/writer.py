@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
+from quantum_runtime.artifact_provenance import canonicalize_artifact_provenance
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace.manager import WorkspaceHandle
 
@@ -31,6 +33,13 @@ def write_report(
     artifact_payload = dict(artifacts)
     artifact_payload["qspec"] = str(qspec_path)
     artifact_payload["report"] = str(history_path)
+    artifact_provenance = canonicalize_artifact_provenance(
+        workspace_root=workspace.root,
+        revision=revision,
+        artifacts=artifact_payload,
+    )
+    _materialize_canonical_artifacts(artifact_provenance)
+    artifact_payload = dict(artifact_provenance["paths"])
     status = _derive_report_status(
         warnings=warnings,
         errors=errors,
@@ -46,10 +55,10 @@ def write_report(
             input_data=input_data,
             qspec_path=qspec_path,
             semantics=semantics,
-            artifacts=artifact_payload,
+            artifact_provenance=artifact_provenance,
         ),
         "qspec": {
-            "path": str(qspec_path),
+            "path": artifact_payload["qspec"],
             "hash": _sha256_file(qspec_path),
             "semantic_hash": semantics["semantic_hash"],
         },
@@ -72,6 +81,26 @@ def write_report(
     return payload
 
 
+def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> None:
+    paths = artifact_provenance.get("paths")
+    aliases = artifact_provenance.get("current_aliases")
+    if not isinstance(paths, dict) or not isinstance(aliases, dict):
+        return
+
+    for name, raw_canonical_path in paths.items():
+        if name == "report":
+            continue
+        raw_alias_path = aliases.get(name)
+        if not isinstance(raw_canonical_path, str) or not isinstance(raw_alias_path, str):
+            continue
+        canonical_path = Path(raw_canonical_path)
+        alias_path = Path(raw_alias_path)
+        if canonical_path == alias_path or not alias_path.exists():
+            continue
+        canonical_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(alias_path, canonical_path)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
@@ -84,7 +113,7 @@ def _build_provenance(
     input_data: dict[str, Any],
     qspec_path: Path,
     semantics: dict[str, Any],
-    artifacts: dict[str, Any],
+    artifact_provenance: dict[str, Any],
 ) -> dict[str, Any]:
     """Create a stable provenance block for replay and inspection."""
     return {
@@ -105,82 +134,8 @@ def _build_provenance(
             "layers": semantics["layers"],
             "parameter_count": semantics["parameter_count"],
         },
-        "artifacts": _build_artifact_provenance(
-            workspace=workspace,
-            revision=revision,
-            artifacts=artifacts,
-        ),
+        "artifacts": artifact_provenance,
     }
-
-
-def _build_artifact_provenance(
-    *,
-    workspace: WorkspaceHandle,
-    revision: str,
-    artifacts: dict[str, Any],
-) -> dict[str, Any]:
-    snapshot_root = workspace.root / "artifacts" / "history" / revision
-    current_root = workspace.root / "artifacts"
-    paths: dict[str, str] = {}
-    current_aliases: dict[str, str] = {}
-
-    for name, raw_path in artifacts.items():
-        if not isinstance(raw_path, str) or not raw_path.strip():
-            continue
-        artifact_path = Path(raw_path)
-        alias_path = _derive_current_artifact_alias(
-            name=str(name),
-            artifact_path=artifact_path,
-            workspace_root=workspace.root,
-            revision=revision,
-            snapshot_root=snapshot_root,
-            current_root=current_root,
-        )
-        if alias_path is None:
-            continue
-        paths[str(name)] = str(artifact_path)
-        current_aliases[str(name)] = str(alias_path)
-
-    return {
-        "snapshot_root": str(snapshot_root),
-        "current_root": str(current_root),
-        "paths": paths,
-        "current_aliases": current_aliases,
-    }
-
-
-def _derive_current_artifact_alias(
-    *,
-    name: str,
-    artifact_path: Path,
-    workspace_root: Path,
-    revision: str,
-    snapshot_root: Path,
-    current_root: Path,
-) -> Path | None:
-    if name == "qspec":
-        if artifact_path == workspace_root / "specs" / "current.json":
-            return artifact_path
-        if artifact_path == workspace_root / "specs" / "history" / f"{revision}.json":
-            return workspace_root / "specs" / "current.json"
-    if name == "report":
-        if artifact_path == workspace_root / "reports" / "latest.json":
-            return artifact_path
-        if artifact_path == workspace_root / "reports" / "history" / f"{revision}.json":
-            return workspace_root / "reports" / "latest.json"
-
-    if artifact_path.is_absolute():
-        if artifact_path.is_relative_to(snapshot_root):
-            return current_root / artifact_path.relative_to(snapshot_root)
-        if artifact_path.is_relative_to(current_root):
-            return artifact_path
-        return None
-
-    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
-        return current_root / Path(*artifact_path.parts[3:])
-    if artifact_path.parts[:1] == ("artifacts",):
-        return artifact_path
-    return None
 
 
 def _derive_report_status(

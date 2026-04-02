@@ -8,6 +8,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from quantum_runtime.artifact_provenance import (
+    ArtifactProvenanceMismatch,
+    canonicalize_artifact_provenance,
+    select_accessible_artifact_paths,
+)
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
 from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
@@ -81,13 +86,14 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     latest_report, report_issues, report_errors = _load_report_payload(active_report_path)
     issues.extend(report_issues)
     errors.extend(report_errors)
-    provenance = _build_provenance(
+    provenance, canonical_artifacts, provenance_errors = _safe_build_provenance(
         latest_report=latest_report,
         workspace_root=normalized_root,
         revision=revision,
         active_spec_path=active_spec_path,
         active_report_path=active_report_path,
     )
+    errors.extend(provenance_errors)
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
 
@@ -97,7 +103,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         workspace=workspace_info,
         provenance=provenance,
         qspec=qspec_summary,
-        artifacts=latest_report.get("artifacts", {}) if isinstance(latest_report, dict) else {},
+        artifacts=canonical_artifacts,
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
         backend_capabilities=collect_backend_capabilities(),
         issues=issues,
@@ -201,6 +207,45 @@ def _build_provenance(
     return provenance
 
 
+def _safe_build_provenance(
+    *,
+    latest_report: dict[str, Any],
+    workspace_root: Path,
+    revision: str,
+    active_spec_path: Path,
+    active_report_path: Path,
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+    try:
+        provenance = _build_provenance(
+            latest_report=latest_report,
+            workspace_root=workspace_root,
+            revision=revision,
+            active_spec_path=active_spec_path,
+            active_report_path=active_report_path,
+        )
+        raw_artifact_provenance = provenance.get("artifacts") if isinstance(provenance, dict) else {}
+        artifact_provenance = raw_artifact_provenance if isinstance(raw_artifact_provenance, dict) else {}
+        return provenance, select_accessible_artifact_paths(artifact_provenance), []
+    except ArtifactProvenanceMismatch:
+        sanitized_report = dict(latest_report)
+        sanitized_report.pop("artifacts", None)
+        nested_provenance = sanitized_report.get("provenance")
+        if isinstance(nested_provenance, dict):
+            sanitized_nested = dict(nested_provenance)
+            sanitized_nested.pop("artifacts", None)
+            sanitized_report["provenance"] = sanitized_nested
+        provenance = _build_provenance(
+            latest_report=sanitized_report,
+            workspace_root=workspace_root,
+            revision=revision,
+            active_spec_path=active_spec_path,
+            active_report_path=active_report_path,
+        )
+        raw_artifact_provenance = provenance.get("artifacts") if isinstance(provenance, dict) else {}
+        artifact_provenance = raw_artifact_provenance if isinstance(raw_artifact_provenance, dict) else {}
+        return provenance, select_accessible_artifact_paths(artifact_provenance), ["artifact_provenance_invalid"]
+
+
 def _inspect_qspec_provenance(*, latest_report: dict[str, Any], active_spec_path: Path) -> dict[str, Any]:
     semantic_hash = None
     nested_qspec = latest_report.get("qspec")
@@ -228,81 +273,11 @@ def _inspect_artifact_provenance(
     workspace_root: Path,
     revision: str,
 ) -> dict[str, Any]:
-    snapshot_root = workspace_root / "artifacts" / "history" / revision
-    current_root = workspace_root / "artifacts"
-    paths: dict[str, str] = {}
-    current_aliases: dict[str, str] = {}
-    artifacts = latest_report.get("artifacts")
-    if isinstance(artifacts, dict):
-        for name, raw_path in artifacts.items():
-            if not isinstance(raw_path, str) or not raw_path.strip():
-                continue
-            artifact_path = Path(raw_path)
-            alias_path = _derive_current_artifact_alias(
-                name=str(name),
-                artifact_path=artifact_path,
-                workspace_root=workspace_root,
-                revision=revision,
-                snapshot_root=snapshot_root,
-                current_root=current_root,
-            )
-            if alias_path is None:
-                continue
-            paths[str(name)] = str(artifact_path)
-            current_aliases[str(name)] = str(alias_path)
-
-    reconstructed = {
-        "snapshot_root": str(snapshot_root),
-        "current_root": str(current_root),
-        "paths": paths,
-        "current_aliases": current_aliases,
-    }
     nested_provenance = latest_report.get("provenance")
-    if isinstance(nested_provenance, dict):
-        artifact_provenance = nested_provenance.get("artifacts")
-        if isinstance(artifact_provenance, dict):
-            merged_paths = dict(reconstructed["paths"])
-            merged_paths.update(artifact_provenance.get("paths", {}))
-            merged_aliases = dict(reconstructed["current_aliases"])
-            merged_aliases.update(artifact_provenance.get("current_aliases", {}))
-            return {
-                "snapshot_root": artifact_provenance.get("snapshot_root", reconstructed["snapshot_root"]),
-                "current_root": artifact_provenance.get("current_root", reconstructed["current_root"]),
-                "paths": merged_paths,
-                "current_aliases": merged_aliases,
-            }
-    return reconstructed
-
-
-def _derive_current_artifact_alias(
-    *,
-    name: str,
-    artifact_path: Path,
-    workspace_root: Path,
-    revision: str,
-    snapshot_root: Path,
-    current_root: Path,
-) -> Path | None:
-    if name == "qspec":
-        if artifact_path == workspace_root / "specs" / "current.json":
-            return artifact_path
-        if artifact_path == workspace_root / "specs" / "history" / f"{revision}.json":
-            return workspace_root / "specs" / "current.json"
-    if name == "report":
-        if artifact_path == workspace_root / "reports" / "latest.json":
-            return artifact_path
-        if artifact_path == workspace_root / "reports" / "history" / f"{revision}.json":
-            return workspace_root / "reports" / "latest.json"
-
-    if artifact_path.is_absolute():
-        if artifact_path.is_relative_to(snapshot_root):
-            return current_root / artifact_path.relative_to(snapshot_root)
-        if artifact_path.is_relative_to(current_root):
-            return artifact_path
-        return None
-
-    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
-        return current_root / Path(*artifact_path.parts[3:])
-    if artifact_path.parts[:1] == ("artifacts",):
-        return artifact_path
-    return None
+    stored_artifact_provenance = nested_provenance.get("artifacts") if isinstance(nested_provenance, dict) else None
+    return canonicalize_artifact_provenance(
+        workspace_root=workspace_root,
+        revision=revision,
+        artifacts=latest_report.get("artifacts"),
+        stored_provenance=stored_artifact_provenance,
+    )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,9 @@ from quantum_runtime.runtime.imports import (
     resolve_report_revision,
     resolve_workspace_current,
 )
+from quantum_runtime.intent.parser import parse_intent_file
+from quantum_runtime.intent.planner import plan_to_qspec
+from quantum_runtime.workspace import WorkspaceManager
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +71,23 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
     assert resolution.load_report()["revision"] == "rev_000001"
 
 
+def test_resolve_report_file_uses_one_consistent_payload_when_canonicalizing_latest(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path)
+    latest_report = workspace / "reports" / "latest.json"
+    latest_payload = json.loads(latest_report.read_text())
+    latest_payload["status"] = "degraded"
+    latest_payload["warnings"] = ["edited_latest_only"]
+    latest_report.write_text(json.dumps(latest_payload, indent=2))
+
+    resolution = resolve_report_file(latest_report)
+
+    assert resolution.report_summary["status"] == resolution.load_report()["status"]
+    assert resolution.report_summary["status"] == "degraded"
+    assert resolution.report_path == latest_report
+
+
 def test_resolve_report_revision_uses_history_paths_and_generic_reference(
     tmp_path: Path,
 ) -> None:
@@ -78,7 +99,7 @@ def test_resolve_report_revision_uses_history_paths_and_generic_reference(
     assert resolution.report_path == workspace / "reports" / "history" / "rev_000001.json"
     assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
     assert resolution.provenance["report_revision"] == "rev_000001"
-    assert resolution.provenance["qspec_resolution_source"] == "workspace_history"
+    assert resolution.provenance["qspec_resolution_source"] == "artifact_provenance"
     assert resolution.qspec_summary["program_id"].startswith("prog_")
 
 
@@ -114,6 +135,154 @@ def test_resolve_report_file_supports_relative_workspace_roots(tmp_path: Path, m
     assert resolution.qspec_path == resolution.workspace_root / "specs" / "history" / "rev_000001.json"
     assert resolution.load_report()["artifacts"]["report"] == str(
         resolution.workspace_root / "reports" / "history" / "rev_000001.json"
+    )
+
+
+def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    handle = WorkspaceManager.load_or_init(workspace)
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md"))
+    current_qspec = handle.root / "specs" / "current.json"
+    current_qspec.write_text(qspec.model_dump_json(indent=2))
+    latest_report = handle.root / "reports" / "latest.json"
+    latest_report.write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "revision": handle.manifest.current_revision,
+                "input": {"mode": "qspec", "path": str(current_qspec)},
+                "qspec": {"path": "specs/current.json"},
+                "artifacts": {
+                    "qspec": "specs/current.json",
+                    "report": "reports/latest.json",
+                },
+                "diagnostics": {},
+                "backend_reports": {},
+                "warnings": [],
+                "errors": [],
+            },
+            indent=2,
+        )
+    )
+
+    resolution = resolve_workspace_current(workspace)
+
+    assert resolution.report_path == latest_report
+    assert resolution.qspec_path == current_qspec
+    assert resolution.artifacts["report"] == str(latest_report)
+    assert resolution.artifacts["qspec"] == str(current_qspec)
+    assert resolution.provenance["artifacts"]["paths"]["report"] == str(
+        workspace / "reports" / "history" / f"{handle.manifest.current_revision}.json"
+    )
+
+
+def test_resolve_report_file_normalizes_relative_alias_artifacts(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    payload = json.loads(report_file.read_text())
+    payload["qspec"]["path"] = "specs/current.json"
+    payload["artifacts"]["qspec"] = "specs/current.json"
+    payload["artifacts"]["report"] = "reports/latest.json"
+    payload["artifacts"]["qiskit_code"] = "artifacts/qiskit/main.py"
+    payload["provenance"]["artifacts"] = {
+        "snapshot_root": f"artifacts/history/{payload['revision']}",
+        "current_root": "artifacts",
+        "paths": {},
+        "current_aliases": {},
+    }
+    report_file.write_text(json.dumps(payload, indent=2))
+
+    resolution = resolve_report_file(report_file)
+
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.provenance["artifacts"]["snapshot_root"] == str(
+        workspace / "artifacts" / "history" / "rev_000001"
+    )
+    assert resolution.provenance["artifacts"]["current_root"] == str(workspace / "artifacts")
+    assert resolution.provenance["artifacts"]["paths"]["qspec"] == str(
+        workspace / "specs" / "history" / "rev_000001.json"
+    )
+    assert resolution.provenance["artifacts"]["paths"]["report"] == str(
+        workspace / "reports" / "history" / "rev_000001.json"
+    )
+    assert resolution.provenance["artifacts"]["paths"]["qiskit_code"] == str(
+        workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    )
+    assert resolution.artifacts["qspec"] == str(workspace / "specs" / "history" / "rev_000001.json")
+    assert resolution.artifacts["report"] == str(workspace / "reports" / "history" / "rev_000001.json")
+    assert resolution.artifacts["qiskit_code"] == str(
+        workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["qiskit_code"] == str(
+        workspace / "artifacts" / "qiskit" / "main.py"
+    )
+
+
+def test_resolve_report_file_rejects_revision_inconsistent_artifact_provenance(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    payload = json.loads(report_file.read_text())
+    payload["provenance"]["artifacts"]["paths"]["qiskit_code"] = str(
+        workspace / "artifacts" / "history" / "rev_000099" / "qiskit" / "main.py"
+    )
+    report_file.write_text(json.dumps(payload, indent=2))
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(report_file)
+
+    assert excinfo.value.code == "artifact_provenance_invalid"
+
+
+def test_resolve_report_file_accepts_workspace_prefixed_legacy_relative_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    workspace = Path("tmp-review-old-bug-report")
+    result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
+    assert result.status == "ok"
+
+    absolute_workspace = (tmp_path / workspace).resolve()
+    report_file = absolute_workspace / "reports" / "latest.json"
+    payload = json.loads(report_file.read_text())
+    payload["qspec"]["path"] = "tmp-review-old-bug-report/specs/current.json"
+    payload["artifacts"]["qspec"] = "tmp-review-old-bug-report/specs/current.json"
+    payload["artifacts"]["report"] = "tmp-review-old-bug-report/reports/latest.json"
+    payload["artifacts"]["qiskit_code"] = "tmp-review-old-bug-report/artifacts/qiskit/main.py"
+    payload["provenance"]["artifacts"] = {
+        "snapshot_root": f"tmp-review-old-bug-report/artifacts/history/{payload['revision']}",
+        "current_root": "tmp-review-old-bug-report/artifacts",
+        "paths": {
+            "qspec": "tmp-review-old-bug-report/specs/current.json",
+            "report": "tmp-review-old-bug-report/reports/latest.json",
+            "qiskit_code": "tmp-review-old-bug-report/artifacts/qiskit/main.py",
+        },
+        "current_aliases": {
+            "qspec": "tmp-review-old-bug-report/specs/current.json",
+            "report": "tmp-review-old-bug-report/reports/latest.json",
+            "qiskit_code": "tmp-review-old-bug-report/artifacts/qiskit/main.py",
+        },
+    }
+    report_file.write_text(json.dumps(payload, indent=2))
+
+    resolution = resolve_report_file(report_file)
+
+    assert resolution.qspec_path == absolute_workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.report_path == report_file
+    assert resolution.provenance["artifacts"]["snapshot_root"] == str(
+        absolute_workspace / "artifacts" / "history" / "rev_000001"
+    )
+    assert resolution.provenance["artifacts"]["current_root"] == str(absolute_workspace / "artifacts")
+    assert resolution.provenance["artifacts"]["current_aliases"]["qspec"] == str(
+        absolute_workspace / "specs" / "current.json"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["report"] == str(
+        absolute_workspace / "reports" / "latest.json"
+    )
+    assert resolution.artifacts["qspec"] == str(absolute_workspace / "specs" / "history" / "rev_000001.json")
+    assert resolution.artifacts["report"] == str(absolute_workspace / "reports" / "history" / "rev_000001.json")
+    assert resolution.artifacts["qiskit_code"] == str(
+        absolute_workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
     )
 
 

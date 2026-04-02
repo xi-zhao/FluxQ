@@ -25,6 +25,7 @@ from quantum_runtime.lowering import (
 )
 from quantum_runtime.reporters import summarize_report, write_report
 from quantum_runtime.qspec import QSpec, normalize_qspec, validate_qspec
+from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -301,9 +302,19 @@ def _prepare_qspec(qspec: QSpec) -> QSpec:
 
 def load_qspec_from_report(report_file: Path) -> QSpec:
     """Load, normalize, and validate a QSpec referenced by a report artifact."""
-    payload = _load_report_payload(report_file)
-    qspec_path = _resolve_report_qspec_path(report_file=report_file, payload=payload)
-    return _load_report_qspec(qspec_path)
+    try:
+        resolution = resolve_report_file(report_file)
+    except ImportSourceError as exc:
+        raise ReportImportError(exc.code) from exc
+
+    try:
+        return _prepare_qspec(QSpec.model_validate_json(resolution.qspec_path.read_text()))
+    except FileNotFoundError as exc:
+        raise ReportImportError("report_qspec_missing") from exc
+    except json.JSONDecodeError as exc:
+        raise ReportImportError("report_qspec_invalid_json") from exc
+    except Exception as exc:
+        raise ReportImportError("report_qspec_invalid") from exc
 
 
 def _load_report_payload(report_file: Path) -> dict[str, Any]:
@@ -317,34 +328,6 @@ def _load_report_payload(report_file: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ReportImportError("report_file_invalid_payload")
     return payload
-
-
-def _resolve_report_qspec_path(*, report_file: Path, payload: dict[str, Any]) -> Path:
-    qspec_block = payload.get("qspec")
-    if not isinstance(qspec_block, dict):
-        raise ReportImportError("report_qspec_block_missing")
-
-    raw_path = qspec_block.get("path")
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        raise ReportImportError("report_qspec_path_missing")
-
-    qspec_path = Path(raw_path)
-    if not qspec_path.is_absolute():
-        candidates = _relative_report_qspec_candidates(report_file=report_file, qspec_path=qspec_path)
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        return candidates[0]
-
-    return qspec_path
-
-
-def _relative_report_qspec_candidates(*, report_file: Path, qspec_path: Path) -> list[Path]:
-    workspace_root = report_file.parent.parent if report_file.parent.name == "reports" else report_file.parent
-    return [
-        workspace_root / qspec_path,
-        report_file.parent / qspec_path,
-    ]
 
 
 def _requested_exports_from_report(payload: dict[str, Any], default_exports: list[str]) -> set[str]:
@@ -361,14 +344,3 @@ def _requested_exports_from_report(payload: dict[str, Any], default_exports: lis
         requested_exports.add("classiq-python")
 
     return requested_exports or set(default_exports)
-
-
-def _load_report_qspec(qspec_path: Path) -> QSpec:
-    try:
-        return _prepare_qspec(QSpec.model_validate_json(qspec_path.read_text()))
-    except FileNotFoundError as exc:
-        raise ReportImportError("report_qspec_missing") from exc
-    except json.JSONDecodeError as exc:
-        raise ReportImportError("report_qspec_invalid_json") from exc
-    except Exception as exc:
-        raise ReportImportError("report_qspec_invalid") from exc

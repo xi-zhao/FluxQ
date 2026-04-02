@@ -205,6 +205,108 @@ def test_qrun_inspect_json_reconstructs_partial_artifact_provenance(tmp_path: Pa
     assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
 
 
+def test_qrun_inspect_json_canonicalizes_top_level_legacy_alias_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report_path = workspace / "reports" / "latest.json"
+    report = json.loads(report_path.read_text())
+    report["artifacts"]["qspec"] = "specs/current.json"
+    report["artifacts"]["report"] = "reports/latest.json"
+    report["artifacts"]["qiskit_code"] = "artifacts/qiskit/main.py"
+    report_path.write_text(json.dumps(report, indent=2))
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 0, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["artifacts"]["qspec"] == str(workspace / "specs" / "history" / f"{payload['revision']}.json")
+    assert payload["artifacts"]["report"] == str(workspace / "reports" / "history" / f"{payload['revision']}.json")
+    assert payload["artifacts"]["qiskit_code"] == str(
+        workspace / "artifacts" / "history" / payload["revision"] / "qiskit" / "main.py"
+    )
+    assert payload["provenance"]["artifacts"]["paths"]["qiskit_code"] == payload["artifacts"]["qiskit_code"]
+
+
+def test_inspect_workspace_returns_structured_error_for_invalid_artifact_provenance(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report_path = workspace / "reports" / "latest.json"
+    report = json.loads(report_path.read_text())
+    report["provenance"]["artifacts"]["paths"]["qiskit_code"] = str(
+        workspace / "artifacts" / "history" / "rev_999999" / "qiskit" / "main.py"
+    )
+    report_path.write_text(json.dumps(report, indent=2))
+
+    payload = inspect_workspace(workspace).model_dump(mode="json")
+
+    assert payload["status"] == "error"
+    assert "artifact_provenance_invalid" in payload["errors"]
+    assert payload["provenance"]["artifacts"]["paths"]["report"].endswith(
+        f"reports/history/{payload['revision']}.json"
+    )
+
+
+def test_inspect_workspace_returns_structured_error_for_invalid_top_level_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report_path = workspace / "reports" / "latest.json"
+    report = json.loads(report_path.read_text())
+    report["artifacts"]["qiskit_code"] = str(
+        workspace / "artifacts" / "history" / "rev_999999" / "qiskit" / "main.py"
+    )
+    report_path.write_text(json.dumps(report, indent=2))
+
+    payload = inspect_workspace(workspace).model_dump(mode="json")
+
+    assert payload["status"] == "error"
+    assert "artifact_provenance_invalid" in payload["errors"]
+    assert payload["provenance"]["artifacts"]["paths"]["report"].endswith(
+        f"reports/history/{payload['revision']}.json"
+    )
+
+
 def test_inspect_workspace_normalizes_relative_root_and_repairs_partial_provenance(
     tmp_path: Path,
     monkeypatch,

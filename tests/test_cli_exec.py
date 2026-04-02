@@ -220,6 +220,7 @@ def test_qrun_exec_json_accepts_relative_report_qspec_path(tmp_path: Path) -> No
     payload = json.loads(report_path.read_text())
     payload["qspec"]["path"] = "specs/current.json"
     report_path.write_text(json.dumps(payload, indent=2))
+    (source_workspace / "specs" / "current.json").write_text('{"version":"0.1"}')
 
     result = RUNNER.invoke(
         app,

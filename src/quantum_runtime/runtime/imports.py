@@ -10,6 +10,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from quantum_runtime.artifact_provenance import (
+    ArtifactProvenanceMismatch,
+    canonicalize_artifact_provenance,
+    select_accessible_artifact_paths,
+)
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
 
@@ -109,7 +114,6 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
 
     manifest = _load_manifest(workspace_json)
     report_path = workspace_root / manifest.active_report
-    qspec_path = workspace_root / manifest.active_spec
 
     report_payload = _load_json_file(
         report_path,
@@ -118,6 +122,14 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         invalid_payload_code="current_report_invalid_payload",
         source=str(report_path),
     )
+    _extract_artifact_provenance(
+        workspace_root=workspace_root,
+        revision=manifest.current_revision,
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+        source=str(report_path),
+    )
+    qspec_path = (workspace_root / manifest.active_spec).resolve()
     qspec = _load_qspec_file(
         qspec_path,
         missing_code="current_qspec_missing",
@@ -133,7 +145,7 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         workspace_project_id=manifest.project_id,
         revision=manifest.current_revision,
         report_path=report_path.resolve(),
-        qspec_path=qspec_path.resolve(),
+        qspec_path=qspec_path,
         report_payload=report_payload,
         qspec=qspec,
         provenance={"workspace_source": "manifest"},
@@ -163,6 +175,13 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
         report_payload=report_payload,
         workspace_root=workspace_root_path,
         prefer_history=report_path.parent.name == "history",
+    )
+    _extract_artifact_provenance(
+        workspace_root=workspace_root_path,
+        revision=_report_revision(report_payload, fallback=report_path.stem),
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+        source=str(report_path),
     )
     qspec = _load_qspec_file(
         qspec_path,
@@ -270,7 +289,9 @@ def _build_resolution(
         revision=revision,
         artifacts=report_payload.get("artifacts"),
         provenance=report_payload.get("provenance"),
+        source=str(report_path),
     )
+    resolved_artifacts = select_accessible_artifact_paths(artifact_provenance)
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
@@ -295,7 +316,7 @@ def _build_resolution(
         qspec_status="ok",
         qspec_summary=qspec_summary,
         report_summary=report_summary,
-        artifacts=report_payload.get("artifacts", {}) if isinstance(report_payload.get("artifacts"), dict) else {},
+        artifacts=resolved_artifacts,
         provenance={
             **provenance,
             "source_kind": source_kind,
@@ -318,57 +339,22 @@ def _extract_artifact_provenance(
     revision: str,
     artifacts: Any,
     provenance: Any,
+    source: str,
 ) -> dict[str, Any]:
-    snapshot_root = workspace_root / "artifacts" / "history" / revision
-    current_root = workspace_root / "artifacts"
-    paths: dict[str, str] = {}
-    current_aliases: dict[str, str] = {}
-
-    if not isinstance(artifacts, dict):
-        return {
-            "snapshot_root": str(snapshot_root),
-            "current_root": str(current_root),
-            "paths": paths,
-            "current_aliases": current_aliases,
-        }
-
-    for name, raw_path in artifacts.items():
-        if not isinstance(raw_path, str) or not raw_path.strip():
-            continue
-        artifact_path = Path(raw_path)
-        alias_path = _derive_current_artifact_alias(
-            name=str(name),
-            artifact_path=artifact_path,
+    stored_artifact_provenance = provenance.get("artifacts") if isinstance(provenance, dict) else None
+    try:
+        return canonicalize_artifact_provenance(
             workspace_root=workspace_root,
             revision=revision,
-            snapshot_root=snapshot_root,
-            current_root=current_root,
+            artifacts=artifacts,
+            stored_provenance=stored_artifact_provenance,
         )
-        if alias_path is None:
-            continue
-        paths[str(name)] = str(artifact_path)
-        current_aliases[str(name)] = str(alias_path)
-
-    reconstructed = {
-        "snapshot_root": str(snapshot_root),
-        "current_root": str(current_root),
-        "paths": paths,
-        "current_aliases": current_aliases,
-    }
-    if isinstance(provenance, dict):
-        artifact_provenance = provenance.get("artifacts")
-        if isinstance(artifact_provenance, dict):
-            merged_paths = dict(reconstructed["paths"])
-            merged_paths.update(artifact_provenance.get("paths", {}))
-            merged_aliases = dict(reconstructed["current_aliases"])
-            merged_aliases.update(artifact_provenance.get("current_aliases", {}))
-            return {
-                "snapshot_root": artifact_provenance.get("snapshot_root", reconstructed["snapshot_root"]),
-                "current_root": artifact_provenance.get("current_root", reconstructed["current_root"]),
-                "paths": merged_paths,
-                "current_aliases": merged_aliases,
-            }
-    return reconstructed
+    except ArtifactProvenanceMismatch as exc:
+        raise ImportSourceError(
+            "artifact_provenance_invalid",
+            source=source,
+            details=exc.to_dict(),
+        ) from exc
 
 
 def _load_manifest(path: Path) -> WorkspaceManifest:
@@ -439,6 +425,20 @@ def _resolve_qspec_path_from_report(
 ) -> tuple[Path, str]:
     revision = _report_revision(report_payload, fallback=report_path.stem)
     history_candidate = workspace_root / "specs" / "history" / f"{revision}.json"
+    artifact_provenance = _extract_artifact_provenance(
+        workspace_root=workspace_root,
+        revision=revision,
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+        source=str(report_path),
+    )
+    resolved_artifacts = select_accessible_artifact_paths(artifact_provenance)
+    canonical_qspec_path = Path(artifact_provenance["paths"]["qspec"])
+    if canonical_qspec_path.exists():
+        return canonical_qspec_path, "artifact_provenance"
+    resolved_qspec_path = resolved_artifacts.get("qspec")
+    if isinstance(resolved_qspec_path, str) and Path(resolved_qspec_path).exists():
+        return Path(resolved_qspec_path), "artifact_provenance_fallback"
     if prefer_history and history_candidate.exists():
         return history_candidate, "workspace_history"
 
@@ -468,7 +468,7 @@ def _resolve_qspec_path_from_report(
             details={"qspec_path": str(candidate)},
         )
 
-    candidate = workspace_root / candidate
+    candidate = (workspace_root / candidate).resolve()
     if candidate.exists():
         return candidate, "report_payload"
 
@@ -561,40 +561,6 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
-
-
-def _derive_current_artifact_alias(
-    *,
-    name: str,
-    artifact_path: Path,
-    workspace_root: Path,
-    revision: str,
-    snapshot_root: Path,
-    current_root: Path,
-) -> Path | None:
-    if name == "qspec":
-        if artifact_path == workspace_root / "specs" / "current.json":
-            return artifact_path
-        if artifact_path == workspace_root / "specs" / "history" / f"{revision}.json":
-            return workspace_root / "specs" / "current.json"
-    if name == "report":
-        if artifact_path == workspace_root / "reports" / "latest.json":
-            return artifact_path
-        if artifact_path == workspace_root / "reports" / "history" / f"{revision}.json":
-            return workspace_root / "reports" / "latest.json"
-
-    if artifact_path.is_absolute():
-        if artifact_path.is_relative_to(snapshot_root):
-            return current_root / artifact_path.relative_to(snapshot_root)
-        if artifact_path.is_relative_to(current_root):
-            return artifact_path
-        return None
-
-    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
-        return current_root / Path(*artifact_path.parts[3:])
-    if artifact_path.parts[:1] == ("artifacts",):
-        return artifact_path
-    return None
 
 
 def _reference_source(reference: ImportReference) -> str:
