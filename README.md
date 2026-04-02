@@ -2,38 +2,41 @@
 
 Quantum Runtime CLI is an agent-facing, deterministic runtime for quantum code generation workflows. It is designed to be called by any coding agent through file I/O plus shell commands rather than custom host-specific tools.
 
-## Current Status
+## Features
 
-Step 1 is implemented:
-- package scaffold
-- `qrun init`
-- deterministic workspace initialization
-- basic CLI tests
-
-Step 2 foundation is now implemented:
+- deterministic workspace initialization with revision tracking
 - markdown intent parsing with YAML front matter
-- workspace manifest loading and revision reservation
-- NDJSON trace event writer
-
-Step 3 foundation is now implemented:
-- v0.1 QSpec Pydantic models
-- rule-based planner for `ghz`, `bell`, `qft`, `hardware_efficient_ansatz`, and `qaoa_ansatz`
-- stable GHZ golden snapshot coverage
-
-Step 4 foundation is now implemented:
-- Qiskit Python emitter
-- runnable GHZ program generation
-- local import-and-simulate coverage for emitted code
+- QSpec v0.1 planning for `ghz`, `bell`, `qft`, `hardware_efficient_ansatz`, and `qaoa_ansatz`
+- Qiskit, OpenQASM 3, and Classiq Python emission
+- local simulation, transpile validation, diagrams, and structural benchmarking
+- agent-host friendly JSON output through `qrun init`, `qrun exec`, and `qrun bench`
 
 ## Quick Start
 
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install -e '.[dev]'
+uv pip install -e '.[dev,qiskit]'
 qrun init --workspace .quantum --json
-qrun version
+qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun bench --workspace .quantum --json
 ```
+
+The GHZ example writes:
+
+- `.quantum/specs/current.json`
+- `.quantum/artifacts/qiskit/main.py`
+- `.quantum/artifacts/qasm/main.qasm`
+- `.quantum/figures/circuit.png`
+- `.quantum/reports/latest.json`
+
+## Host Integration
+
+Quantum Runtime CLI is intended to be orchestrated by coding agents through files plus shell commands.
+
+- aionrs integration examples: `docs/aionrs-integration.md`
+- sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
+- sample hooks: `integrations/aionrs/hooks.example.toml`
 
 ## Workspace Layout
 
@@ -54,9 +57,22 @@ qrun version
 └─ cache/
 ```
 
-## Next Steps
+## Commands
 
-The next implementation step adds:
-- intent parsing
-- workspace revision management
-- manifest and trace events
+- `qrun init --workspace .quantum --json`
+- `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
+- `qrun bench --workspace .quantum --json`
+- `qrun version`
+
+## Development
+
+```bash
+uv run --python 3.11 --extra dev --extra qiskit pytest -q
+```
+
+## Docs
+
+- Architecture: `ARCHITECTURE.md`
+- Versioning: `docs/versioning.md`
+- aionrs integration: `docs/aionrs-integration.md`
+- Changelog: `CHANGELOG.md`
