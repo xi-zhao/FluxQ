@@ -33,6 +33,7 @@ class WorkspacePaths:
             self.root / "specs",
             self.root / "specs" / "history",
             self.root / "artifacts",
+            self.root / "artifacts" / "history",
             self.root / "artifacts" / "qiskit",
             self.root / "artifacts" / "classiq",
             self.root / "artifacts" / "qasm",

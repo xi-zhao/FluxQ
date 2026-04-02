@@ -33,18 +33,25 @@ def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path)
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
-    assert payload["revision"].startswith("rev_")
+    revision = payload["revision"]
+    assert revision.startswith("rev_")
     assert Path(payload["artifacts"]["qspec"]).exists()
     assert Path(payload["artifacts"]["qiskit_code"]).exists()
     assert Path(payload["artifacts"]["qasm3"]).exists()
     assert Path(payload["artifacts"]["diagram_png"]).exists()
     assert Path(payload["artifacts"]["report"]).exists()
+    assert payload["artifacts"]["qspec"].endswith(f"specs/history/{revision}.json")
+    assert payload["artifacts"]["qiskit_code"].endswith(f"artifacts/history/{revision}/qiskit/main.py")
+    assert payload["artifacts"]["qasm3"].endswith(f"artifacts/history/{revision}/qasm/main.qasm")
+    assert payload["artifacts"]["diagram_txt"].endswith(f"artifacts/history/{revision}/figures/circuit.txt")
+    assert payload["artifacts"]["diagram_png"].endswith(f"artifacts/history/{revision}/figures/circuit.png")
+    assert payload["artifacts"]["report"].endswith(f"reports/history/{revision}.json")
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert payload["diagnostics"]["transpile"]["status"] == "ok"
 
     report = json.loads((workspace / "reports" / "latest.json").read_text())
     assert report["status"] == "ok"
-    assert report["artifacts"]["qiskit_code"].endswith("artifacts/qiskit/main.py")
+    assert report["artifacts"]["qiskit_code"].endswith(f"artifacts/history/{revision}/qiskit/main.py")
     assert report["diagnostics"]["resources"]["two_qubit_gates"] == 3
 
     trace_lines = (workspace / "trace" / "events.ndjson").read_text().strip().splitlines()

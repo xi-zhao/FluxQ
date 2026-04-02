@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Literal
 
@@ -153,29 +154,43 @@ def _execute_qspec(
     """Persist QSpec, emit artifacts, run diagnostics, and write reports."""
 
     qspec_path = handle.root / "specs" / "current.json"
+    qspec_history_path = handle.root / "specs" / "history" / f"{revision}.json"
     qspec_text = qspec.model_dump_json(indent=2)
     qspec_path.write_text(qspec_text)
-    (handle.root / "specs" / "history" / f"{revision}.json").write_text(qspec_text)
+    qspec_history_path.write_text(qspec_text)
 
     artifacts: dict[str, str] = {
-        "qspec": str(qspec_path),
+        "qspec": str(qspec_history_path),
     }
     warnings: list[str] = []
     errors: list[str] = []
     backend_reports: dict[str, Any] = {}
 
     if "qiskit" in requested_exports:
+        qiskit_path = write_qiskit_program(qspec, handle.root / "artifacts" / "qiskit" / "main.py")
         artifacts["qiskit_code"] = str(
-            write_qiskit_program(qspec, handle.root / "artifacts" / "qiskit" / "main.py")
+            _snapshot_artifact(
+                qiskit_path,
+                handle.root / "artifacts" / "history" / revision / "qiskit" / "main.py",
+            )
         )
     if "qasm3" in requested_exports:
+        qasm_path = write_qasm3_program(qspec, handle.root / "artifacts" / "qasm" / "main.qasm")
         artifacts["qasm3"] = str(
-            write_qasm3_program(qspec, handle.root / "artifacts" / "qasm" / "main.qasm")
+            _snapshot_artifact(
+                qasm_path,
+                handle.root / "artifacts" / "history" / revision / "qasm" / "main.qasm",
+            )
         )
     if "classiq-python" in requested_exports:
         classiq_emit = write_classiq_program(qspec, handle.root / "artifacts" / "classiq" / "main.py")
         if classiq_emit.status == "ok" and classiq_emit.path is not None:
-            artifacts["classiq_code"] = str(classiq_emit.path)
+            artifacts["classiq_code"] = str(
+                _snapshot_artifact(
+                    classiq_emit.path,
+                    handle.root / "artifacts" / "history" / revision / "classiq" / "main.py",
+                )
+            )
         elif classiq_emit.reason is not None:
             warnings.append(classiq_emit.reason)
 
@@ -192,8 +207,18 @@ def _execute_qspec(
         },
         "transpile": transpile.model_dump(mode="json"),
     }
-    artifacts["diagram_txt"] = str(diagrams.text_path)
-    artifacts["diagram_png"] = str(diagrams.png_path)
+    artifacts["diagram_txt"] = str(
+        _snapshot_artifact(
+            diagrams.text_path,
+            handle.root / "artifacts" / "history" / revision / "figures" / "circuit.txt",
+        )
+    )
+    artifacts["diagram_png"] = str(
+        _snapshot_artifact(
+            diagrams.png_path,
+            handle.root / "artifacts" / "history" / revision / "figures" / "circuit.png",
+        )
+    )
 
     if "classiq" in qspec.backend_preferences:
         classiq_backend_report = run_classiq_backend(qspec, handle)
@@ -216,11 +241,12 @@ def _execute_qspec(
         errors=errors,
     )
     report_path = handle.root / "reports" / "latest.json"
-    artifacts["report"] = str(report_path)
-    report["artifacts"]["report"] = str(report_path)
+    report_history_path = handle.root / "reports" / "history" / f"{revision}.json"
+    artifacts["report"] = str(report_history_path)
+    report["artifacts"]["report"] = str(report_history_path)
     serialized_report = json.dumps(report, indent=2, ensure_ascii=True)
     report_path.write_text(serialized_report)
-    (handle.root / "reports" / "history" / f"{revision}.json").write_text(serialized_report)
+    report_history_path.write_text(serialized_report)
     summary = summarize_report(report)
 
     result = ExecResult(
@@ -245,6 +271,13 @@ def _execute_qspec(
         revision=revision,
     )
     return result
+
+
+def _snapshot_artifact(source_path: Path, snapshot_path: Path) -> Path:
+    """Copy a mutable current artifact into a revision-stable snapshot path."""
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_path, snapshot_path)
+    return snapshot_path
 
 
 def _prepare_qspec(qspec: QSpec) -> QSpec:
