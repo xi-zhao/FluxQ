@@ -136,3 +136,24 @@ def test_run_structural_benchmark_falls_back_when_classiq_metrics_missing(
     assert classiq.details["resource_source"] == "qspec_baseline"
     assert classiq.details["semantic_hash"].startswith("sha256:")
     assert any("fallback" in note.lower() for note in classiq.notes)
+
+
+def test_run_structural_benchmark_marks_qiskit_transpile_metrics_as_skipped(
+    tmp_path: Path,
+) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.constraints.max_depth = None
+    qspec.constraints.basis_gates = None
+    qspec.constraints.connectivity_map = None
+
+    report = run_structural_benchmark(qspec, handle, ["qiskit-local"])
+
+    qiskit_local = report.backends["qiskit-local"]
+    assert qiskit_local.status == "ok"
+    assert qiskit_local.transpiled_depth is None
+    assert qiskit_local.transpiled_two_qubit_gates is None
+    assert qiskit_local.details["transpile_status"] == "skipped"
+    assert qiskit_local.details["transpile_performed"] is False
+    assert any("skipped" in note.lower() for note in qiskit_local.notes)

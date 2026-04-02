@@ -54,10 +54,11 @@ def validate_target_constraints(qspec: QSpec) -> TargetValidationReport:
         return TargetValidationReport(
             status="skipped",
             original_depth=original_depth,
-            transpiled_depth=original_depth,
             original_two_qubit_gates=original_two_qubit_gates,
-            transpiled_two_qubit_gates=original_two_qubit_gates,
-            coupling_insertions=0,
+            transpiled_depth=None,
+            transpiled_two_qubit_gates=None,
+            coupling_insertions=None,
+            warnings=["Transpilation skipped because no target constraints were provided."],
         )
 
     try:

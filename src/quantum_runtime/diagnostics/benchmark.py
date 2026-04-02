@@ -52,6 +52,9 @@ def run_structural_benchmark(
         if normalized == "qiskit-local":
             resources = estimate_resources(qspec)
             transpile_report = validate_target_constraints(qspec)
+            notes = ["Local Qiskit structural benchmark"]
+            if transpile_report.status == "skipped":
+                notes.append("Transpile metrics were skipped because no target constraints were provided.")
             entries[normalized] = BackendBenchmark(
                 backend=normalized,
                 status="ok",
@@ -61,9 +64,11 @@ def run_structural_benchmark(
                 two_qubit_gates=resources.two_qubit_gates,
                 transpiled_two_qubit_gates=transpile_report.transpiled_two_qubit_gates,
                 measure_count=resources.measure_count,
-                notes=["Local Qiskit structural benchmark"],
+                notes=notes,
                 details={
                     "resource_source": "qiskit_local",
+                    "transpile_status": transpile_report.status,
+                    "transpile_performed": transpile_report.status != "skipped",
                     "parameter_count": resources.parameter_count,
                     "parameter_names": resources.parameter_names,
                     "semantic_hash": subject["semantic_hash"],
