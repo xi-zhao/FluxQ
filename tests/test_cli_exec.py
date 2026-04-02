@@ -123,6 +123,40 @@ def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
 
 
+def test_qrun_exec_history_report_pins_revision_qspec_after_later_runs(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first_result.exit_code == 0, first_result.stdout
+
+    second_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second_result.exit_code == 0, second_result.stdout
+
+    report = json.loads((workspace / "reports" / "history" / "rev_000001.json").read_text())
+    assert report["qspec"]["path"].endswith("specs/history/rev_000001.json")
+    assert report["provenance"]["qspec"]["path"].endswith("specs/history/rev_000001.json")
+
+
 def test_qrun_exec_json_accepts_history_revision_input(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 

@@ -233,7 +233,7 @@ def _execute_qspec(
         revision=revision,
         input_data=input_data,
         qspec=qspec,
-        qspec_path=qspec_path,
+        qspec_path=qspec_history_path,
         artifacts=artifacts,
         diagnostics=diagnostics,
         backend_reports=backend_reports,
