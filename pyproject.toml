@@ -1,0 +1,40 @@
+[project]
+name = "quantum-runtime"
+version = "0.1.0"
+description = "Agent-facing quantum runtime CLI"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "pydantic>=2.8",
+  "typer>=0.12",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+qiskit = [
+  "qiskit",
+  "qiskit-aer",
+  "matplotlib>=3.8",
+]
+classiq = [
+  "classiq",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+qrun = "quantum_runtime.cli:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

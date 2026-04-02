@@ -1,0 +1,62 @@
+{
+  "version": "0.1",
+  "program_id": "prog_ghz_4",
+  "title": "GHZ circuit",
+  "goal": "Generate a 4-qubit GHZ circuit and measure all qubits.",
+  "entrypoint": "main",
+  "registers": [
+    {
+      "kind": "qubit",
+      "name": "q",
+      "size": 4
+    },
+    {
+      "kind": "cbit",
+      "name": "c",
+      "size": 4
+    }
+  ],
+  "parameters": [],
+  "body": [
+    {
+      "kind": "pattern",
+      "pattern": "ghz",
+      "args": {
+        "register": "q",
+        "size": 4
+      }
+    },
+    {
+      "kind": "measure",
+      "qubits": [
+        "q[0]",
+        "q[1]",
+        "q[2]",
+        "q[3]"
+      ],
+      "cbits": [
+        "c[0]",
+        "c[1]",
+        "c[2]",
+        "c[3]"
+      ]
+    }
+  ],
+  "observables": [],
+  "constraints": {
+    "max_width": 4,
+    "max_depth": 64,
+    "basis_gates": null,
+    "connectivity_map": null,
+    "backend_provider": null,
+    "backend_name": null,
+    "shots": 1024,
+    "optimization_level": 2
+  },
+  "backend_preferences": [
+    "qiskit-local"
+  ],
+  "metadata": {
+    "source": "intent"
+  }
+}
