@@ -90,7 +90,7 @@ def exit_code_for_inspect(result: Any) -> int:
     return EXIT_DEGRADED
 
 
-def exit_code_for_compare(result: Any) -> int:
+def exit_code_for_compare(result: Any, *, structured: bool = False) -> int:
     """Map a compare report to the documented CLI exit codes."""
     verdict = _as_mapping(getattr(result, "verdict", None))
     verdict_status = str(verdict.get("status")) if verdict else None
@@ -98,15 +98,25 @@ def exit_code_for_compare(result: Any) -> int:
         return EXIT_OK
     if verdict_status == "fail":
         return EXIT_DEGRADED
-    status = str(getattr(result, "status", "different_subject"))
-    if status == "same_subject":
+    differences = _string_list(getattr(result, "differences", None))
+    if not differences:
         return EXIT_OK
-    return EXIT_DEGRADED
+    status = str(getattr(result, "status", "different_subject"))
+    if status != "same_subject":
+        return EXIT_DEGRADED
+    if _detached_report_inputs(result):
+        return EXIT_DEGRADED
+    return EXIT_OK
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(mode="json")
+        if isinstance(dumped, dict):
+            return dumped
     return {}
 
 
@@ -129,6 +139,17 @@ def _is_workspace_issue(issue: str) -> bool:
         or issue == "active_report_invalid"
         or issue.startswith("missing_directories:")
     )
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _detached_report_inputs(result: Any) -> list[str]:
+    detached_inputs = getattr(result, "detached_report_inputs", None)
+    return _string_list(detached_inputs)
 
 
 def _status_of(value: Any) -> str | None:

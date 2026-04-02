@@ -49,6 +49,7 @@ class CompareResult(BaseModel):
     diagnostic_delta: dict[str, Any] = Field(default_factory=dict)
     backend_delta: dict[str, Any] = Field(default_factory=dict)
     highlights: list[str] = Field(default_factory=list)
+    detached_report_inputs: list[str] = Field(default_factory=list)
     report_drift_detected: bool = False
     backend_regressions: list[str] = Field(default_factory=list)
     policy: dict[str, Any] = Field(default_factory=dict)
@@ -96,6 +97,7 @@ def compare_import_resolutions(
     report_delta = _report_delta(left_report, right_report)
     diagnostic_delta = _diagnostic_delta(left_report, right_report)
     backend_delta = _backend_delta(left_report, right_report)
+    detached_report_inputs = _detached_report_inputs(left, right)
     report_drift_detected = _report_drift_detected(
         report_delta=report_delta,
         diagnostic_delta=diagnostic_delta,
@@ -116,8 +118,10 @@ def compare_import_resolutions(
         same_qspec=same_qspec,
         same_report=same_report,
         semantic_delta=semantic_delta,
+        report_delta=report_delta,
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
+        detached_report_inputs=detached_report_inputs,
         left_report=left_report,
         right_report=right_report,
     )
@@ -141,6 +145,7 @@ def compare_import_resolutions(
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
         highlights=highlights,
+        detached_report_inputs=detached_report_inputs,
         report_drift_detected=report_drift_detected,
         backend_regressions=backend_regressions,
         policy=policy.model_dump(mode="json") if policy is not None else {},
@@ -186,11 +191,26 @@ def _report_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]
     right_artifacts = set(_string_list(right.get("artifact_names")))
     left_backends = set(_string_list(left.get("backend_names")))
     right_backends = set(_string_list(right.get("backend_names")))
+    left_output_digests = _string_mapping(left.get("artifact_output_digests"))
+    right_output_digests = _string_mapping(right.get("artifact_output_digests"))
+    changed_outputs = [
+        name
+        for name in sorted(set(left_output_digests) | set(right_output_digests))
+        if left_output_digests.get(name) != right_output_digests.get(name)
+    ]
+    left_missing_outputs = set(_string_list(left.get("artifact_output_missing")))
+    right_missing_outputs = set(_string_list(right.get("artifact_output_missing")))
     return {
         "status_changed": left.get("status") != right.get("status"),
         "input_mode_changed": left.get("input_mode") != right.get("input_mode"),
         "artifact_names_added": sorted(right_artifacts - left_artifacts),
         "artifact_names_removed": sorted(left_artifacts - right_artifacts),
+        "artifact_output_set_hash_changed": (
+            left.get("artifact_output_set_hash") != right.get("artifact_output_set_hash")
+        ),
+        "artifact_output_names_changed": changed_outputs,
+        "artifact_output_missing_added": sorted(right_missing_outputs - left_missing_outputs),
+        "artifact_output_missing_removed": sorted(left_missing_outputs - right_missing_outputs),
         "backend_names_added": sorted(right_backends - left_backends),
         "backend_names_removed": sorted(left_backends - right_backends),
         "warning_count_delta": int(right.get("warning_count", 0) or 0) - int(left.get("warning_count", 0) or 0),
@@ -248,6 +268,21 @@ def _backend_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _detached_report_inputs(left: ImportResolution, right: ImportResolution) -> list[str]:
+    detached: list[str] = []
+    for side_name, resolution in (("left", left), ("right", right)):
+        if resolution.source_kind != "report_file":
+            continue
+        try:
+            report_path = resolution.report_path.resolve()
+            reports_root = resolution.workspace_root.resolve() / "reports"
+            if not report_path.is_relative_to(reports_root):
+                detached.append(side_name)
+        except OSError:
+            detached.append(side_name)
+    return detached
+
+
 def _report_drift_detected(
     *,
     report_delta: dict[str, Any],
@@ -259,6 +294,10 @@ def _report_drift_detected(
     if report_delta.get("warning_count_delta") or report_delta.get("error_count_delta"):
         return True
     if report_delta.get("artifact_names_added") or report_delta.get("artifact_names_removed"):
+        return True
+    if report_delta.get("artifact_output_names_changed"):
+        return True
+    if report_delta.get("artifact_output_missing_added") or report_delta.get("artifact_output_missing_removed"):
         return True
     if report_delta.get("backend_names_added") or report_delta.get("backend_names_removed"):
         return True
@@ -319,6 +358,10 @@ def _differences(
         differences.append("error_count_changed")
     if report_delta.get("artifact_names_added") or report_delta.get("artifact_names_removed"):
         differences.append("artifact_set_changed")
+    if report_delta.get("artifact_output_names_changed"):
+        differences.append("artifact_outputs_changed")
+    if report_delta.get("artifact_output_missing_added") or report_delta.get("artifact_output_missing_removed"):
+        differences.append("artifact_outputs_missing_changed")
     if report_delta.get("backend_names_added") or report_delta.get("backend_names_removed"):
         differences.append("backend_set_changed")
     if diagnostic_delta.get("simulation_status_changed"):
@@ -340,8 +383,10 @@ def _highlights(
     same_qspec: bool,
     same_report: bool,
     semantic_delta: dict[str, Any],
+    report_delta: dict[str, Any],
     diagnostic_delta: dict[str, Any],
     backend_delta: dict[str, Any],
+    detached_report_inputs: list[str],
     left_report: dict[str, Any],
     right_report: dict[str, Any],
 ) -> list[str]:
@@ -359,6 +404,15 @@ def _highlights(
         highlights.append("Identical QSpec semantics, but report artifacts or runtime outputs differ.")
     elif same_subject and not same_qspec:
         highlights.append("Same workload identity, but serialized QSpec artifacts differ.")
+
+    changed_outputs = report_delta.get("artifact_output_names_changed")
+    if isinstance(changed_outputs, list) and changed_outputs:
+        names = ", ".join(str(name) for name in changed_outputs[:4])
+        highlights.append(f"Generated artifact outputs changed: {names}.")
+
+    if detached_report_inputs:
+        sides = ", ".join(detached_report_inputs)
+        highlights.append(f"Detached report replay input on: {sides}.")
 
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:

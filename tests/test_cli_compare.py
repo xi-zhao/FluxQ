@@ -62,6 +62,15 @@ def test_qrun_compare_json_detects_same_subject_across_current_and_report_file(t
     assert payload["same_report"] is False
     assert payload["left"]["qspec_summary"]["pattern"] == "ghz"
     assert payload["right"]["qspec_summary"]["pattern"] == "ghz"
+    assert payload["left"]["qspec_summary"]["workload_hash"].startswith("sha256:")
+    assert payload["left"]["qspec_summary"]["execution_hash"].startswith("sha256:")
+    assert payload["left"]["qspec_summary"]["workload_hash"] == payload["right"]["qspec_summary"]["workload_hash"]
+    assert payload["left"]["report_summary"]["artifact_output_set_hash"].startswith("sha256:")
+    assert (
+        payload["left"]["report_summary"]["artifact_output_set_hash"]
+        == payload["right"]["report_summary"]["artifact_output_set_hash"]
+    )
+    assert payload["detached_report_inputs"] == []
     assert payload["verdict"]["status"] == "not_requested"
     assert payload["highlights"][0] == "Same workload identity (ghz) across both inputs."
 
@@ -117,6 +126,13 @@ def test_qrun_compare_json_detects_semantic_drift_across_revisions(tmp_path: Pat
     assert payload["semantic_delta"]["right"]["pattern"] == "qaoa_ansatz"
     assert "semantic_subject_changed:pattern" not in payload["differences"]
     assert any(item.startswith("semantic_subject_changed") for item in payload["differences"])
+    assert "artifact_outputs_changed" in payload["differences"]
+    assert payload["report_delta"]["artifact_output_names_changed"] == [
+        "diagram_png",
+        "diagram_txt",
+        "qasm3",
+        "qiskit_code",
+    ]
     assert payload["diagnostic_delta"]["resource_fields_changed"] == [
         "depth",
         "two_qubit_gates",
@@ -124,6 +140,85 @@ def test_qrun_compare_json_detects_semantic_drift_across_revisions(tmp_path: Pat
     ]
     assert payload["verdict"]["status"] == "not_requested"
     assert payload["highlights"][0] == "Different workload identity: ghz -> qaoa_ansatz."
+
+
+def test_qrun_compare_json_accepts_copied_report_file_via_report_provenance(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    source_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert source_result.exit_code == 0, source_result.stdout
+
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
+
+    source_mutation = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert source_mutation.exit_code == 0, source_mutation.stdout
+
+    target_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert target_result.exit_code == 0, target_result.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(target_workspace),
+            "--left-report-file",
+            str(copied_report),
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "same_subject"
+    assert payload["same_subject"] is True
+    assert payload["left"]["revision"] == "rev_000001"
+    assert payload["left"]["qspec_path"] == str(source_workspace / "specs" / "history" / "rev_000001.json")
+    assert payload["left"]["report_path"] == str(copied_report.resolve())
+    assert payload["left"]["report_summary"]["artifact_snapshot_root"] == str(
+        source_workspace / "artifacts" / "history" / "rev_000001"
+    )
+    assert payload["left"]["report_summary"]["artifact_paths"]["qiskit_code"] == str(
+        source_workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    )
+    assert payload["detached_report_inputs"] == ["left"]
+    assert (
+        payload["left"]["report_summary"]["artifact_set_hash"]
+        == payload["right"]["report_summary"]["artifact_set_hash"]
+    )
 
 
 def test_qrun_compare_json_returns_exit_code_3_for_conflicting_left_source(tmp_path: Path) -> None:

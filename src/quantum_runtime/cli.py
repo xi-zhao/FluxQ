@@ -23,7 +23,7 @@ from quantum_runtime.runtime import (
     execute_qspec,
     execute_report,
     export_artifact,
-    export_artifact_from_report,
+    export_artifact_from_resolution,
     inspect_workspace,
     list_backends,
     resolve_import_reference,
@@ -253,9 +253,9 @@ def export_command(
             revision=revision,
         )
         if import_resolution is not None:
-            result = export_artifact_from_report(
+            result = export_artifact_from_resolution(
                 workspace_root=workspace,
-                report_file=import_resolution.report_path,
+                resolution=import_resolution,
                 output_format=output_format,
             )
         else:
@@ -526,7 +526,7 @@ def compare_command(
     result: CompareResult = compare_import_resolutions(left, right, policy=policy)
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
-        raise typer.Exit(code=exit_code_for_compare(result))
+        raise typer.Exit(code=exit_code_for_compare(result, structured=True))
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
     verdict_summary = result.verdict.get("summary", "No compare policy requested.") if isinstance(result.verdict, dict) else "No compare policy requested."
@@ -535,7 +535,7 @@ def compare_command(
         f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}; "
         f"policy={verdict_summary}; highlight={highlight}"
     )
-    raise typer.Exit(code=exit_code_for_compare(result))
+    raise typer.Exit(code=exit_code_for_compare(result, structured=False))
 
 
 @app.command("doctor")

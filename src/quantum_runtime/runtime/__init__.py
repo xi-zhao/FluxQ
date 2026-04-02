@@ -12,7 +12,7 @@ from .executor import (
     execute_report,
     load_qspec_from_report,
 )
-from .export import ExportResult, export_artifact, export_artifact_from_report
+from .export import ExportResult, export_artifact, export_artifact_from_report, export_artifact_from_resolution
 from .imports import ImportReference, ImportResolution, ImportSourceError, resolve_import_reference
 from .inspect import InspectReport, inspect_workspace
 
@@ -37,6 +37,7 @@ __all__ = [
     "execute_report",
     "export_artifact",
     "export_artifact_from_report",
+    "export_artifact_from_resolution",
     "inspect_workspace",
     "list_backends",
     "load_qspec_from_report",

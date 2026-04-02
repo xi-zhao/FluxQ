@@ -20,6 +20,9 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json" in readme
     assert "docs/aionrs-integration.md" in readme
     assert "docs/plans/2026-04-02-product-roadmap.md" in readme
+    assert "`source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`" in readme
+    assert "`detached_report_inputs`" in readme
+    assert "Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2`" in readme
 
     assert architecture.exists()
     architecture_text = architecture.read_text()
@@ -32,6 +35,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     changelog_text = changelog.read_text()
     assert "Unreleased" in changelog_text
     assert "0.1.0" in changelog_text
+    assert "emit replay provenance fields from `qrun export --json`" in changelog_text
+    assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
 
     assert roadmap.exists()
     roadmap_text = roadmap.read_text()

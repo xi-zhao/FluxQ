@@ -5,6 +5,7 @@ Quantum Runtime CLI is an agent-facing, deterministic runtime for quantum code g
 ## Features
 
 - deterministic workspace initialization with revision tracking
+- revision-stable artifact snapshots for replayable reports and exports
 - markdown intent parsing with YAML front matter
 - QSpec v0.1 planning for `ghz`, `bell`, `qft`, `hardware_efficient_ansatz`, and `qaoa_ansatz`
 - Qiskit, OpenQASM 3, and Classiq Python emission
@@ -47,8 +48,12 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
 - sample hooks: `integrations/aionrs/hooks.example.toml`
 - reports include stable provenance metadata for replay and inspection
+- copied report files remain replayable as long as their recorded revision snapshots are still available
+- `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
+- `qrun compare --json` reports `detached_report_inputs` so hosts can detect copied-report replay explicitly
 - reports, inspect, and compare all expose stable semantic hashes for workload identity
-- `qrun compare` explains whether two runtime inputs represent the same workload or only differ in outputs/diagnostics
+- `qrun compare` separates workload identity drift from generated artifact output drift and diagnostics drift
+- Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
 
 ## Workspace Layout
 
@@ -63,6 +68,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 ├─ artifacts/qiskit/
 ├─ artifacts/classiq/
 ├─ artifacts/qasm/
+├─ artifacts/history/
 ├─ figures/
 ├─ reports/history/
 ├─ trace/events.ndjson

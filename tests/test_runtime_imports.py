@@ -52,7 +52,10 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
     )
     assert resolution.report_summary["artifact_names"][-1] == "report"
     assert resolution.artifacts["report"] == str(workspace / "reports" / "history" / "rev_000001.json")
-    assert resolution.provenance["workspace_source"] == "inferred_from_report_path"
+    assert resolution.provenance["workspace_source"] in {
+        "report_provenance.workspace_root",
+        "inferred_from_report_path",
+    }
     assert resolution.provenance["artifacts"]["paths"]["report"] == str(
         workspace / "reports" / "history" / "rev_000001.json"
     )
@@ -135,6 +138,23 @@ def test_resolve_report_file_supports_relative_workspace_roots(tmp_path: Path, m
     assert resolution.qspec_path == resolution.workspace_root / "specs" / "history" / "rev_000001.json"
     assert resolution.load_report()["artifacts"]["report"] == str(
         resolution.workspace_root / "reports" / "history" / "rev_000001.json"
+    )
+
+
+def test_resolve_report_file_uses_report_provenance_for_copied_report_files(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((workspace / "reports" / "history" / "rev_000001.json").read_text())
+
+    resolution = resolve_report_file(copied_report)
+
+    assert resolution.workspace_root == workspace
+    assert resolution.report_path == copied_report.resolve()
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.provenance["workspace_source"] == "report_provenance.workspace_root"
+    assert resolution.provenance["artifacts"]["snapshot_root"] == str(
+        workspace / "artifacts" / "history" / "rev_000001"
     )
 
 

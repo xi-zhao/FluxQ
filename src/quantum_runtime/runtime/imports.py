@@ -162,14 +162,18 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
         invalid_payload_code="report_file_invalid_payload",
         source=str(report_path),
     )
-    inferred_root = workspace_root or _infer_workspace_root_from_report_path(report_path)
-    if inferred_root is None:
+    inferred_root, workspace_source = _resolve_report_workspace_root(
+        report_path=report_path,
+        report_payload=report_payload,
+        workspace_root=workspace_root,
+    )
+    if inferred_root is None or workspace_source is None:
         raise ImportSourceError(
             "workspace_root_required_for_report_file",
             source=str(report_path),
         )
 
-    workspace_root_path = Path(inferred_root).resolve()
+    workspace_root_path = inferred_root.resolve()
     qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
         report_path=report_path,
         report_payload=report_payload,
@@ -203,7 +207,7 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
         report_payload=report_payload,
         qspec=qspec,
         provenance={
-            "workspace_source": "inferred_from_report_path",
+            "workspace_source": workspace_source,
             "qspec_resolution_source": qspec_resolution_source,
         },
     )
@@ -280,10 +284,6 @@ def _build_resolution(
     qspec: QSpec,
     provenance: dict[str, Any],
 ) -> ImportResolution:
-    report_hash = _sha256_file(report_path)
-    qspec_hash = _sha256_file(qspec_path)
-    report_summary = _summarize_report(report_payload)
-    qspec_summary = _summarize_qspec(qspec)
     artifact_provenance = _extract_artifact_provenance(
         workspace_root=workspace_root,
         revision=revision,
@@ -292,12 +292,17 @@ def _build_resolution(
         source=str(report_path),
     )
     resolved_artifacts = select_accessible_artifact_paths(artifact_provenance)
+    report_hash = _sha256_file(report_path)
+    qspec_hash = _sha256_file(qspec_path)
+    report_summary = _summarize_report(
+        report_payload,
+        resolved_artifacts=resolved_artifacts,
+        artifact_provenance=artifact_provenance,
+    )
+    qspec_summary = _summarize_qspec(qspec)
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
-    if artifact_provenance:
-        report_summary["artifact_snapshot_root"] = artifact_provenance.get("snapshot_root")
-        report_summary["artifact_current_aliases"] = artifact_provenance.get("current_aliases", {})
 
     return ImportResolution(
         source_kind=source_kind,
@@ -490,6 +495,91 @@ def _infer_workspace_root_from_report_path(report_path: Path) -> Path | None:
     return None
 
 
+def _resolve_report_workspace_root(
+    *,
+    report_path: Path,
+    report_payload: dict[str, Any],
+    workspace_root: Path | None,
+) -> tuple[Path | None, str | None]:
+    payload_root, payload_source = _infer_workspace_root_from_report_payload(report_payload)
+    if payload_root is not None and payload_source is not None:
+        return payload_root, payload_source
+
+    path_root = _infer_workspace_root_from_report_path(report_path)
+    if path_root is not None:
+        return path_root, "inferred_from_report_path"
+
+    if workspace_root is not None:
+        return Path(workspace_root), "workspace_option"
+
+    return None, None
+
+
+def _infer_workspace_root_from_report_payload(report_payload: dict[str, Any]) -> tuple[Path | None, str | None]:
+    provenance = report_payload.get("provenance") if isinstance(report_payload, dict) else None
+    if isinstance(provenance, dict):
+        raw_workspace_root = provenance.get("workspace_root")
+        if isinstance(raw_workspace_root, str) and raw_workspace_root.strip():
+            return Path(raw_workspace_root), "report_provenance.workspace_root"
+
+        artifact_provenance = provenance.get("artifacts")
+        artifact_root = _infer_workspace_root_from_artifact_provenance(artifact_provenance)
+        if artifact_root is not None:
+            return artifact_root, "report_provenance.artifacts"
+
+    qspec_block = report_payload.get("qspec") if isinstance(report_payload, dict) else None
+    if isinstance(qspec_block, dict):
+        qspec_root = _infer_workspace_root_from_path_string(qspec_block.get("path"))
+        if qspec_root is not None:
+            return qspec_root, "report_qspec_path"
+
+    artifacts = report_payload.get("artifacts") if isinstance(report_payload, dict) else None
+    if isinstance(artifacts, dict):
+        qspec_root = _infer_workspace_root_from_path_string(artifacts.get("qspec"))
+        if qspec_root is not None:
+            return qspec_root, "report_artifacts.qspec"
+
+    return None, None
+
+
+def _infer_workspace_root_from_artifact_provenance(artifact_provenance: Any) -> Path | None:
+    if not isinstance(artifact_provenance, dict):
+        return None
+
+    for key in ("snapshot_root", "current_root"):
+        inferred = _infer_workspace_root_from_path_string(artifact_provenance.get(key))
+        if inferred is not None:
+            return inferred
+
+    for key in ("paths", "current_aliases"):
+        mapping = artifact_provenance.get(key)
+        if not isinstance(mapping, dict):
+            continue
+        for artifact_name in ("qspec", "report"):
+            inferred = _infer_workspace_root_from_path_string(mapping.get(artifact_name))
+            if inferred is not None:
+                return inferred
+
+    return None
+
+
+def _infer_workspace_root_from_path_string(raw_path: Any) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        return None
+
+    for current in (candidate, *candidate.parents):
+        if current.name in {"reports", "specs", "artifacts"}:
+            return current.parent
+        if current.name == "history" and current.parent.name in {"reports", "specs", "artifacts"}:
+            return current.parent.parent
+
+    return None
+
+
 def _report_revision(report_payload: dict[str, Any], fallback: str) -> str:
     revision = report_payload.get("revision")
     if isinstance(revision, str) and revision:
@@ -497,7 +587,12 @@ def _report_revision(report_payload: dict[str, Any], fallback: str) -> str:
     return fallback
 
 
-def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
+def _summarize_report(
+    report_payload: dict[str, Any],
+    *,
+    resolved_artifacts: dict[str, str],
+    artifact_provenance: dict[str, Any],
+) -> dict[str, Any]:
     artifacts = report_payload.get("artifacts") if isinstance(report_payload, dict) else {}
     backend_reports = report_payload.get("backend_reports") if isinstance(report_payload, dict) else {}
     warnings = report_payload.get("warnings") if isinstance(report_payload, dict) else []
@@ -507,6 +602,9 @@ def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
     simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
     transpile = diagnostics.get("transpile") if isinstance(diagnostics, dict) else {}
     resources = diagnostics.get("resources") if isinstance(diagnostics, dict) else {}
+
+    artifact_outputs = _summarize_artifact_outputs(resolved_artifacts)
+    artifact_paths = artifact_provenance.get("paths", {})
 
     return {
         "status": report_payload.get("status"),
@@ -532,6 +630,18 @@ def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
         else {},
         "warning_count": len(warnings) if isinstance(warnings, list) else 0,
         "error_count": len(errors) if isinstance(errors, list) else 0,
+        "artifact_snapshot_root": artifact_provenance.get("snapshot_root"),
+        "artifact_current_aliases": artifact_provenance.get("current_aliases", {}),
+        "artifact_paths": artifact_paths,
+        "artifact_output_names": sorted(
+            name
+            for name in artifact_paths.keys()
+            if isinstance(name, str) and name not in {"qspec", "report"}
+        ),
+        "artifact_output_digests": artifact_outputs["digests"],
+        "artifact_output_missing": artifact_outputs["missing"],
+        "artifact_output_set_hash": artifact_outputs["set_hash"],
+        "artifact_set_hash": artifact_outputs["set_hash"],
     }
 
 
@@ -546,6 +656,8 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
         "width": semantics["width"],
         "layers": semantics["layers"],
         "parameter_count": semantics["parameter_count"],
+        "workload_hash": semantics["workload_hash"],
+        "execution_hash": semantics["execution_hash"],
         "semantic_hash": semantics["semantic_hash"],
         "pattern_args": semantics["pattern_args"],
         "registers": {
@@ -560,6 +672,32 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _summarize_artifact_outputs(resolved_artifacts: dict[str, str]) -> dict[str, Any]:
+    digests: dict[str, str] = {}
+    missing: list[str] = []
+
+    for name, raw_path in sorted(resolved_artifacts.items()):
+        if name in {"qspec", "report"}:
+            continue
+        path = Path(raw_path)
+        if path.exists() and path.is_file():
+            digests[name] = _sha256_file(path)
+        else:
+            missing.append(name)
+
+    payload = {"digests": digests, "missing": missing}
+    return {
+        **payload,
+        "set_hash": _hash_payload(payload),
+    }
+
+
+def _hash_payload(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
 
 
