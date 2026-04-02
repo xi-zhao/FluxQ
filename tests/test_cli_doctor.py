@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.runtime.backend_registry import BackendCapabilityDescriptor, BackendDependency
 
 
 RUNNER = CliRunner()
@@ -18,11 +19,63 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     workspace = tmp_path / ".quantum"
 
     monkeypatch.setattr(
-        "quantum_runtime.runtime.doctor._check_import",
-        lambda module_name: {
-            "module": module_name,
-            "available": module_name != "classiq",
-            "error": None if module_name != "classiq" else "No module named 'classiq'",
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: {
+            "qiskit-local": BackendCapabilityDescriptor(
+                backend="qiskit-local",
+                provider="qiskit",
+                available=True,
+                module_dependencies=[
+                    BackendDependency(
+                        module="qiskit",
+                        distribution="qiskit",
+                        available=True,
+                        version="2.3.1",
+                        location="/tmp/qiskit/__init__.py",
+                        error=None,
+                    ),
+                    BackendDependency(
+                        module="qiskit_aer",
+                        distribution="qiskit-aer",
+                        available=True,
+                        version="0.17.1",
+                        location="/tmp/qiskit_aer/__init__.py",
+                        error=None,
+                    ),
+                ],
+                capabilities={
+                    "simulate_locally": True,
+                    "transpile_validation": True,
+                    "structural_benchmark": True,
+                    "classiq_synthesis": False,
+                    "remote_submit": False,
+                },
+                notes=["Local Qiskit backend"],
+            ).model_dump(mode="json"),
+            "classiq": BackendCapabilityDescriptor(
+                backend="classiq",
+                provider="classiq",
+                available=False,
+                reason="No module named 'classiq'",
+                module_dependencies=[
+                    BackendDependency(
+                        module="classiq",
+                        distribution="classiq",
+                        available=False,
+                        version=None,
+                        location=None,
+                        error="No module named 'classiq'",
+                    )
+                ],
+                capabilities={
+                    "simulate_locally": False,
+                    "transpile_validation": False,
+                    "structural_benchmark": True,
+                    "classiq_synthesis": True,
+                    "remote_submit": False,
+                },
+                notes=["Optional Classiq synthesis backend"],
+            ).model_dump(mode="json"),
         },
     )
 
@@ -40,10 +93,11 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert payload["workspace"]["active_spec"]["exists"] is False
     assert payload["workspace"]["active_report"]["exists"] is False
     assert payload["workspace"]["directories"]["reports"]["exists"] is True
-    assert payload["dependencies"]["qiskit"]["available"] is True
-    assert payload["dependencies"]["qiskit"]["version"]
-    assert payload["dependencies"]["qiskit_aer"]["available"] is True
+    assert payload["dependencies"]["qiskit-local"]["available"] is True
+    assert payload["dependencies"]["qiskit-local"]["provider"] == "qiskit"
+    assert payload["dependencies"]["qiskit-local"]["module_dependencies"][0]["module"] == "qiskit"
     assert payload["dependencies"]["classiq"]["available"] is False
+    assert payload["dependencies"]["classiq"]["module_dependencies"][0]["module"] == "classiq"
 
 
 def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
@@ -53,11 +107,24 @@ def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
     workspace = tmp_path / ".quantum"
 
     monkeypatch.setattr(
-        "quantum_runtime.runtime.doctor._check_import",
-        lambda module_name: {
-            "module": module_name,
-            "available": True,
-            "error": None,
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: {
+            "qiskit-local": BackendCapabilityDescriptor(
+                backend="qiskit-local",
+                provider="qiskit",
+                available=True,
+                module_dependencies=[],
+                capabilities={},
+                notes=[],
+            ).model_dump(mode="json"),
+            "classiq": BackendCapabilityDescriptor(
+                backend="classiq",
+                provider="classiq",
+                available=True,
+                module_dependencies=[],
+                capabilities={},
+                notes=[],
+            ).model_dump(mode="json"),
         },
     )
 
@@ -79,11 +146,24 @@ def test_qrun_doctor_json_flags_missing_active_report_after_execution(
     workspace = tmp_path / ".quantum"
 
     monkeypatch.setattr(
-        "quantum_runtime.runtime.doctor._check_import",
-        lambda module_name: {
-            "module": module_name,
-            "available": True,
-            "error": None,
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: {
+            "qiskit-local": BackendCapabilityDescriptor(
+                backend="qiskit-local",
+                provider="qiskit",
+                available=True,
+                module_dependencies=[],
+                capabilities={},
+                notes=[],
+            ).model_dump(mode="json"),
+            "classiq": BackendCapabilityDescriptor(
+                backend="classiq",
+                provider="classiq",
+                available=True,
+                module_dependencies=[],
+                capabilities={},
+                notes=[],
+            ).model_dump(mode="json"),
         },
     )
 

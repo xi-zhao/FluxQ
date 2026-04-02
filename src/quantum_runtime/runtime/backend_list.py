@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from quantum_runtime.runtime.doctor import collect_backend_capabilities
+from quantum_runtime.runtime.backend_registry import collect_backend_capabilities
 
 
 class BackendListReport(BaseModel):
@@ -20,15 +20,14 @@ def list_backends() -> BackendListReport:
     capabilities = collect_backend_capabilities()
     return BackendListReport(
         backends={
-            "qiskit-local": {
-                "available": bool(
-                    capabilities["qiskit"]["available"] and capabilities["qiskit_aer"]["available"]
-                ),
-                "reason": capabilities["qiskit"]["error"] or capabilities["qiskit_aer"]["error"],
-            },
-            "classiq": {
-                "available": bool(capabilities["classiq"]["available"]),
-                "reason": capabilities["classiq"]["error"],
-            },
+            name: {
+                "available": descriptor.available,
+                "reason": descriptor.reason,
+                "provider": descriptor.provider,
+                "module_dependencies": [dependency.model_dump(mode="json") for dependency in descriptor.module_dependencies],
+                "capabilities": descriptor.capabilities,
+                "notes": descriptor.notes,
+            }
+            for name, descriptor in capabilities.items()
         }
     )

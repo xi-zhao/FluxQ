@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
-from importlib import metadata
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel
 
 from quantum_runtime.qspec import QSpec
+from quantum_runtime.runtime.backend_registry import backend_capabilities_as_dict
 from quantum_runtime.workspace import WorkspaceManifest, WorkspaceManager, WorkspacePaths
 
 
@@ -45,7 +44,7 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
 
     dependencies = collect_backend_capabilities()
     dependency_issues = [
-        f"{name} unavailable: {details['error']}"
+        f"{name} unavailable: {details.get('reason') or details.get('error') or 'backend_unavailable'}"
         for name, details in dependencies.items()
         if not details["available"]
     ]
@@ -63,12 +62,21 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
 
 
 def collect_backend_capabilities() -> dict[str, dict[str, Any]]:
-    """Return import availability for key runtime backends."""
-    return {
-        "qiskit": _dependency_metadata(module_name="qiskit", distribution_name="qiskit"),
-        "qiskit_aer": _dependency_metadata(module_name="qiskit_aer", distribution_name="qiskit-aer"),
-        "classiq": _dependency_metadata(module_name="classiq", distribution_name="classiq"),
-    }
+    """Return backend descriptors plus legacy dependency aliases for compatibility."""
+    capabilities = backend_capabilities_as_dict()
+    legacy_dependencies: dict[str, dict[str, Any]] = {}
+
+    qiskit_local = capabilities.get("qiskit-local", {})
+    module_dependencies = qiskit_local.get("module_dependencies", [])
+    if isinstance(module_dependencies, list):
+        for dependency in module_dependencies:
+            if not isinstance(dependency, dict):
+                continue
+            module_name = dependency.get("module")
+            if isinstance(module_name, str) and module_name not in capabilities:
+                legacy_dependencies[module_name] = dependency
+
+    return {**legacy_dependencies, **capabilities}
 
 
 def _workspace_issues(paths: WorkspacePaths, *, manifest: WorkspaceManifest | None) -> list[str]:
@@ -104,53 +112,6 @@ def _workspace_issues(paths: WorkspacePaths, *, manifest: WorkspaceManifest | No
     if missing_directories:
         issues.append("missing_directories:" + ",".join(missing_directories))
     return issues
-
-
-def _check_import(module_name: str) -> dict[str, Any]:
-    try:
-        importlib.import_module(module_name)
-    except Exception as exc:
-        return {
-            "module": module_name,
-            "available": False,
-            "version": None,
-            "location": None,
-            "error": str(exc),
-        }
-    return {
-        "module": module_name,
-        "available": True,
-        "version": _dependency_version(module_name),
-        "location": _module_location(module_name),
-        "error": None,
-    }
-
-
-def _dependency_metadata(*, module_name: str, distribution_name: str) -> dict[str, Any]:
-    metadata_report = _check_import(module_name)
-    metadata_report["distribution"] = distribution_name
-    if metadata_report.get("available"):
-        metadata_report["version"] = _dependency_version(distribution_name)
-        metadata_report["location"] = _module_location(module_name)
-    else:
-        metadata_report.setdefault("version", None)
-        metadata_report.setdefault("location", None)
-    return metadata_report
-
-
-def _dependency_version(distribution_name: str) -> str | None:
-    try:
-        return metadata.version(distribution_name)
-    except metadata.PackageNotFoundError:
-        return None
-
-
-def _module_location(module_name: str) -> str | None:
-    try:
-        module = importlib.import_module(module_name)
-    except Exception:
-        return None
-    return getattr(module, "__file__", None)
 
 
 def _load_manifest(paths: WorkspacePaths) -> WorkspaceManifest | None:
