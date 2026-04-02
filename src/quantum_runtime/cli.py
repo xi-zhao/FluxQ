@@ -9,6 +9,7 @@ import typer
 from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
+from quantum_runtime.runtime import execute_intent
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -97,6 +98,42 @@ def bench_command(
         return
 
     typer.echo(f"Benchmark status: {benchmark.status}")
+
+
+@app.command("exec")
+def exec_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory to initialize or reuse.",
+    ),
+    intent_file: Path = typer.Option(
+        ...,
+        "--intent-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Markdown intent file to execute.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Execute an intent file through the deterministic runtime pipeline."""
+    result = execute_intent(workspace_root=workspace, intent_file=intent_file)
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+        return
+
+    typer.echo(result.summary)
 
 
 def main() -> None:

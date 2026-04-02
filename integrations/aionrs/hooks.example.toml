@@ -1,0 +1,2 @@
+[hooks.post_tool_use]
+command = "bash -lc 'if [ -f .quantum/specs/current.json ]; then qrun bench --workspace .quantum --json >/dev/null 2>&1 || true; fi'"

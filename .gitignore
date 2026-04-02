@@ -4,5 +4,5 @@ __pycache__/
 *.pyc
 *.egg-info/
 .quantum/
-aionrs/
+/aionrs/
 .DS_Store

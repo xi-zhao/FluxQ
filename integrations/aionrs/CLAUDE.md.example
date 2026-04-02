@@ -1,0 +1,10 @@
+# Quantum Project Rules
+
+When the user asks for quantum-computing code, do not handwrite large quantum programs first.
+
+Workflow:
+1. Write the task into `.quantum/intents/latest.md` using the runtime intent template.
+2. Run `qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --json`.
+3. Read `.quantum/reports/latest.json`.
+4. If artifacts were generated successfully, inspect the generated code before proposing edits.
+5. Prefer updating the intent and re-running `qrun` over manually rewriting generated quantum code.
