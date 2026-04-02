@@ -11,6 +11,7 @@ from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
+    ComparePolicy,
     CompareResult,
     ImportReference,
     ImportResolution,
@@ -456,6 +457,21 @@ def compare_command(
         "--right-revision",
         help="Right-side workspace report history revision.",
     ),
+    expect: str | None = typer.Option(
+        None,
+        "--expect",
+        help="Optional compare policy expectation: same-subject, different-subject, same-qspec, different-qspec, same-report, different-report.",
+    ),
+    allow_report_drift: bool = typer.Option(
+        True,
+        "--allow-report-drift/--forbid-report-drift",
+        help="Whether report and diagnostic drift is allowed under the compare policy.",
+    ),
+    forbid_backend_regressions: bool = typer.Option(
+        False,
+        "--forbid-backend-regressions",
+        help="Fail compare when backend availability regresses on the right side.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -492,16 +508,32 @@ def compare_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
 
-    result: CompareResult = compare_import_resolutions(left, right)
+    try:
+        policy = ComparePolicy.model_validate({
+            "expect": expect,
+            "allow_report_drift": allow_report_drift,
+            "forbid_backend_regressions": forbid_backend_regressions,
+        }) if (
+            expect is not None
+            or not allow_report_drift
+            or forbid_backend_regressions
+        ) else None
+    except Exception as exc:
+        if json_output:
+            _json_error("invalid_compare_policy")
+        raise typer.BadParameter("Invalid compare policy.") from exc
+
+    result: CompareResult = compare_import_resolutions(left, right, policy=policy)
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=exit_code_for_compare(result))
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
+    verdict_summary = result.verdict.get("summary", "No compare policy requested.") if isinstance(result.verdict, dict) else "No compare policy requested."
     typer.echo(
         f"{result.status}; left={result.left.revision}; right={result.right.revision}; "
         f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}; "
-        f"highlight={highlight}"
+        f"policy={verdict_summary}; highlight={highlight}"
     )
     raise typer.Exit(code=exit_code_for_compare(result))
 

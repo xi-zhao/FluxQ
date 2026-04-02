@@ -25,7 +25,7 @@ qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and
 qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json
 qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json
 qrun inspect --workspace .quantum --json
-qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --json
+qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json
 qrun export --workspace .quantum --format qasm3 --json
 qrun bench --workspace .quantum --json
 qrun doctor --workspace .quantum --json --fix
@@ -79,7 +79,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun inspect --workspace .quantum --json`
-- `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --json`
+- `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json`
 - `qrun export --workspace .quantum --format qiskit --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun doctor --workspace .quantum --json --fix`

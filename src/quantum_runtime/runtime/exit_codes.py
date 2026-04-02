@@ -92,6 +92,12 @@ def exit_code_for_inspect(result: Any) -> int:
 
 def exit_code_for_compare(result: Any) -> int:
     """Map a compare report to the documented CLI exit codes."""
+    verdict = _as_mapping(getattr(result, "verdict", None))
+    verdict_status = str(verdict.get("status")) if verdict else None
+    if verdict_status == "pass":
+        return EXIT_OK
+    if verdict_status == "fail":
+        return EXIT_DEGRADED
     status = str(getattr(result, "status", "different_subject"))
     if status == "same_subject":
         return EXIT_OK

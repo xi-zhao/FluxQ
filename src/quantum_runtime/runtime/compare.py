@@ -9,6 +9,16 @@ from pydantic import BaseModel, Field
 from quantum_runtime.runtime.imports import ImportResolution
 
 
+CompareExpectation = Literal[
+    "same-subject",
+    "different-subject",
+    "same-qspec",
+    "different-qspec",
+    "same-report",
+    "different-report",
+]
+
+
 class CompareSide(BaseModel):
     """Compact description of one side of a runtime comparison."""
 
@@ -39,11 +49,37 @@ class CompareResult(BaseModel):
     diagnostic_delta: dict[str, Any] = Field(default_factory=dict)
     backend_delta: dict[str, Any] = Field(default_factory=dict)
     highlights: list[str] = Field(default_factory=list)
+    report_drift_detected: bool = False
+    backend_regressions: list[str] = Field(default_factory=list)
+    policy: dict[str, Any] = Field(default_factory=dict)
+    verdict: dict[str, Any] = Field(default_factory=dict)
     left: CompareSide
     right: CompareSide
 
 
-def compare_import_resolutions(left: ImportResolution, right: ImportResolution) -> CompareResult:
+class ComparePolicy(BaseModel):
+    """Optional guardrail policy for compare results."""
+
+    expect: CompareExpectation | None = None
+    allow_report_drift: bool = True
+    forbid_backend_regressions: bool = False
+
+
+class CompareVerdict(BaseModel):
+    """Policy verdict for a compare result."""
+
+    status: Literal["not_requested", "pass", "fail"]
+    summary: str
+    failed_checks: list[str] = Field(default_factory=list)
+    passed_checks: list[str] = Field(default_factory=list)
+
+
+def compare_import_resolutions(
+    left: ImportResolution,
+    right: ImportResolution,
+    *,
+    policy: ComparePolicy | None = None,
+) -> CompareResult:
     """Compare two resolved runtime inputs for workload and report equality."""
     left_qspec = left.qspec_summary if isinstance(left.qspec_summary, dict) else {}
     right_qspec = right.qspec_summary if isinstance(right.qspec_summary, dict) else {}
@@ -60,6 +96,12 @@ def compare_import_resolutions(left: ImportResolution, right: ImportResolution) 
     report_delta = _report_delta(left_report, right_report)
     diagnostic_delta = _diagnostic_delta(left_report, right_report)
     backend_delta = _backend_delta(left_report, right_report)
+    report_drift_detected = _report_drift_detected(
+        report_delta=report_delta,
+        diagnostic_delta=diagnostic_delta,
+        backend_delta=backend_delta,
+    )
+    backend_regressions = _backend_regressions(left_report, right_report)
     differences = _differences(
         same_subject=same_subject,
         same_qspec=same_qspec,
@@ -79,6 +121,14 @@ def compare_import_resolutions(left: ImportResolution, right: ImportResolution) 
         left_report=left_report,
         right_report=right_report,
     )
+    verdict = _evaluate_policy(
+        policy=policy,
+        same_subject=same_subject,
+        same_qspec=same_qspec,
+        same_report=same_report,
+        report_drift_detected=report_drift_detected,
+        backend_regressions=backend_regressions,
+    )
 
     return CompareResult(
         status="same_subject" if same_subject else "different_subject",
@@ -91,6 +141,10 @@ def compare_import_resolutions(left: ImportResolution, right: ImportResolution) 
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
         highlights=highlights,
+        report_drift_detected=report_drift_detected,
+        backend_regressions=backend_regressions,
+        policy=policy.model_dump(mode="json") if policy is not None else {},
+        verdict=verdict.model_dump(mode="json"),
         left=_compare_side(left),
         right=_compare_side(right),
     )
@@ -192,6 +246,46 @@ def _backend_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any
         "removed": sorted(set(left_statuses) - set(right_statuses)),
         "status_changed": changed,
     }
+
+
+def _report_drift_detected(
+    *,
+    report_delta: dict[str, Any],
+    diagnostic_delta: dict[str, Any],
+    backend_delta: dict[str, Any],
+) -> bool:
+    if report_delta.get("status_changed") or report_delta.get("input_mode_changed"):
+        return True
+    if report_delta.get("warning_count_delta") or report_delta.get("error_count_delta"):
+        return True
+    if report_delta.get("artifact_names_added") or report_delta.get("artifact_names_removed"):
+        return True
+    if report_delta.get("backend_names_added") or report_delta.get("backend_names_removed"):
+        return True
+    if diagnostic_delta.get("simulation_status_changed") or diagnostic_delta.get("transpile_status_changed"):
+        return True
+    resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
+    if isinstance(resource_fields_changed, list) and resource_fields_changed:
+        return True
+    status_changed = backend_delta.get("status_changed")
+    if isinstance(status_changed, dict) and status_changed:
+        return True
+    return False
+
+
+def _backend_regressions(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
+    left_statuses = _string_mapping(left.get("backend_statuses"))
+    right_statuses = _string_mapping(right.get("backend_statuses"))
+    regressions: list[str] = []
+
+    for name, left_status in left_statuses.items():
+        right_status = right_statuses.get(name)
+        if right_status is None:
+            regressions.append(name)
+            continue
+        if _status_rank(right_status) > _status_rank(left_status):
+            regressions.append(name)
+    return sorted(regressions)
 
 
 def _differences(
@@ -304,6 +398,65 @@ def _highlights(
     return highlights
 
 
+def _evaluate_policy(
+    *,
+    policy: ComparePolicy | None,
+    same_subject: bool,
+    same_qspec: bool,
+    same_report: bool,
+    report_drift_detected: bool,
+    backend_regressions: list[str],
+) -> CompareVerdict:
+    if policy is None:
+        return CompareVerdict(
+            status="not_requested",
+            summary="No compare policy requested.",
+        )
+
+    failed_checks: list[str] = []
+    passed_checks: list[str] = []
+
+    if policy.expect is not None:
+        if _expectation_matches(
+            expectation=policy.expect,
+            same_subject=same_subject,
+            same_qspec=same_qspec,
+            same_report=same_report,
+        ):
+            passed_checks.append(f"expect:{policy.expect}")
+        else:
+            failed_checks.append(f"expect:{policy.expect}")
+
+    if policy.allow_report_drift:
+        passed_checks.append("report_drift:allowed")
+    elif report_drift_detected:
+        failed_checks.append("report_drift:forbidden")
+    else:
+        passed_checks.append("report_drift:clean")
+
+    if policy.forbid_backend_regressions:
+        if backend_regressions:
+            failed_checks.append("backend_regressions:forbidden")
+        else:
+            passed_checks.append("backend_regressions:none")
+    else:
+        passed_checks.append("backend_regressions:allowed")
+
+    if failed_checks:
+        return CompareVerdict(
+            status="fail",
+            summary="Compare policy failed: " + ", ".join(failed_checks),
+            failed_checks=failed_checks,
+            passed_checks=passed_checks,
+        )
+    return CompareVerdict(
+        status="pass",
+        summary="Compare policy passed.",
+        failed_checks=[],
+        passed_checks=passed_checks,
+    )
+
+
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -326,3 +479,33 @@ def _resource_value(summary: object, field: str) -> Any:
     if not isinstance(summary, dict):
         return None
     return summary.get(field)
+
+
+def _status_rank(status: str | None) -> int:
+    ordering = {
+        "ok": 0,
+        "dependency_missing": 1,
+        "backend_unavailable": 2,
+        "error": 3,
+    }
+    if status is None:
+        return 4
+    return ordering.get(status, 4)
+
+
+def _expectation_matches(
+    *,
+    expectation: CompareExpectation,
+    same_subject: bool,
+    same_qspec: bool,
+    same_report: bool,
+) -> bool:
+    outcomes = {
+        "same-subject": same_subject,
+        "different-subject": not same_subject,
+        "same-qspec": same_qspec,
+        "different-qspec": not same_qspec,
+        "same-report": same_report,
+        "different-report": not same_report,
+    }
+    return outcomes[expectation]

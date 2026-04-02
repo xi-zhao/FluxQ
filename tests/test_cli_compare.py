@@ -62,6 +62,7 @@ def test_qrun_compare_json_detects_same_subject_across_current_and_report_file(t
     assert payload["same_report"] is False
     assert payload["left"]["qspec_summary"]["pattern"] == "ghz"
     assert payload["right"]["qspec_summary"]["pattern"] == "ghz"
+    assert payload["verdict"]["status"] == "not_requested"
     assert payload["highlights"][0] == "Same workload identity (ghz) across both inputs."
 
 
@@ -121,6 +122,7 @@ def test_qrun_compare_json_detects_semantic_drift_across_revisions(tmp_path: Pat
         "two_qubit_gates",
         "parameter_count",
     ]
+    assert payload["verdict"]["status"] == "not_requested"
     assert payload["highlights"][0] == "Different workload identity: ghz -> qaoa_ansatz."
 
 
@@ -146,6 +148,272 @@ def test_qrun_compare_json_returns_exit_code_3_for_conflicting_left_source(tmp_p
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "left_source_conflict"
+
+
+def test_qrun_compare_json_policy_passes_for_same_subject_without_drift(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    source_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert source_result.exit_code == 0, source_result.stdout
+
+    target_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert target_result.exit_code == 0, target_result.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(target_workspace),
+            "--left-report-file",
+            str(source_workspace / "reports" / "latest.json"),
+            "--expect",
+            "same-subject",
+            "--forbid-report-drift",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 0, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["verdict"]["status"] == "pass"
+    assert payload["report_drift_detected"] is False
+    assert "report_drift:clean" in payload["verdict"]["passed_checks"]
+
+
+def test_qrun_compare_json_policy_fails_for_subject_mismatch(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--left-revision",
+            "rev_000001",
+            "--right-revision",
+            "rev_000002",
+            "--expect",
+            "same-subject",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["verdict"]["status"] == "fail"
+    assert "expect:same-subject" in payload["verdict"]["failed_checks"]
+
+
+def test_qrun_compare_json_policy_passes_for_different_subject_expectation(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--left-revision",
+            "rev_000001",
+            "--right-revision",
+            "rev_000002",
+            "--expect",
+            "different-subject",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 0, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "different_subject"
+    assert payload["verdict"]["status"] == "pass"
+    assert "expect:different-subject" in payload["verdict"]["passed_checks"]
+
+
+def test_qrun_compare_json_returns_exit_code_3_for_invalid_expectation(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--expect",
+            "not-a-real-policy",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 3, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "invalid_compare_policy"
+
+
+def test_qrun_compare_json_policy_fails_for_backend_regression(tmp_path: Path) -> None:
+    left_workspace = tmp_path / ".quantum-left"
+    right_workspace = tmp_path / ".quantum-right"
+
+    left_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(left_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert left_result.exit_code == 0, left_result.stdout
+
+    left_report_path = left_workspace / "reports" / "latest.json"
+    left_report = json.loads(left_report_path.read_text())
+    left_report["backend_reports"] = {
+        "classiq": {
+            "status": "ok",
+            "reason": None,
+        }
+    }
+    left_report_path.write_text(json.dumps(left_report, indent=2))
+
+    right_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(right_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert right_result.exit_code == 0, right_result.stdout
+
+    right_report_path = right_workspace / "reports" / "latest.json"
+    right_report = json.loads(right_report_path.read_text())
+    right_report["backend_reports"] = {
+        "classiq": {
+            "status": "dependency_missing",
+            "reason": "classiq_not_installed",
+        }
+    }
+    right_report["warnings"] = ["classiq_not_installed"]
+    right_report["status"] = "degraded"
+    right_report_path.write_text(json.dumps(right_report, indent=2))
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(right_workspace),
+            "--left-report-file",
+            str(left_report_path),
+            "--right-report-file",
+            str(right_report_path),
+            "--expect",
+            "same-subject",
+            "--forbid-backend-regressions",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["same_subject"] is True
+    assert payload["backend_regressions"] == ["classiq"]
+    assert payload["verdict"]["status"] == "fail"
+    assert "backend_regressions:forbidden" in payload["verdict"]["failed_checks"]
 
 
 def test_qrun_compare_plaintext_surfaces_first_highlight(tmp_path: Path) -> None:
