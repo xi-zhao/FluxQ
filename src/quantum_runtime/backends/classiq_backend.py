@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ class ClassiqBackendReport(BaseModel):
     code_path: Path | None = None
     results_path: Path | None = None
     program_id: str | None = None
+    synthesis_metrics: dict[str, int] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     details: dict[str, Any] = Field(default_factory=dict)
 
@@ -73,6 +75,7 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
         )
         results_path = emit_result.path.parent / "synthesis.json"
         program.save_results(results_path)
+        synthesis_metrics, synthesis_details = _load_synthesis_metrics(results_path, program)
     except Exception as exc:
         return ClassiqBackendReport(
             status="error",
@@ -86,7 +89,9 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
         code_path=emit_result.path,
         results_path=results_path,
         program_id=getattr(program, "program_id", None),
+        synthesis_metrics=synthesis_metrics,
         warnings=list(getattr(program, "synthesis_warnings", []) or []),
+        details=synthesis_details,
     )
 
 
@@ -144,3 +149,79 @@ def _coerce_to_module(value: Any) -> ModuleType:
     for key, attr in vars(value).items():
         setattr(module, key, attr)
     return module
+
+
+def _load_synthesis_metrics(results_path: Path, program: Any) -> tuple[dict[str, int], dict[str, Any]]:
+    """Load and normalize structural synthesis metrics if the backend emitted them."""
+    details: dict[str, Any] = {"synthesis_source": str(results_path)}
+    try:
+        payload = json.loads(results_path.read_text())
+    except Exception as exc:
+        details["synthesis_parse_error"] = str(exc)
+        return {}, details
+
+    metrics = _extract_synthesis_metrics(payload, program)
+    if metrics:
+        details["synthesis_metrics"] = metrics
+    return metrics, details
+
+
+def _extract_synthesis_metrics(payload: Any, program: Any) -> dict[str, int]:
+    """Extract stable structural metrics from the Classiq synthesis payload."""
+    sources = []
+    if isinstance(payload, dict):
+        sources.append(payload)
+        for key in ("metrics", "resources", "summary", "synthesis", "result", "data"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                sources.append(nested)
+    sources.append({name: getattr(program, name, None) for name in (
+        "width",
+        "depth",
+        "two_qubit_gates",
+        "measure_count",
+        "qubits",
+        "num_qubits",
+        "two_qubit_gate_count",
+        "measurement_count",
+        "measurements",
+    )})
+
+    aliases = {
+        "width": ("width", "num_qubits", "qubits"),
+        "depth": ("depth", "circuit_depth", "transpiled_depth"),
+        "two_qubit_gates": ("two_qubit_gates", "two_qubit_gate_count", "num_two_qubit_gates", "2q_gates"),
+        "measure_count": ("measure_count", "measurement_count", "measurements_count", "measurements"),
+    }
+
+    metrics: dict[str, int] = {}
+    for target_name, candidate_names in aliases.items():
+        value = _first_int_value(sources, candidate_names)
+        if value is not None:
+            metrics[target_name] = value
+    return metrics
+
+
+def _first_int_value(sources: list[dict[str, Any]], candidate_names: tuple[str, ...]) -> int | None:
+    for source in sources:
+        for candidate_name in candidate_names:
+            value = source.get(candidate_name)
+            coerced = _coerce_int(value)
+            if coerced is not None:
+                return coerced
+    return None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None

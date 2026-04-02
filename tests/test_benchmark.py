@@ -42,3 +42,91 @@ def test_run_structural_benchmark_reports_qiskit_and_classiq_statuses(
     assert report.backends["classiq"].status == "dependency_missing"
     assert report.backends["classiq"].reason == "classiq_not_installed"
     assert any("dependency" in note.lower() for note in report.backends["classiq"].notes)
+
+
+def test_run_structural_benchmark_uses_classiq_synthesis_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+
+    monkeypatch.setattr(
+        "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
+        lambda qspec, workspace: ClassiqBackendReport(
+            status="ok",
+            reason=None,
+            code_path=workspace.root / "artifacts" / "classiq" / "main.py",
+            synthesis_metrics={
+                "width": 8,
+                "depth": 11,
+                "two_qubit_gates": 5,
+                "measure_count": 4,
+            },
+            details={
+                "resource_source": "classiq_synthesis",
+                "synthesis_metrics": {
+                    "width": 8,
+                    "depth": 11,
+                    "two_qubit_gates": 5,
+                    "measure_count": 4,
+                },
+            },
+        ),
+    )
+
+    report = run_structural_benchmark(qspec, handle, ["classiq"])
+
+    classiq = report.backends["classiq"]
+    assert report.status == "ok"
+    assert classiq.status == "ok"
+    assert classiq.width == 8
+    assert classiq.depth == 11
+    assert classiq.transpiled_depth == 11
+    assert classiq.two_qubit_gates == 5
+    assert classiq.transpiled_two_qubit_gates == 5
+    assert classiq.measure_count == 4
+    assert classiq.details["resource_source"] == "classiq_synthesis"
+    assert classiq.details["synthesis_metrics"] == {
+        "width": 8,
+        "depth": 11,
+        "two_qubit_gates": 5,
+        "measure_count": 4,
+    }
+
+
+def test_run_structural_benchmark_falls_back_when_classiq_metrics_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+
+    monkeypatch.setattr(
+        "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
+        lambda qspec, workspace: ClassiqBackendReport(
+            status="ok",
+            reason=None,
+            code_path=workspace.root / "artifacts" / "classiq" / "main.py",
+            synthesis_metrics={},
+            details={},
+        ),
+    )
+
+    report = run_structural_benchmark(qspec, handle, ["classiq"])
+
+    classiq = report.backends["classiq"]
+    assert report.status == "ok"
+    assert classiq.status == "ok"
+    assert classiq.width == 4
+    assert classiq.depth == 5
+    assert classiq.transpiled_depth == 5
+    assert classiq.two_qubit_gates == 3
+    assert classiq.transpiled_two_qubit_gates == 3
+    assert classiq.measure_count == 4
+    assert classiq.details["resource_source"] == "qspec_baseline"
+    assert any("fallback" in note.lower() for note in classiq.notes)

@@ -68,11 +68,23 @@ def test_run_classiq_backend_synthesizes_with_fake_sdk(
     assert report.results_path is not None
     assert report.results_path.exists()
     assert report.program_id == "fake-program"
+    assert report.synthesis_metrics == {
+        "width": 4,
+        "depth": 6,
+        "two_qubit_gates": 3,
+        "measure_count": 4,
+    }
     assert report.warnings == ["synthetic warning"]
     assert json.loads(report.results_path.read_text()) == {
         "program_id": "fake-program",
         "warnings": ["synthetic warning"],
+        "width": 4,
+        "depth": 6,
+        "two_qubit_gates": 3,
+        "measure_count": 4,
     }
+    assert report.details["synthesis_source"].endswith("synthesis.json")
+    assert report.details["synthesis_metrics"] == report.synthesis_metrics
     assert fake_classiq.last_constraints.max_width == 4
     assert fake_classiq.last_preferences.backend_service_provider == "fake-cloud"
     assert fake_classiq.last_preferences.backend_name == "fake-backend"
@@ -101,6 +113,10 @@ def _build_fake_classiq_module() -> SimpleNamespace:
                     {
                         "program_id": self.program_id,
                         "warnings": self.synthesis_warnings,
+                        "width": 4,
+                        "depth": 6,
+                        "two_qubit_gates": 3,
+                        "measure_count": 4,
                     }
                 )
             )

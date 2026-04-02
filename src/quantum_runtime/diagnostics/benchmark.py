@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -67,18 +67,29 @@ def run_structural_benchmark(
             classiq_report = run_classiq_backend(qspec, workspace)
             if classiq_report.status == "ok":
                 resources = estimate_resources(qspec)
-                entries[normalized] = BackendBenchmark(
-                    backend=normalized,
-                    status="ok",
-                    width=resources.width,
-                    depth=resources.depth,
-                    transpiled_depth=resources.depth,
-                    two_qubit_gates=resources.two_qubit_gates,
-                    transpiled_two_qubit_gates=resources.two_qubit_gates,
-                    measure_count=resources.measure_count,
-                    notes=["Classiq benchmark uses QSpec baseline resources until richer synthesis metrics land"],
-                    details={"resource_source": "qspec_baseline"},
-                )
+                synthesis_metrics = _synthesis_metrics_from_report(classiq_report)
+                if synthesis_metrics:
+                    benchmark = _benchmark_from_synthesis_metrics(
+                        backend=normalized,
+                        synthesis_metrics=synthesis_metrics,
+                        baseline_resources=resources,
+                    )
+                else:
+                    benchmark = BackendBenchmark(
+                        backend=normalized,
+                        status="ok",
+                        width=resources.width,
+                        depth=resources.depth,
+                        transpiled_depth=resources.depth,
+                        two_qubit_gates=resources.two_qubit_gates,
+                        transpiled_two_qubit_gates=resources.two_qubit_gates,
+                        measure_count=resources.measure_count,
+                        notes=[
+                            "Classiq benchmark used fallback QSpec baseline resources because synthesis metrics were unavailable",
+                        ],
+                        details={"resource_source": "qspec_baseline"},
+                    )
+                entries[normalized] = benchmark
             else:
                 entries[normalized] = BackendBenchmark(
                     backend=normalized,
@@ -109,3 +120,67 @@ def _derive_status(backends: dict[str, BackendBenchmark]) -> Literal["ok", "degr
     if statuses - {"ok"}:
         return "degraded"
     return "ok"
+
+
+def _synthesis_metrics_from_report(classiq_report: object) -> dict[str, int]:
+    metrics = getattr(classiq_report, "synthesis_metrics", None)
+    if isinstance(metrics, dict) and metrics:
+        return _normalize_metrics(metrics)
+
+    details = getattr(classiq_report, "details", None)
+    if isinstance(details, dict):
+        nested = details.get("synthesis_metrics")
+        if isinstance(nested, dict) and nested:
+            return _normalize_metrics(nested)
+
+    return {}
+
+
+def _benchmark_from_synthesis_metrics(
+    *,
+    backend: str,
+    synthesis_metrics: dict[str, int],
+    baseline_resources: Any,
+) -> BackendBenchmark:
+    width = synthesis_metrics.get("width")
+    depth = synthesis_metrics.get("depth")
+    two_qubit_gates = synthesis_metrics.get("two_qubit_gates")
+    measure_count = synthesis_metrics.get("measure_count")
+
+    fallback_used = any(
+        value is None
+        for value in (width, depth, two_qubit_gates, measure_count)
+    )
+    width = width if width is not None else baseline_resources.width
+    depth = depth if depth is not None else baseline_resources.depth
+    two_qubit_gates = two_qubit_gates if two_qubit_gates is not None else baseline_resources.two_qubit_gates
+    measure_count = measure_count if measure_count is not None else baseline_resources.measure_count
+
+    notes = ["Classiq benchmark used synthesis metrics from synthesis.json"]
+    if fallback_used:
+        notes.append("Missing synthesis fields fell back to QSpec baseline resources.")
+
+    return BackendBenchmark(
+        backend=backend,
+        status="ok",
+        width=width,
+        depth=depth,
+        transpiled_depth=depth,
+        two_qubit_gates=two_qubit_gates,
+        transpiled_two_qubit_gates=two_qubit_gates,
+        measure_count=measure_count,
+        notes=notes,
+        details={
+            "resource_source": "classiq_synthesis",
+            "synthesis_metrics": synthesis_metrics,
+        },
+    )
+
+
+def _normalize_metrics(metrics: dict[str, int]) -> dict[str, int]:
+    normalized: dict[str, int] = {}
+    for key in ("width", "depth", "two_qubit_gates", "measure_count"):
+        value = metrics.get(key)
+        if isinstance(value, int):
+            normalized[key] = value
+    return normalized
