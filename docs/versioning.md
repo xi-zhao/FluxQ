@@ -1,5 +1,7 @@
 # Versioning Notes
 
+See also: `docs/plans/2026-04-02-product-roadmap.md` for the current product-level priority order and execution rationale.
+
 ## Runtime versions
 
 - `0.1.x`
