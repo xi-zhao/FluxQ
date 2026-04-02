@@ -7,6 +7,8 @@ from pathlib import Path
 import typer
 
 from quantum_runtime import __version__
+from quantum_runtime.diagnostics import run_structural_benchmark
+from quantum_runtime.qspec import QSpec
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -49,6 +51,52 @@ def init_command(
 def version_command() -> None:
     """Print the package version."""
     typer.echo(__version__)
+
+
+@app.command("bench")
+def bench_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains specs/current.json.",
+    ),
+    backends: str = typer.Option(
+        "qiskit-local,classiq",
+        "--backends",
+        help="Comma-separated backend list for structural benchmarking.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Run structural backend benchmarks against the current QSpec."""
+    handle = WorkspaceManager.load_or_init(workspace)
+    qspec_path = handle.root / "specs" / "current.json"
+
+    if not qspec_path.exists():
+        if json_output:
+            typer.echo('{"status":"error","reason":"missing_qspec"}')
+            raise typer.Exit(code=3)
+        raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+
+    qspec = QSpec.model_validate_json(qspec_path.read_text())
+    benchmark = run_structural_benchmark(
+        qspec,
+        handle,
+        [item.strip() for item in backends.split(",") if item.strip()],
+    )
+
+    if json_output:
+        typer.echo(benchmark.model_dump_json(indent=2))
+        return
+
+    typer.echo(f"Benchmark status: {benchmark.status}")
 
 
 def main() -> None:

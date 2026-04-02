@@ -23,7 +23,13 @@ def write_report(
     errors: list[str],
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
+    status = _derive_report_status(
+        warnings=warnings,
+        errors=errors,
+        backend_reports=backend_reports,
+    )
     payload: dict[str, Any] = {
+        "status": status,
         "revision": revision,
         "input": input_data,
         "qspec": {
@@ -35,7 +41,11 @@ def write_report(
         "backend_reports": backend_reports,
         "warnings": warnings,
         "errors": errors,
-        "suggestions": _build_suggestions(warnings, errors),
+        "suggestions": _build_suggestions(
+            warnings=warnings,
+            errors=errors,
+            backend_reports=backend_reports,
+        ),
     }
 
     latest_path = workspace.root / "reports" / "latest.json"
@@ -51,14 +61,51 @@ def _sha256_file(path: Path) -> str:
     return f"sha256:{digest}"
 
 
-def _build_suggestions(warnings: list[str], errors: list[str]) -> list[str]:
+def _derive_report_status(
+    *,
+    warnings: list[str],
+    errors: list[str],
+    backend_reports: dict[str, Any],
+) -> str:
+    if errors:
+        return "error"
+
+    backend_statuses = {
+        str(report.get("status"))
+        for report in backend_reports.values()
+        if isinstance(report, dict) and report.get("status") is not None
+    }
+    if warnings or any(status != "ok" for status in backend_statuses):
+        return "degraded"
+    return "ok"
+
+
+def _build_suggestions(
+    *,
+    warnings: list[str],
+    errors: list[str],
+    backend_reports: dict[str, Any],
+) -> list[str]:
     suggestions = []
     if errors:
         suggestions.append("Inspect the diagnostics errors before attempting export or execution.")
     else:
         suggestions.append("Review the generated artifacts and diagnostics report for the next backend step.")
+
+    classiq_status = None
+    classiq_report = backend_reports.get("classiq")
+    if isinstance(classiq_report, dict):
+        classiq_status = classiq_report.get("status")
+
+    if classiq_status == "dependency_missing":
+        suggestions.append("Install the Classiq SDK extra to enable Classiq synthesis and benchmarking.")
+    elif classiq_status and classiq_status != "ok":
+        suggestions.append("Resolve degraded backend reports before comparing backend benchmark results.")
+
     if warnings:
         suggestions.append("Resolve warnings before adding target constraints or backend benchmarks.")
-    else:
+    elif not backend_reports:
         suggestions.append("Add target constraints or backend benchmarks to deepen validation.")
+    else:
+        suggestions.append("Inspect backend benchmark deltas before expanding to additional targets.")
     return suggestions

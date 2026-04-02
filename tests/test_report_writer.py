@@ -57,6 +57,7 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert latest_path.exists()
 
     payload = json.loads(latest_path.read_text())
+    assert payload["status"] == "ok"
     assert payload["revision"] == revision
     assert payload["qspec"]["path"] == str(qspec_path)
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
@@ -88,5 +89,35 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
 
     assert len(summary) <= 1200
     assert revision in summary
+    assert "status" in summary.lower()
+    assert "artifacts" in summary.lower()
     assert "simulation" in summary.lower()
-    assert "qspec" in summary.lower()
+    assert "next" in summary.lower()
+
+
+def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    revision = handle.reserve_revision()
+    qspec_path = handle.root / "specs" / "current.json"
+    qspec_path.write_text('{"version":"0.1"}')
+
+    report = write_report(
+        workspace=handle,
+        revision=revision,
+        input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec_path=qspec_path,
+        artifacts={"qspec": str(qspec_path)},
+        diagnostics={"simulation": {"status": "ok", "shots": 32}},
+        backend_reports={
+            "classiq": {
+                "status": "dependency_missing",
+                "reason": "classiq_not_installed",
+            }
+        },
+        warnings=[],
+        errors=[],
+    )
+
+    assert report["status"] == "degraded"
+    assert any("classiq" in suggestion.lower() for suggestion in report["suggestions"])
+    assert any("install" in suggestion.lower() for suggestion in report["suggestions"])
