@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,6 +23,7 @@ from quantum_runtime.lowering import (
     write_qiskit_program,
 )
 from quantum_runtime.reporters import summarize_report, write_report
+from quantum_runtime.qspec import QSpec
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -52,10 +54,50 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
 
     intent = parse_intent_file(intent_file)
     qspec = plan_to_qspec(intent)
-
     latest_intent_path = handle.root / "intents" / "latest.md"
     latest_intent_path.write_text(intent_file.read_text())
     (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_file.read_text())
+
+    return _execute_qspec(
+        handle=handle,
+        revision=revision,
+        qspec=qspec,
+        requested_exports=set(intent.exports),
+        input_data={"mode": "intent", "path": str(intent_file)},
+        shots=int(intent.shots),
+    )
+
+
+def execute_qspec(*, workspace_root: Path, qspec_file: Path) -> ExecResult:
+    """Execute the deterministic generation pipeline for a serialized QSpec file."""
+    handle = WorkspaceManager.load_or_init(workspace_root)
+    revision = handle.reserve_revision()
+    handle.trace.append(
+        "exec_started",
+        {"qspec_file": str(qspec_file)},
+        revision=revision,
+    )
+    qspec = QSpec.model_validate_json(qspec_file.read_text())
+    return _execute_qspec(
+        handle=handle,
+        revision=revision,
+        qspec=qspec,
+        requested_exports=set(handle.manifest.default_exports),
+        input_data={"mode": "qspec", "path": str(qspec_file)},
+        shots=int(qspec.constraints.shots),
+    )
+
+
+def _execute_qspec(
+    *,
+    handle: Any,
+    revision: str,
+    qspec: QSpec,
+    requested_exports: set[str],
+    input_data: dict[str, str],
+    shots: int,
+) -> ExecResult:
+    """Persist QSpec, emit artifacts, run diagnostics, and write reports."""
 
     qspec_path = handle.root / "specs" / "current.json"
     qspec_text = qspec.model_dump_json(indent=2)
@@ -69,7 +111,6 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
     errors: list[str] = []
     backend_reports: dict[str, Any] = {}
 
-    requested_exports = set(intent.exports)
     if "qiskit" in requested_exports:
         artifacts["qiskit_code"] = str(
             write_qiskit_program(qspec, handle.root / "artifacts" / "qiskit" / "main.py")
@@ -86,7 +127,7 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
             warnings.append(classiq_emit.reason)
 
     diagrams = write_diagrams(qspec, handle)
-    simulation = run_local_simulation(qspec, shots=int(intent.shots))
+    simulation = run_local_simulation(qspec, shots=shots)
     resources = estimate_resources(qspec)
     transpile = validate_target_constraints(qspec)
     diagnostics = {
@@ -112,7 +153,7 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
     report = write_report(
         workspace=handle,
         revision=revision,
-        input_data={"mode": "intent", "path": str(intent_file)},
+        input_data=input_data,
         qspec_path=qspec_path,
         artifacts=artifacts,
         diagnostics=diagnostics,
@@ -123,10 +164,9 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
     report_path = handle.root / "reports" / "latest.json"
     artifacts["report"] = str(report_path)
     report["artifacts"]["report"] = str(report_path)
-    report_path.write_text(__import__("json").dumps(report, indent=2, ensure_ascii=True))
-    (handle.root / "reports" / "history" / f"{revision}.json").write_text(
-        __import__("json").dumps(report, indent=2, ensure_ascii=True)
-    )
+    serialized_report = json.dumps(report, indent=2, ensure_ascii=True)
+    report_path.write_text(serialized_report)
+    (handle.root / "reports" / "history" / f"{revision}.json").write_text(serialized_report)
     summary = summarize_report(report)
 
     result = ExecResult(

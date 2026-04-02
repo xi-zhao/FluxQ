@@ -6,6 +6,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.intent.parser import parse_intent_file
+from quantum_runtime.intent.planner import plan_to_qspec
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -46,3 +48,49 @@ def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path)
 
     trace_lines = (workspace / "trace" / "events.ndjson").read_text().strip().splitlines()
     assert any('"event_type": "exec_completed"' in line for line in trace_lines)
+
+
+def test_qrun_exec_json_accepts_qspec_file_input(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    qspec_path = tmp_path / "ghz-qspec.json"
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--qspec-file",
+            str(qspec_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert Path(payload["artifacts"]["qspec"]).exists()
+    assert Path(payload["artifacts"]["qiskit_code"]).exists()
+    assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
+
+
+def test_qrun_exec_json_requires_exactly_one_input_source(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "expected_exactly_one_input"

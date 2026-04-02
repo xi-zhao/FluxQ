@@ -20,7 +20,13 @@ Use aionrs through files plus shell commands. Do not build a custom aionrs tool 
 
 4. Read `.quantum/reports/latest.json` and inspect generated artifacts before editing emitted code.
 
-5. Optionally run a lightweight post-tool benchmark hook:
+5. Optionally run a lightweight post-tool health hook:
+
+   ```bash
+   qrun doctor --workspace .quantum
+   ```
+
+6. If you want a structural backend comparison, run:
 
    ```bash
    qrun bench --workspace .quantum --json

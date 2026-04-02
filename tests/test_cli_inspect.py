@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from typer.testing import CliRunner
+
+from quantum_runtime.cli import app
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNNER = CliRunner()
+
+
+def test_qrun_inspect_json_summarizes_current_workspace_state(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 0, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["revision"].startswith("rev_")
+    assert payload["qspec"]["goal"].lower().startswith("generate a 4-qubit ghz")
+    assert payload["qspec"]["registers"]["qubits"] == 4
+    assert payload["artifacts"]["qiskit_code"].endswith("artifacts/qiskit/main.py")
+    assert payload["diagnostics"]["simulation"]["status"] == "ok"
+    assert "qiskit" in payload["backend_capabilities"]

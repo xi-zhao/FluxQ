@@ -53,3 +53,20 @@ def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     assert payload["status"] == "degraded"
     assert payload["backends"]["qiskit-local"]["depth"] == 5
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+
+
+def test_qrun_bench_json_returns_exit_code_3_when_qspec_is_missing(tmp_path: Path) -> None:
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(tmp_path / ".quantum"),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "missing_qspec"

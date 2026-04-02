@@ -2,6 +2,7 @@
 
 from .manager import InitResult, WorkspaceHandle, WorkspaceManager
 from .manifest import WorkspaceManifest
+from .paths import WorkspacePaths
 from .trace import TraceEvent, TraceWriter
 
 __all__ = [
@@ -11,4 +12,5 @@ __all__ = [
     "WorkspaceHandle",
     "WorkspaceManager",
     "WorkspaceManifest",
+    "WorkspacePaths",
 ]

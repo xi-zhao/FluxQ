@@ -24,8 +24,9 @@ def test_aionrs_integration_assets_exist_with_runnable_workflow() -> None:
     assert "do not handwrite large quantum programs first" in claude_text.lower()
 
     assert "[hooks.post_tool_use]" in hooks_text
-    assert "qrun bench --workspace .quantum --json" in hooks_text
+    assert "qrun doctor --workspace .quantum" in hooks_text
 
     assert "do not build a custom aionrs tool" in doc_text.lower()
     assert "qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --json" in doc_text
+    assert "qrun doctor --workspace .quantum" in doc_text
     assert "qrun bench --workspace .quantum --json" in doc_text
