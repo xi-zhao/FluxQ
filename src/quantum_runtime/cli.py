@@ -18,6 +18,12 @@ from quantum_runtime.runtime import (
     list_backends,
     run_doctor,
 )
+from quantum_runtime.runtime.exit_codes import (
+    exit_code_for_benchmark,
+    exit_code_for_doctor,
+    exit_code_for_exec,
+    exit_code_for_export,
+)
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -105,9 +111,10 @@ def bench_command(
 
     if json_output:
         typer.echo(benchmark.model_dump_json(indent=2))
-        return
+        raise typer.Exit(code=exit_code_for_benchmark(benchmark))
 
     typer.echo(f"Benchmark status: {benchmark.status}")
+    raise typer.Exit(code=exit_code_for_benchmark(benchmark))
 
 
 @app.command("export")
@@ -143,9 +150,10 @@ def export_command(
     result = export_artifact(workspace_root=workspace, output_format=output_format)
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
-        raise typer.Exit(code=0 if result.status == "ok" else 4)
+        raise typer.Exit(code=exit_code_for_export(result))
 
     typer.echo(result.path or result.reason or result.status)
+    raise typer.Exit(code=exit_code_for_export(result))
 
 
 @app.command("exec")
@@ -210,9 +218,10 @@ def exec_command(
         result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
-        return
+        raise typer.Exit(code=exit_code_for_exec(result))
 
     typer.echo(result.summary)
+    raise typer.Exit(code=exit_code_for_exec(result))
 
 
 @app.command("inspect")
@@ -265,8 +274,9 @@ def doctor_command(
     report = run_doctor(workspace_root=workspace, fix=fix)
     if json_output:
         typer.echo(report.model_dump_json(indent=2))
-        return
+        raise typer.Exit(code=exit_code_for_doctor(report))
     typer.echo(f"doctor status: {report.status}")
+    raise typer.Exit(code=exit_code_for_doctor(report))
 
 
 @backend_app.command("list")

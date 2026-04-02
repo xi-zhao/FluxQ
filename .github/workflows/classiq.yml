@@ -1,0 +1,30 @@
+name: Classiq Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_classiq:
+        description: Run Classiq-only tests
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  classiq:
+    if: ${{ inputs.run_classiq }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and Classiq extras
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev,classiq]'
+
+      - name: Run Classiq-only tests
+        run: pytest -q tests/test_classiq_backend.py tests/test_classiq_emitter.py
+

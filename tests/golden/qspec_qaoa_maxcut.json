@@ -1,0 +1,67 @@
+{
+  "version": "0.1",
+  "program_id": "prog_qaoa_ansatz_4",
+  "title": "QAOA MaxCut",
+  "goal": "Build a 4-qubit MaxCut QAOA ansatz.",
+  "entrypoint": "main",
+  "registers": [
+    {
+      "kind": "qubit",
+      "name": "q",
+      "size": 4
+    },
+    {
+      "kind": "cbit",
+      "name": "c",
+      "size": 4
+    }
+  ],
+  "parameters": [],
+  "body": [
+    {
+      "kind": "pattern",
+      "pattern": "qaoa_ansatz",
+      "args": {
+        "register": "q",
+        "size": 4
+      }
+    },
+    {
+      "kind": "measure",
+      "qubits": [
+        "q[0]",
+        "q[1]",
+        "q[2]",
+        "q[3]"
+      ],
+      "cbits": [
+        "c[0]",
+        "c[1]",
+        "c[2]",
+        "c[3]"
+      ]
+    }
+  ],
+  "observables": [],
+  "constraints": {
+    "max_width": 4,
+    "max_depth": 128,
+    "basis_gates": [
+      "h",
+      "cx",
+      "rz",
+      "rx"
+    ],
+    "connectivity_map": null,
+    "backend_provider": null,
+    "backend_name": null,
+    "shots": 512,
+    "optimization_level": 2
+  },
+  "backend_preferences": [
+    "qiskit-local"
+  ],
+  "metadata": {
+    "source": "intent"
+  }
+}

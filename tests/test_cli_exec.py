@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.runtime.executor import ExecResult
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
 
@@ -117,3 +118,141 @@ def test_qrun_exec_json_accepts_intent_text_input(tmp_path: Path) -> None:
     assert Path(payload["artifacts"]["qspec"]).exists()
     assert Path(payload["artifacts"]["qiskit_code"]).exists()
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
+
+
+def test_qrun_exec_json_returns_exit_code_2_for_degraded_result(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.cli.execute_intent_text",
+        lambda workspace_root, intent_text: ExecResult(
+            status="degraded",
+            workspace=str(workspace_root),
+            revision="rev_000001",
+            summary="degraded execution",
+            warnings=["classiq dependency missing"],
+            errors=[],
+            artifacts={},
+            diagnostics={
+                "simulation": {"status": "ok"},
+                "transpile": {"status": "ok"},
+            },
+            backend_reports={},
+            next_actions=[],
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["warnings"] == ["classiq dependency missing"]
+
+
+def test_qrun_exec_json_returns_exit_code_6_for_simulation_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    qspec_path = tmp_path / "ghz-qspec.json"
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    monkeypatch.setattr(
+        "quantum_runtime.cli.execute_qspec",
+        lambda workspace_root, qspec_file: ExecResult(
+            status="error",
+            workspace=str(workspace_root),
+            revision="rev_000002",
+            summary="simulation failed",
+            warnings=[],
+            errors=[],
+            artifacts={},
+            diagnostics={
+                "simulation": {"status": "error", "error": "Aer unavailable"},
+                "transpile": {"status": "ok"},
+            },
+            backend_reports={},
+            next_actions=[],
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--qspec-file",
+            str(qspec_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 6, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["diagnostics"]["simulation"]["status"] == "error"
+
+
+def test_qrun_exec_json_returns_exit_code_7_for_dependency_missing_backend(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.cli.execute_intent_text",
+        lambda workspace_root, intent_text: ExecResult(
+            status="degraded",
+            workspace=str(workspace_root),
+            revision="rev_000003",
+            summary="classiq dependency missing",
+            warnings=["classiq dependency missing"],
+            errors=[],
+            artifacts={},
+            diagnostics={
+                "simulation": {"status": "ok"},
+                "transpile": {"status": "ok"},
+            },
+            backend_reports={
+                "classiq": {
+                    "status": "dependency_missing",
+                    "reason": "classiq_not_installed",
+                }
+            },
+            next_actions=[],
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 7, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["backend_reports"]["classiq"]["status"] == "dependency_missing"

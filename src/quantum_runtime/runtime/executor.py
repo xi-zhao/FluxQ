@@ -23,7 +23,7 @@ from quantum_runtime.lowering import (
     write_qiskit_program,
 )
 from quantum_runtime.reporters import summarize_report, write_report
-from quantum_runtime.qspec import QSpec
+from quantum_runtime.qspec import QSpec, normalize_qspec, validate_qspec
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -45,15 +45,14 @@ class ExecResult(BaseModel):
 def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
     """Execute the deterministic generation pipeline for an intent file."""
     handle = WorkspaceManager.load_or_init(workspace_root)
+    intent = parse_intent_file(intent_file)
+    qspec = _prepare_qspec(plan_to_qspec(intent))
     revision = handle.reserve_revision()
     handle.trace.append(
         "exec_started",
         {"intent_file": str(intent_file)},
         revision=revision,
     )
-
-    intent = parse_intent_file(intent_file)
-    qspec = plan_to_qspec(intent)
     latest_intent_path = handle.root / "intents" / "latest.md"
     latest_intent_path.write_text(intent_file.read_text())
     (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_file.read_text())
@@ -71,15 +70,14 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
 def execute_intent_text(*, workspace_root: Path, intent_text: str) -> ExecResult:
     """Execute the deterministic generation pipeline for inline intent text."""
     handle = WorkspaceManager.load_or_init(workspace_root)
+    intent = parse_intent_text(intent_text)
+    qspec = _prepare_qspec(plan_to_qspec(intent))
     revision = handle.reserve_revision()
     handle.trace.append(
         "exec_started",
         {"intent_text": intent_text},
         revision=revision,
     )
-
-    intent = parse_intent_text(intent_text)
-    qspec = plan_to_qspec(intent)
     latest_intent_path = handle.root / "intents" / "latest.md"
     latest_intent_path.write_text(intent_text)
     (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_text)
@@ -97,13 +95,13 @@ def execute_intent_text(*, workspace_root: Path, intent_text: str) -> ExecResult
 def execute_qspec(*, workspace_root: Path, qspec_file: Path) -> ExecResult:
     """Execute the deterministic generation pipeline for a serialized QSpec file."""
     handle = WorkspaceManager.load_or_init(workspace_root)
+    qspec = _prepare_qspec(QSpec.model_validate_json(qspec_file.read_text()))
     revision = handle.reserve_revision()
     handle.trace.append(
         "exec_started",
         {"qspec_file": str(qspec_file)},
         revision=revision,
     )
-    qspec = QSpec.model_validate_json(qspec_file.read_text())
     return _execute_qspec(
         handle=handle,
         revision=revision,
@@ -217,3 +215,9 @@ def _execute_qspec(
         revision=revision,
     )
     return result
+
+
+def _prepare_qspec(qspec: QSpec) -> QSpec:
+    """Canonicalize and validate a QSpec before any workspace side effects."""
+    prepared = normalize_qspec(qspec)
+    return validate_qspec(prepared)

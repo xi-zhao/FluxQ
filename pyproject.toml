@@ -21,6 +21,8 @@ classiq = [
 ]
 dev = [
   "pytest>=8.0",
+  "ruff>=0.6.0",
+  "mypy>=1.11",
 ]
 
 [project.scripts]
@@ -38,3 +40,11 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["tests/golden", "tests/test_qspec_validation.py"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

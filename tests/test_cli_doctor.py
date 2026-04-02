@@ -31,7 +31,7 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
         ["doctor", "--workspace", str(workspace), "--json", "--fix"],
     )
 
-    assert result.exit_code == 0, result.stdout
+    assert result.exit_code == 7, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
     assert payload["workspace_ok"] is True
@@ -39,3 +39,29 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert payload["dependencies"]["qiskit"]["available"] is True
     assert payload["dependencies"]["qiskit_aer"]["available"] is True
     assert payload["dependencies"]["classiq"]["available"] is False
+
+
+def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor._check_import",
+        lambda module_name: {
+            "module": module_name,
+            "available": True,
+            "error": None,
+        },
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json"],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["workspace_ok"] is False

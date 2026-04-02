@@ -22,6 +22,15 @@ def test_plan_ghz_intent_matches_golden_snapshot() -> None:
     assert qspec.model_dump(mode="json") == golden
 
 
+def test_plan_qaoa_intent_matches_golden_snapshot() -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
+
+    qspec = plan_to_qspec(intent)
+    golden = json.loads((PROJECT_ROOT / "tests" / "golden" / "qspec_qaoa_maxcut.json").read_text())
+
+    assert qspec.model_dump(mode="json") == golden
+
+
 @pytest.mark.parametrize(
     ("goal", "expected_pattern", "expected_size"),
     [

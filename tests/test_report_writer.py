@@ -70,22 +70,42 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
 def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()
+
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
     qspec_path = handle.root / "specs" / "current.json"
-    qspec_path.write_text('{"version":"0.1"}')
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    diagrams = write_diagrams(qspec, handle)
+    simulation = run_local_simulation(qspec, shots=64)
+    resources = estimate_resources(qspec)
 
     report = write_report(
         workspace=handle,
         revision=revision,
         input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
         qspec_path=qspec_path,
-        artifacts={"qspec": str(qspec_path)},
-        diagnostics={"simulation": {"status": "ok", "shots": 32}},
+        artifacts={
+            "qspec": str(qspec_path),
+            "diagram_txt": str(diagrams.text_path),
+            "diagram_png": str(diagrams.png_path),
+        },
+        diagnostics={
+            "simulation": simulation.model_dump(mode="json"),
+            "resources": resources.model_dump(mode="json"),
+            "diagram": {
+                "text_path": str(diagrams.text_path),
+                "png_path": str(diagrams.png_path),
+            },
+        },
         backend_reports={},
         warnings=[],
         errors=[],
     )
 
     summary = summarize_report(report)
+    golden = (PROJECT_ROOT / "tests" / "golden" / "report_summary_ghz.txt").read_text().strip()
+    normalized_summary = summary.replace(revision, "<revision>").replace(str(qspec_path), "<qspec_path>")
 
     assert len(summary) <= 1200
     assert revision in summary
@@ -93,6 +113,7 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     assert "artifacts" in summary.lower()
     assert "simulation" in summary.lower()
     assert "next" in summary.lower()
+    assert normalized_summary == golden
 
 
 def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:

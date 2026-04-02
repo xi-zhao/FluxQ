@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from quantum_runtime.backends import ClassiqBackendReport
+from quantum_runtime.diagnostics.benchmark import BackendBenchmark, BenchmarkReport
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
@@ -28,11 +28,21 @@ def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     current_qspec.write_text(qspec.model_dump_json(indent=2))
 
     monkeypatch.setattr(
-        "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
-        lambda qspec, workspace: ClassiqBackendReport(
-            status="dependency_missing",
-            reason="classiq_not_installed",
-            code_path=workspace.root / "artifacts" / "classiq" / "main.py",
+        "quantum_runtime.cli.run_structural_benchmark",
+        lambda qspec, workspace, backends: BenchmarkReport(
+            status="degraded",
+            backends={
+                "qiskit-local": BackendBenchmark(
+                    backend="qiskit-local",
+                    status="ok",
+                    width=4,
+                    depth=5,
+                    transpiled_depth=5,
+                    two_qubit_gates=3,
+                    transpiled_two_qubit_gates=3,
+                    measure_count=4,
+                )
+            },
         ),
     )
 
@@ -48,11 +58,63 @@ def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
         ],
     )
 
-    assert result.exit_code == 0, result.stdout
+    assert result.exit_code == 2, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
     assert payload["backends"]["qiskit-local"]["depth"] == 5
+
+
+def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+    current_qspec = handle.root / "specs" / "current.json"
+    current_qspec.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--backends",
+            "qiskit-local,classiq",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 7, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+
+
+def test_qrun_bench_json_returns_exit_code_4_for_unknown_backend(
+    tmp_path: Path,
+) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    current_qspec = handle.root / "specs" / "current.json"
+    current_qspec.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--backends",
+            "qiskit-local,unknown-backend",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["backends"]["unknown-backend"]["status"] == "backend_unavailable"
 
 
 def test_qrun_bench_json_returns_exit_code_3_when_qspec_is_missing(tmp_path: Path) -> None:

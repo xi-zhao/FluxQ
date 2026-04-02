@@ -65,3 +65,24 @@ def test_qrun_export_json_writes_requested_classiq_artifact(tmp_path: Path) -> N
     assert payload["format"] == "classiq-python"
     assert Path(payload["path"]).exists()
     assert "@qfunc" in Path(payload["path"]).read_text()
+
+
+def test_qrun_export_returns_exit_code_4_for_unsupported_format(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(handle.root),
+            "--format",
+            "not-a-format",
+        ],
+    )
+
+    assert result.exit_code == 4, result.stdout
+    assert "unsupported_export_format" in result.stdout
