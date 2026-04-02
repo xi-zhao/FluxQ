@@ -79,6 +79,43 @@ def test_qrun_export_json_accepts_report_file_input(tmp_path: Path) -> None:
     assert Path(payload["path"]).exists()
 
 
+def test_qrun_export_json_accepts_history_revision_input(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["format"] == "qasm3"
+    assert Path(payload["path"]).exists()
+
+
 def test_qrun_export_json_writes_requested_classiq_artifact(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -10,6 +11,9 @@ from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
+    ImportReference,
+    ImportResolution,
+    ImportSourceError,
     ReportImportError,
     execute_intent,
     execute_intent_text,
@@ -19,7 +23,7 @@ from quantum_runtime.runtime import (
     export_artifact_from_report,
     inspect_workspace,
     list_backends,
-    load_qspec_from_report,
+    resolve_import_reference,
     run_doctor,
 )
 from quantum_runtime.runtime.exit_codes import (
@@ -39,6 +43,37 @@ app = typer.Typer(
 )
 backend_app = typer.Typer(add_completion=False, help="Backend discovery helpers.")
 app.add_typer(backend_app, name="backend")
+
+
+def _json_error(reason: str) -> None:
+    typer.echo(json.dumps({"status": "error", "reason": reason}))
+    raise typer.Exit(code=3)
+
+
+def _resolve_report_import(
+    *,
+    workspace: Path,
+    report_file: Path | None,
+    revision: str | None,
+) -> ImportResolution | None:
+    if report_file is None and revision is None:
+        return None
+    if report_file is not None and revision is not None:
+        raise ReportImportError("report_source_conflict")
+
+    reference = (
+        ImportReference(report_file=report_file)
+        if report_file is not None
+        else ImportReference(workspace_root=workspace, revision=revision)
+    )
+    try:
+        return resolve_import_reference(reference)
+    except ImportSourceError as exc:
+        if report_file is None or exc.code != "workspace_root_required_for_report_file":
+            raise
+        return resolve_import_reference(
+            ImportReference(workspace_root=workspace, report_file=report_file)
+        )
 
 
 @app.command("init")
@@ -101,6 +136,11 @@ def bench_command(
         resolve_path=False,
         help="Previously generated report JSON file to re-import for benchmarking.",
     ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to re-import for benchmarking.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -110,20 +150,27 @@ def bench_command(
     """Run structural backend benchmarks against the current QSpec."""
     handle = WorkspaceManager.load_or_init(workspace)
     try:
-        if report_file is not None:
-            qspec = load_qspec_from_report(report_file)
+        import_resolution = _resolve_report_import(
+            workspace=handle.root,
+            report_file=report_file,
+            revision=revision,
+        )
+        if import_resolution is not None:
+            qspec = import_resolution.load_qspec()
         else:
             qspec_path = handle.root / "specs" / "current.json"
             if not qspec_path.exists():
                 if json_output:
-                    typer.echo('{"status":"error","reason":"missing_qspec"}')
-                    raise typer.Exit(code=3)
+                    _json_error("missing_qspec")
                 raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
             qspec = QSpec.model_validate_json(qspec_path.read_text())
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid report input: {exc.code}") from exc
     except ReportImportError as exc:
         if json_output:
-            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
-            raise typer.Exit(code=3) from exc
+            _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
     benchmark = run_structural_benchmark(
@@ -166,6 +213,11 @@ def export_command(
         resolve_path=False,
         help="Previously generated report JSON file to re-import for export.",
     ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to re-import for export.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -174,24 +226,31 @@ def export_command(
 ) -> None:
     """Re-export one artifact from the current workspace QSpec."""
     try:
-        if report_file is not None:
+        import_resolution = _resolve_report_import(
+            workspace=workspace,
+            report_file=report_file,
+            revision=revision,
+        )
+        if import_resolution is not None:
             result = export_artifact_from_report(
                 workspace_root=workspace,
-                report_file=report_file,
+                report_file=import_resolution.report_path,
                 output_format=output_format,
             )
         else:
             qspec_path = workspace / "specs" / "current.json"
             if not qspec_path.exists():
                 if json_output:
-                    typer.echo('{"status":"error","reason":"missing_qspec"}')
-                    raise typer.Exit(code=3)
+                    _json_error("missing_qspec")
                 raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
             result = export_artifact(workspace_root=workspace, output_format=output_format)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid report input: {exc.code}") from exc
     except ReportImportError as exc:
         if json_output:
-            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
-            raise typer.Exit(code=3) from exc
+            _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
     if json_output:
@@ -243,6 +302,11 @@ def exec_command(
         resolve_path=False,
         help="Previously generated report JSON file to re-import and execute.",
     ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to re-import and execute.",
+    ),
     intent_text: str | None = typer.Option(
         None,
         "--intent-text",
@@ -257,30 +321,42 @@ def exec_command(
     """Execute an intent file through the deterministic runtime pipeline."""
     inputs_provided = sum(
         value is not None
-        for value in (intent_file, qspec_file, report_file, intent_text)
+        for value in (intent_file, qspec_file, report_file, revision, intent_text)
     )
     if inputs_provided != 1:
         if json_output:
             typer.echo('{"status":"error","reason":"expected_exactly_one_input"}')
             raise typer.Exit(code=3)
         raise typer.BadParameter(
-            "Provide exactly one of --intent-file, --qspec-file, --report-file, or --intent-text."
+            "Provide exactly one of --intent-file, --qspec-file, --report-file, --revision, or --intent-text."
         )
 
     try:
         if intent_file is not None:
             result = execute_intent(workspace_root=workspace, intent_file=intent_file)
-        elif report_file is not None:
-            result = execute_report(workspace_root=workspace, report_file=report_file)
+        elif report_file is not None or revision is not None:
+            import_resolution = _resolve_report_import(
+                workspace=workspace,
+                report_file=report_file,
+                revision=revision,
+            )
+            assert import_resolution is not None
+            result = execute_report(
+                workspace_root=workspace,
+                report_file=import_resolution.report_path,
+            )
         elif intent_text is not None:
             result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
         else:
             assert qspec_file is not None
             result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid report input: {exc.code}") from exc
     except ReportImportError as exc:
         if json_output:
-            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
-            raise typer.Exit(code=3) from exc
+            _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
     if json_output:
         typer.echo(result.model_dump_json(indent=2))

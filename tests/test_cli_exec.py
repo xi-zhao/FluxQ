@@ -116,6 +116,41 @@ def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
 
 
+def test_qrun_exec_json_accepts_history_revision_input(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert Path(payload["artifacts"]["qspec"]).exists()
+    assert Path(payload["artifacts"]["qasm3"]).exists()
+
+
 def test_qrun_exec_json_accepts_relative_report_qspec_path(tmp_path: Path) -> None:
     source_workspace = tmp_path / ".quantum-source"
     target_workspace = tmp_path / ".quantum-target"
@@ -177,6 +212,41 @@ def test_qrun_exec_json_returns_exit_code_3_for_invalid_report_input(tmp_path: P
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "report_qspec_path_missing"
+
+
+def test_qrun_exec_json_returns_exit_code_3_for_missing_history_revision(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_999999",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "report_revision_missing"
 
 
 def test_qrun_exec_json_requires_exactly_one_input_source(tmp_path: Path) -> None:

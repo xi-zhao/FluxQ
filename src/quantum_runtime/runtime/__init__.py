@@ -12,6 +12,7 @@ from .executor import (
     load_qspec_from_report,
 )
 from .export import ExportResult, export_artifact, export_artifact_from_report
+from .imports import ImportReference, ImportResolution, ImportSourceError, resolve_import_reference
 from .inspect import InspectReport, inspect_workspace
 
 __all__ = [
@@ -19,6 +20,9 @@ __all__ = [
     "DoctorReport",
     "ExecResult",
     "ExportResult",
+    "ImportReference",
+    "ImportResolution",
+    "ImportSourceError",
     "InspectReport",
     "ReportImportError",
     "collect_backend_capabilities",
@@ -31,5 +35,6 @@ __all__ = [
     "inspect_workspace",
     "list_backends",
     "load_qspec_from_report",
+    "resolve_import_reference",
     "run_doctor",
 ]

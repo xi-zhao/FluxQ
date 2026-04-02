@@ -123,6 +123,64 @@ def test_qrun_bench_json_accepts_report_file_input(
     assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 3
 
 
+def test_qrun_bench_json_accepts_history_revision_input(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    monkeypatch.setattr(
+        "quantum_runtime.cli.run_structural_benchmark",
+        lambda qspec, workspace, backends: BenchmarkReport(
+            status="ok",
+            backends={
+                "qiskit-local": BackendBenchmark(
+                    backend="qiskit-local",
+                    status="ok",
+                    width=4,
+                    depth=5,
+                    transpiled_depth=5,
+                    two_qubit_gates=3,
+                    transpiled_two_qubit_gates=3,
+                    measure_count=4,
+                )
+            },
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["backends"]["qiskit-local"]["depth"] == 5
+
+
 def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
