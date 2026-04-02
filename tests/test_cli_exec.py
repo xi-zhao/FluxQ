@@ -78,6 +78,107 @@ def test_qrun_exec_json_accepts_qspec_file_input(tmp_path: Path) -> None:
     assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
 
 
+def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    report_path = source_workspace / "reports" / "latest.json"
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--report-file",
+            str(report_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert Path(payload["artifacts"]["qspec"]).exists()
+    assert Path(payload["artifacts"]["qiskit_code"]).exists()
+    assert payload["diagnostics"]["simulation"]["status"] == "ok"
+
+
+def test_qrun_exec_json_accepts_relative_report_qspec_path(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    report_path = source_workspace / "reports" / "latest.json"
+    payload = json.loads(report_path.read_text())
+    payload["qspec"]["path"] = "specs/current.json"
+    report_path.write_text(json.dumps(payload, indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--report-file",
+            str(report_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    exec_payload = json.loads(result.stdout)
+    assert exec_payload["status"] == "ok"
+    assert Path(exec_payload["artifacts"]["qasm3"]).exists()
+
+
+def test_qrun_exec_json_returns_exit_code_3_for_invalid_report_input(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    report_path = tmp_path / "broken-report.json"
+    report_path.write_text(json.dumps({"status": "ok", "qspec": {}}, indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--report-file",
+            str(report_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "report_qspec_path_missing"
+
+
 def test_qrun_exec_json_requires_exactly_one_input_source(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 

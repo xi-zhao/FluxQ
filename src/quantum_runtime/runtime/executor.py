@@ -27,6 +27,14 @@ from quantum_runtime.qspec import QSpec, normalize_qspec, validate_qspec
 from quantum_runtime.workspace import WorkspaceManager
 
 
+class ReportImportError(ValueError):
+    """Raised when a report cannot be used as an execution input."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class ExecResult(BaseModel):
     """Machine-readable result returned by `qrun exec --json`."""
 
@@ -108,6 +116,28 @@ def execute_qspec(*, workspace_root: Path, qspec_file: Path) -> ExecResult:
         qspec=qspec,
         requested_exports=set(handle.manifest.default_exports),
         input_data={"mode": "qspec", "path": str(qspec_file)},
+        shots=int(qspec.constraints.shots),
+    )
+
+
+def execute_report(*, workspace_root: Path, report_file: Path) -> ExecResult:
+    """Execute the deterministic generation pipeline using a previously written report."""
+    handle = WorkspaceManager.load_or_init(workspace_root)
+    payload = _load_report_payload(report_file)
+    qspec_path = _resolve_report_qspec_path(report_file=report_file, payload=payload)
+    qspec = _load_report_qspec(qspec_path)
+    revision = handle.reserve_revision()
+    handle.trace.append(
+        "exec_started",
+        {"report_file": str(report_file)},
+        revision=revision,
+    )
+    return _execute_qspec(
+        handle=handle,
+        revision=revision,
+        qspec=qspec,
+        requested_exports=_requested_exports_from_report(payload, handle.manifest.default_exports),
+        input_data={"mode": "report", "path": str(report_file)},
         shots=int(qspec.constraints.shots),
     )
 
@@ -221,3 +251,71 @@ def _prepare_qspec(qspec: QSpec) -> QSpec:
     """Canonicalize and validate a QSpec before any workspace side effects."""
     prepared = normalize_qspec(qspec)
     return validate_qspec(prepared)
+
+
+def _load_report_payload(report_file: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(report_file.read_text())
+    except FileNotFoundError as exc:
+        raise ReportImportError("report_file_missing") from exc
+    except json.JSONDecodeError as exc:
+        raise ReportImportError("report_file_invalid_json") from exc
+
+    if not isinstance(payload, dict):
+        raise ReportImportError("report_file_invalid_payload")
+    return payload
+
+
+def _resolve_report_qspec_path(*, report_file: Path, payload: dict[str, Any]) -> Path:
+    qspec_block = payload.get("qspec")
+    if not isinstance(qspec_block, dict):
+        raise ReportImportError("report_qspec_block_missing")
+
+    raw_path = qspec_block.get("path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ReportImportError("report_qspec_path_missing")
+
+    qspec_path = Path(raw_path)
+    if not qspec_path.is_absolute():
+        candidates = _relative_report_qspec_candidates(report_file=report_file, qspec_path=qspec_path)
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
+
+    return qspec_path
+
+
+def _relative_report_qspec_candidates(*, report_file: Path, qspec_path: Path) -> list[Path]:
+    workspace_root = report_file.parent.parent if report_file.parent.name == "reports" else report_file.parent
+    return [
+        workspace_root / qspec_path,
+        report_file.parent / qspec_path,
+    ]
+
+
+def _requested_exports_from_report(payload: dict[str, Any], default_exports: list[str]) -> set[str]:
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return set(default_exports)
+
+    requested_exports: set[str] = set()
+    if isinstance(artifacts.get("qiskit_code"), str):
+        requested_exports.add("qiskit")
+    if isinstance(artifacts.get("qasm3"), str):
+        requested_exports.add("qasm3")
+    if isinstance(artifacts.get("classiq_code"), str):
+        requested_exports.add("classiq-python")
+
+    return requested_exports or set(default_exports)
+
+
+def _load_report_qspec(qspec_path: Path) -> QSpec:
+    try:
+        return _prepare_qspec(QSpec.model_validate_json(qspec_path.read_text()))
+    except FileNotFoundError as exc:
+        raise ReportImportError("report_qspec_missing") from exc
+    except json.JSONDecodeError as exc:
+        raise ReportImportError("report_qspec_invalid_json") from exc
+    except Exception as exc:
+        raise ReportImportError("report_qspec_invalid") from exc

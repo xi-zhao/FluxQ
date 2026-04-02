@@ -10,9 +10,11 @@ from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
+    ReportImportError,
     execute_intent,
     execute_intent_text,
     execute_qspec,
+    execute_report,
     export_artifact,
     inspect_workspace,
     list_backends,
@@ -188,6 +190,16 @@ def exec_command(
         resolve_path=False,
         help="Serialized QSpec JSON file to execute.",
     ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to re-import and execute.",
+    ),
     intent_text: str | None = typer.Option(
         None,
         "--intent-text",
@@ -202,21 +214,31 @@ def exec_command(
     """Execute an intent file through the deterministic runtime pipeline."""
     inputs_provided = sum(
         value is not None
-        for value in (intent_file, qspec_file, intent_text)
+        for value in (intent_file, qspec_file, report_file, intent_text)
     )
     if inputs_provided != 1:
         if json_output:
             typer.echo('{"status":"error","reason":"expected_exactly_one_input"}')
             raise typer.Exit(code=3)
-        raise typer.BadParameter("Provide exactly one of --intent-file, --qspec-file, or --intent-text.")
+        raise typer.BadParameter(
+            "Provide exactly one of --intent-file, --qspec-file, --report-file, or --intent-text."
+        )
 
-    if intent_file is not None:
-        result = execute_intent(workspace_root=workspace, intent_file=intent_file)
-    elif intent_text is not None:
-        result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
-    else:
-        assert qspec_file is not None
-        result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
+    try:
+        if intent_file is not None:
+            result = execute_intent(workspace_root=workspace, intent_file=intent_file)
+        elif report_file is not None:
+            result = execute_report(workspace_root=workspace, report_file=report_file)
+        elif intent_text is not None:
+            result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
+        else:
+            assert qspec_file is not None
+            result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
+    except ReportImportError as exc:
+        if json_output:
+            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
+            raise typer.Exit(code=3) from exc
+        raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=exit_code_for_exec(result))

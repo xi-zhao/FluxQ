@@ -20,6 +20,7 @@ uv pip install -e '.[dev,qiskit]'
 qrun init --workspace .quantum --json
 qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
 qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json
+qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json
 qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json
 qrun inspect --workspace .quantum --json
 qrun export --workspace .quantum --format qasm3 --json
@@ -67,6 +68,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun init --workspace .quantum --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
 - `qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json`
+- `qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
 - `qrun inspect --workspace .quantum --json`
 - `qrun export --workspace .quantum --format qiskit --json`
