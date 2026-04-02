@@ -32,6 +32,8 @@ def test_compare_import_resolutions_detects_same_subject_across_workspaces(tmp_p
     assert result.left.qspec_summary["pattern"] == "ghz"
     assert result.right.qspec_summary["pattern"] == "ghz"
     assert "report_artifact_changed" in result.differences
+    assert result.highlights[0] == "Same workload identity (ghz) across both inputs."
+    assert result.highlights[1] == "Identical QSpec semantics, but report artifacts or runtime outputs differ."
 
 
 def test_compare_import_resolutions_detects_semantic_drift_across_revisions(tmp_path: Path) -> None:
@@ -59,3 +61,10 @@ def test_compare_import_resolutions_detects_semantic_drift_across_revisions(tmp_
     assert "pattern" in result.semantic_delta["changed_fields"]
     assert "parameter_count" in result.semantic_delta["changed_fields"]
     assert any(diff.startswith("semantic_subject_changed") for diff in result.differences)
+    assert result.diagnostic_delta["resource_fields_changed"] == [
+        "depth",
+        "two_qubit_gates",
+        "parameter_count",
+    ]
+    assert result.highlights[0] == "Different workload identity: ghz -> qaoa_ansatz."
+    assert any("Structural diagnostics changed:" in highlight for highlight in result.highlights)

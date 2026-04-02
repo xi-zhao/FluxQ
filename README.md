@@ -48,6 +48,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - sample hooks: `integrations/aionrs/hooks.example.toml`
 - reports include stable provenance metadata for replay and inspection
 - reports, inspect, and compare all expose stable semantic hashes for workload identity
+- `qrun compare` explains whether two runtime inputs represent the same workload or only differ in outputs/diagnostics
 
 ## Workspace Layout
 

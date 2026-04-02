@@ -36,6 +36,9 @@ class CompareResult(BaseModel):
     differences: list[str] = Field(default_factory=list)
     semantic_delta: dict[str, Any] = Field(default_factory=dict)
     report_delta: dict[str, Any] = Field(default_factory=dict)
+    diagnostic_delta: dict[str, Any] = Field(default_factory=dict)
+    backend_delta: dict[str, Any] = Field(default_factory=dict)
+    highlights: list[str] = Field(default_factory=list)
     left: CompareSide
     right: CompareSide
 
@@ -55,12 +58,26 @@ def compare_import_resolutions(left: ImportResolution, right: ImportResolution) 
 
     semantic_delta = _semantic_delta(left_qspec, right_qspec)
     report_delta = _report_delta(left_report, right_report)
+    diagnostic_delta = _diagnostic_delta(left_report, right_report)
+    backend_delta = _backend_delta(left_report, right_report)
     differences = _differences(
         same_subject=same_subject,
         same_qspec=same_qspec,
         same_report=same_report,
         semantic_delta=semantic_delta,
         report_delta=report_delta,
+        diagnostic_delta=diagnostic_delta,
+        backend_delta=backend_delta,
+    )
+    highlights = _highlights(
+        same_subject=same_subject,
+        same_qspec=same_qspec,
+        same_report=same_report,
+        semantic_delta=semantic_delta,
+        diagnostic_delta=diagnostic_delta,
+        backend_delta=backend_delta,
+        left_report=left_report,
+        right_report=right_report,
     )
 
     return CompareResult(
@@ -71,6 +88,9 @@ def compare_import_resolutions(left: ImportResolution, right: ImportResolution) 
         differences=differences,
         semantic_delta=semantic_delta,
         report_delta=report_delta,
+        diagnostic_delta=diagnostic_delta,
+        backend_delta=backend_delta,
+        highlights=highlights,
         left=_compare_side(left),
         right=_compare_side(right),
     )
@@ -124,6 +144,56 @@ def _report_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _diagnostic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    left_resources = left.get("resource_summary")
+    right_resources = right.get("resource_summary")
+    fields = ("width", "depth", "two_qubit_gates", "measure_count", "parameter_count")
+    changed_fields = [
+        field
+        for field in fields
+        if _resource_value(left_resources, field) != _resource_value(right_resources, field)
+    ]
+    return {
+        "simulation_status_changed": left.get("simulation_status") != right.get("simulation_status"),
+        "transpile_status_changed": left.get("transpile_status") != right.get("transpile_status"),
+        "resource_fields_changed": changed_fields,
+        "left": {
+            "simulation_status": left.get("simulation_status"),
+            "transpile_status": left.get("transpile_status"),
+            "resources": {
+                field: _resource_value(left_resources, field)
+                for field in fields
+            },
+        },
+        "right": {
+            "simulation_status": right.get("simulation_status"),
+            "transpile_status": right.get("transpile_status"),
+            "resources": {
+                field: _resource_value(right_resources, field)
+                for field in fields
+            },
+        },
+    }
+
+
+def _backend_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    left_statuses = _string_mapping(left.get("backend_statuses"))
+    right_statuses = _string_mapping(right.get("backend_statuses"))
+    changed = {
+        name: {
+            "left": left_statuses.get(name),
+            "right": right_statuses.get(name),
+        }
+        for name in sorted(set(left_statuses) & set(right_statuses))
+        if left_statuses.get(name) != right_statuses.get(name)
+    }
+    return {
+        "added": sorted(set(right_statuses) - set(left_statuses)),
+        "removed": sorted(set(left_statuses) - set(right_statuses)),
+        "status_changed": changed,
+    }
+
+
 def _differences(
     *,
     same_subject: bool,
@@ -131,6 +201,8 @@ def _differences(
     same_report: bool,
     semantic_delta: dict[str, Any],
     report_delta: dict[str, Any],
+    diagnostic_delta: dict[str, Any],
+    backend_delta: dict[str, Any],
 ) -> list[str]:
     differences: list[str] = []
     if not same_subject:
@@ -155,10 +227,102 @@ def _differences(
         differences.append("artifact_set_changed")
     if report_delta.get("backend_names_added") or report_delta.get("backend_names_removed"):
         differences.append("backend_set_changed")
+    if diagnostic_delta.get("simulation_status_changed"):
+        differences.append("simulation_status_changed")
+    if diagnostic_delta.get("transpile_status_changed"):
+        differences.append("transpile_status_changed")
+    resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
+    if isinstance(resource_fields_changed, list) and resource_fields_changed:
+        differences.append("resource_metrics_changed:" + ",".join(str(field) for field in resource_fields_changed))
+    status_changed = backend_delta.get("status_changed")
+    if isinstance(status_changed, dict) and status_changed:
+        differences.append("backend_status_changed")
     return differences
+
+
+def _highlights(
+    *,
+    same_subject: bool,
+    same_qspec: bool,
+    same_report: bool,
+    semantic_delta: dict[str, Any],
+    diagnostic_delta: dict[str, Any],
+    backend_delta: dict[str, Any],
+    left_report: dict[str, Any],
+    right_report: dict[str, Any],
+) -> list[str]:
+    highlights: list[str] = []
+
+    if same_subject:
+        pattern = semantic_delta.get("left", {}).get("pattern")
+        highlights.append(f"Same workload identity ({pattern}) across both inputs.")
+    else:
+        left_pattern = semantic_delta.get("left", {}).get("pattern", "unknown")
+        right_pattern = semantic_delta.get("right", {}).get("pattern", "unknown")
+        highlights.append(f"Different workload identity: {left_pattern} -> {right_pattern}.")
+
+    if same_subject and same_qspec and not same_report:
+        highlights.append("Identical QSpec semantics, but report artifacts or runtime outputs differ.")
+    elif same_subject and not same_qspec:
+        highlights.append("Same workload identity, but serialized QSpec artifacts differ.")
+
+    resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
+    if isinstance(resource_fields_changed, list) and resource_fields_changed:
+        left_resources = diagnostic_delta.get("left", {}).get("resources", {})
+        right_resources = diagnostic_delta.get("right", {}).get("resources", {})
+        fields = ", ".join(
+            f"{field} {left_resources.get(field)} -> {right_resources.get(field)}"
+            for field in resource_fields_changed[:3]
+        )
+        highlights.append(f"Structural diagnostics changed: {fields}.")
+
+    backend_status_changed = backend_delta.get("status_changed")
+    if isinstance(backend_status_changed, dict) and backend_status_changed:
+        fragments = ", ".join(
+            f"{name} {delta.get('left')} -> {delta.get('right')}"
+            for name, delta in sorted(backend_status_changed.items())
+        )
+        highlights.append(f"Backend status changes: {fragments}.")
+
+    if backend_delta.get("added") or backend_delta.get("removed"):
+        added = ",".join(str(name) for name in backend_delta.get("added", []))
+        removed = ",".join(str(name) for name in backend_delta.get("removed", []))
+        change_parts = []
+        if added:
+            change_parts.append(f"added {added}")
+        if removed:
+            change_parts.append(f"removed {removed}")
+        highlights.append("Backend coverage changed: " + "; ".join(change_parts) + ".")
+
+    warning_delta = int(right_report.get("warning_count", 0) or 0) - int(left_report.get("warning_count", 0) or 0)
+    error_delta = int(right_report.get("error_count", 0) or 0) - int(left_report.get("error_count", 0) or 0)
+    if warning_delta or error_delta:
+        highlights.append(
+            f"Quality signals changed: warnings {warning_delta:+d}, errors {error_delta:+d}."
+        )
+
+    return highlights
 
 
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value]
+
+
+def _string_mapping(value: object) -> dict[str, str | None]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): _optional_string(item) for key, item in value.items()}
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _resource_value(summary: object, field: str) -> Any:
+    if not isinstance(summary, dict):
+        return None
+    return summary.get(field)

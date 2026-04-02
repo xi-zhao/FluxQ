@@ -497,9 +497,11 @@ def compare_command(
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=exit_code_for_compare(result))
 
+    highlight = result.highlights[0] if result.highlights else "no_highlights"
     typer.echo(
         f"{result.status}; left={result.left.revision}; right={result.right.revision}; "
-        f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}"
+        f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}; "
+        f"highlight={highlight}"
     )
     raise typer.Exit(code=exit_code_for_compare(result))
 

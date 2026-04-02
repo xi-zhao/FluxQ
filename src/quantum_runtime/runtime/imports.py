@@ -434,6 +434,10 @@ def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
     warnings = report_payload.get("warnings") if isinstance(report_payload, dict) else []
     errors = report_payload.get("errors") if isinstance(report_payload, dict) else []
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
+    diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
+    simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
+    transpile = diagnostics.get("transpile") if isinstance(diagnostics, dict) else {}
+    resources = diagnostics.get("resources") if isinstance(diagnostics, dict) else {}
 
     return {
         "status": report_payload.get("status"),
@@ -442,6 +446,21 @@ def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
         "input_path": input_block.get("path") if isinstance(input_block, dict) else None,
         "artifact_names": sorted(artifacts.keys()) if isinstance(artifacts, dict) else [],
         "backend_names": sorted(backend_reports.keys()) if isinstance(backend_reports, dict) else [],
+        "backend_statuses": {
+            str(name): report.get("status")
+            for name, report in sorted(backend_reports.items())
+            if isinstance(report, dict)
+        }
+        if isinstance(backend_reports, dict)
+        else {},
+        "simulation_status": simulation.get("status") if isinstance(simulation, dict) else None,
+        "transpile_status": transpile.get("status") if isinstance(transpile, dict) else None,
+        "resource_summary": {
+            key: resources.get(key)
+            for key in ("width", "depth", "two_qubit_gates", "measure_count", "parameter_count")
+        }
+        if isinstance(resources, dict)
+        else {},
         "warning_count": len(warnings) if isinstance(warnings, list) else 0,
         "error_count": len(errors) if isinstance(errors, list) else 0,
     }

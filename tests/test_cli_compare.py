@@ -62,6 +62,7 @@ def test_qrun_compare_json_detects_same_subject_across_current_and_report_file(t
     assert payload["same_report"] is False
     assert payload["left"]["qspec_summary"]["pattern"] == "ghz"
     assert payload["right"]["qspec_summary"]["pattern"] == "ghz"
+    assert payload["highlights"][0] == "Same workload identity (ghz) across both inputs."
 
 
 def test_qrun_compare_json_detects_semantic_drift_across_revisions(tmp_path: Path) -> None:
@@ -115,6 +116,12 @@ def test_qrun_compare_json_detects_semantic_drift_across_revisions(tmp_path: Pat
     assert payload["semantic_delta"]["right"]["pattern"] == "qaoa_ansatz"
     assert "semantic_subject_changed:pattern" not in payload["differences"]
     assert any(item.startswith("semantic_subject_changed") for item in payload["differences"])
+    assert payload["diagnostic_delta"]["resource_fields_changed"] == [
+        "depth",
+        "two_qubit_gates",
+        "parameter_count",
+    ]
+    assert payload["highlights"][0] == "Different workload identity: ghz -> qaoa_ansatz."
 
 
 def test_qrun_compare_json_returns_exit_code_3_for_conflicting_left_source(tmp_path: Path) -> None:
@@ -139,3 +146,50 @@ def test_qrun_compare_json_returns_exit_code_3_for_conflicting_left_source(tmp_p
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "left_source_conflict"
+
+
+def test_qrun_compare_plaintext_surfaces_first_highlight(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--left-revision",
+            "rev_000001",
+            "--right-revision",
+            "rev_000002",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    assert "different_subject" in compare_result.stdout
+    assert "highlight=Different workload identity: ghz -> qaoa_ansatz." in compare_result.stdout
