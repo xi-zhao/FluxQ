@@ -140,6 +140,44 @@ def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> No
     )
 
 
+def test_write_report_records_report_and_qspec_aliases_in_artifact_provenance(
+    tmp_path: Path,
+) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    revision = handle.reserve_revision()
+
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec_path = handle.root / "specs" / "history" / f"{revision}.json"
+    qspec_path.parent.mkdir(parents=True, exist_ok=True)
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    report = write_report(
+        workspace=handle,
+        revision=revision,
+        input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=qspec,
+        qspec_path=qspec_path,
+        artifacts={"qspec": str(qspec_path)},
+        diagnostics={"simulation": {"status": "ok", "shots": 32}},
+        backend_reports={},
+        warnings=[],
+        errors=[],
+    )
+
+    assert report["artifacts"]["report"] == str(handle.root / "reports" / "history" / f"{revision}.json")
+    assert report["provenance"]["artifacts"]["paths"]["qspec"] == str(qspec_path)
+    assert report["provenance"]["artifacts"]["paths"]["report"] == str(
+        handle.root / "reports" / "history" / f"{revision}.json"
+    )
+    assert report["provenance"]["artifacts"]["current_aliases"]["qspec"] == str(
+        handle.root / "specs" / "current.json"
+    )
+    assert report["provenance"]["artifacts"]["current_aliases"]["report"] == str(
+        handle.root / "reports" / "latest.json"
+    )
+
+
 def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()
@@ -179,7 +217,11 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
 
     summary = summarize_report(report)
     golden = (PROJECT_ROOT / "tests" / "golden" / "report_summary_ghz.txt").read_text().strip()
-    normalized_summary = summary.replace(revision, "<revision>").replace(str(qspec_path), "<qspec_path>")
+    normalized_summary = (
+        summary.replace(revision, "<revision>")
+        .replace(str(qspec_path), "<qspec_path>")
+        .replace(",report", "")
+    )
 
     assert len(summary) <= 1200
     assert revision in summary

@@ -319,11 +319,6 @@ def _extract_artifact_provenance(
     artifacts: Any,
     provenance: Any,
 ) -> dict[str, Any]:
-    if isinstance(provenance, dict):
-        artifact_provenance = provenance.get("artifacts")
-        if isinstance(artifact_provenance, dict):
-            return artifact_provenance
-
     snapshot_root = workspace_root / "artifacts" / "history" / revision
     current_root = workspace_root / "artifacts"
     paths: dict[str, str] = {}
@@ -342,7 +337,10 @@ def _extract_artifact_provenance(
             continue
         artifact_path = Path(raw_path)
         alias_path = _derive_current_artifact_alias(
+            name=str(name),
             artifact_path=artifact_path,
+            workspace_root=workspace_root,
+            revision=revision,
             snapshot_root=snapshot_root,
             current_root=current_root,
         )
@@ -351,12 +349,26 @@ def _extract_artifact_provenance(
         paths[str(name)] = str(artifact_path)
         current_aliases[str(name)] = str(alias_path)
 
-    return {
+    reconstructed = {
         "snapshot_root": str(snapshot_root),
         "current_root": str(current_root),
         "paths": paths,
         "current_aliases": current_aliases,
     }
+    if isinstance(provenance, dict):
+        artifact_provenance = provenance.get("artifacts")
+        if isinstance(artifact_provenance, dict):
+            merged_paths = dict(reconstructed["paths"])
+            merged_paths.update(artifact_provenance.get("paths", {}))
+            merged_aliases = dict(reconstructed["current_aliases"])
+            merged_aliases.update(artifact_provenance.get("current_aliases", {}))
+            return {
+                "snapshot_root": artifact_provenance.get("snapshot_root", reconstructed["snapshot_root"]),
+                "current_root": artifact_provenance.get("current_root", reconstructed["current_root"]),
+                "paths": merged_paths,
+                "current_aliases": merged_aliases,
+            }
+    return reconstructed
 
 
 def _load_manifest(path: Path) -> WorkspaceManifest:
@@ -553,10 +565,24 @@ def _sha256_file(path: Path) -> str:
 
 def _derive_current_artifact_alias(
     *,
+    name: str,
     artifact_path: Path,
+    workspace_root: Path,
+    revision: str,
     snapshot_root: Path,
     current_root: Path,
 ) -> Path | None:
+    if name == "qspec":
+        if artifact_path == workspace_root / "specs" / "current.json":
+            return artifact_path
+        if artifact_path == workspace_root / "specs" / "history" / f"{revision}.json":
+            return workspace_root / "specs" / "current.json"
+    if name == "report":
+        if artifact_path == workspace_root / "reports" / "latest.json":
+            return artifact_path
+        if artifact_path == workspace_root / "reports" / "history" / f"{revision}.json":
+            return workspace_root / "reports" / "latest.json"
+
     if artifact_path.is_absolute():
         if artifact_path.is_relative_to(snapshot_root):
             return current_root / artifact_path.relative_to(snapshot_root)

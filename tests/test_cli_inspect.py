@@ -55,9 +55,17 @@ def test_qrun_inspect_json_summarizes_current_workspace_state(tmp_path: Path) ->
         f"artifacts/history/{payload['revision']}"
     )
     assert payload["provenance"]["artifacts"]["paths"]["qiskit_code"] == payload["artifacts"]["qiskit_code"]
+    assert payload["provenance"]["artifacts"]["paths"]["qspec"].endswith(
+        f"specs/history/{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["paths"]["report"].endswith(
+        f"reports/history/{payload['revision']}.json"
+    )
     assert payload["provenance"]["artifacts"]["current_aliases"]["qiskit_code"].endswith(
         "artifacts/qiskit/main.py"
     )
+    assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"].endswith("specs/current.json")
+    assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert "qiskit" in payload["backend_capabilities"]
 

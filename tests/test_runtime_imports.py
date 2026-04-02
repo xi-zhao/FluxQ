@@ -49,8 +49,20 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
     assert resolution.report_summary["artifact_names"][-1] == "report"
     assert resolution.artifacts["report"] == str(workspace / "reports" / "history" / "rev_000001.json")
     assert resolution.provenance["workspace_source"] == "inferred_from_report_path"
+    assert resolution.provenance["artifacts"]["paths"]["report"] == str(
+        workspace / "reports" / "history" / "rev_000001.json"
+    )
+    assert resolution.provenance["artifacts"]["paths"]["qspec"] == str(
+        workspace / "specs" / "history" / "rev_000001.json"
+    )
     assert resolution.provenance["artifacts"]["current_aliases"]["qiskit_code"] == str(
         workspace / "artifacts" / "qiskit" / "main.py"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["report"] == str(
+        workspace / "reports" / "latest.json"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["qspec"] == str(
+        workspace / "specs" / "current.json"
     )
     assert resolution.load_report()["revision"] == "rev_000001"
 

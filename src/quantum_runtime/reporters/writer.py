@@ -26,6 +26,11 @@ def write_report(
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
     semantics = summarize_qspec_semantics(qspec)
+    latest_path = workspace.root / "reports" / "latest.json"
+    history_path = workspace.root / "reports" / "history" / f"{revision}.json"
+    artifact_payload = dict(artifacts)
+    artifact_payload["qspec"] = str(qspec_path)
+    artifact_payload["report"] = str(history_path)
     status = _derive_report_status(
         warnings=warnings,
         errors=errors,
@@ -41,7 +46,7 @@ def write_report(
             input_data=input_data,
             qspec_path=qspec_path,
             semantics=semantics,
-            artifacts=artifacts,
+            artifacts=artifact_payload,
         ),
         "qspec": {
             "path": str(qspec_path),
@@ -49,7 +54,7 @@ def write_report(
             "semantic_hash": semantics["semantic_hash"],
         },
         "semantics": semantics,
-        "artifacts": artifacts,
+        "artifacts": artifact_payload,
         "diagnostics": diagnostics,
         "backend_reports": backend_reports,
         "warnings": warnings,
@@ -61,8 +66,6 @@ def write_report(
         ),
     }
 
-    latest_path = workspace.root / "reports" / "latest.json"
-    history_path = workspace.root / "reports" / "history" / f"{revision}.json"
     serialized = json.dumps(payload, indent=2, ensure_ascii=True)
     latest_path.write_text(serialized)
     history_path.write_text(serialized)
@@ -126,7 +129,10 @@ def _build_artifact_provenance(
             continue
         artifact_path = Path(raw_path)
         alias_path = _derive_current_artifact_alias(
+            name=str(name),
             artifact_path=artifact_path,
+            workspace_root=workspace.root,
+            revision=revision,
             snapshot_root=snapshot_root,
             current_root=current_root,
         )
@@ -145,10 +151,24 @@ def _build_artifact_provenance(
 
 def _derive_current_artifact_alias(
     *,
+    name: str,
     artifact_path: Path,
+    workspace_root: Path,
+    revision: str,
     snapshot_root: Path,
     current_root: Path,
 ) -> Path | None:
+    if name == "qspec":
+        if artifact_path == workspace_root / "specs" / "current.json":
+            return artifact_path
+        if artifact_path == workspace_root / "specs" / "history" / f"{revision}.json":
+            return workspace_root / "specs" / "current.json"
+    if name == "report":
+        if artifact_path == workspace_root / "reports" / "latest.json":
+            return artifact_path
+        if artifact_path == workspace_root / "reports" / "history" / f"{revision}.json":
+            return workspace_root / "reports" / "latest.json"
+
     if artifact_path.is_absolute():
         if artifact_path.is_relative_to(snapshot_root):
             return current_root / artifact_path.relative_to(snapshot_root)
