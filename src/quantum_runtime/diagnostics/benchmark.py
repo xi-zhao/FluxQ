@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from quantum_runtime.backends import run_classiq_backend
 from quantum_runtime.diagnostics.resources import estimate_resources
+from quantum_runtime.diagnostics.transpile_validate import validate_target_constraints
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.workspace import WorkspaceHandle
 
@@ -19,9 +20,12 @@ class BackendBenchmark(BaseModel):
     status: Literal["ok", "dependency_missing", "backend_unavailable", "error"]
     width: int | None = None
     depth: int | None = None
+    transpiled_depth: int | None = None
     two_qubit_gates: int | None = None
+    transpiled_two_qubit_gates: int | None = None
     measure_count: int | None = None
     reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
     details: dict[str, object] = Field(default_factory=dict)
 
 
@@ -45,13 +49,17 @@ def run_structural_benchmark(
             continue
         if normalized == "qiskit-local":
             resources = estimate_resources(qspec)
+            transpile_report = validate_target_constraints(qspec)
             entries[normalized] = BackendBenchmark(
                 backend=normalized,
                 status="ok",
                 width=resources.width,
                 depth=resources.depth,
+                transpiled_depth=transpile_report.transpiled_depth,
                 two_qubit_gates=resources.two_qubit_gates,
+                transpiled_two_qubit_gates=transpile_report.transpiled_two_qubit_gates,
                 measure_count=resources.measure_count,
+                notes=["Local Qiskit structural benchmark"],
             )
             continue
 
@@ -64,8 +72,11 @@ def run_structural_benchmark(
                     status="ok",
                     width=resources.width,
                     depth=resources.depth,
+                    transpiled_depth=resources.depth,
                     two_qubit_gates=resources.two_qubit_gates,
+                    transpiled_two_qubit_gates=resources.two_qubit_gates,
                     measure_count=resources.measure_count,
+                    notes=["Classiq benchmark uses QSpec baseline resources until richer synthesis metrics land"],
                     details={"resource_source": "qspec_baseline"},
                 )
             else:
@@ -73,6 +84,7 @@ def run_structural_benchmark(
                     backend=normalized,
                     status=classiq_report.status,
                     reason=classiq_report.reason,
+                    notes=["Dependency or backend availability issue blocked Classiq benchmarking"],
                     details=dict(classiq_report.details),
                 )
             continue
@@ -81,6 +93,7 @@ def run_structural_benchmark(
             backend=normalized,
             status="backend_unavailable",
             reason="unknown_backend",
+            notes=["Backend is not recognized by this runtime build"],
         )
 
     return BenchmarkReport(

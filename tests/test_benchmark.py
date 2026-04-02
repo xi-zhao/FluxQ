@@ -36,6 +36,9 @@ def test_run_structural_benchmark_reports_qiskit_and_classiq_statuses(
     assert report.backends["qiskit-local"].status == "ok"
     assert report.backends["qiskit-local"].width == 4
     assert report.backends["qiskit-local"].depth == 5
+    assert report.backends["qiskit-local"].transpiled_depth == 5
     assert report.backends["qiskit-local"].two_qubit_gates == 3
+    assert any("local" in note.lower() for note in report.backends["qiskit-local"].notes)
     assert report.backends["classiq"].status == "dependency_missing"
     assert report.backends["classiq"].reason == "classiq_not_installed"
+    assert any("dependency" in note.lower() for note in report.backends["classiq"].notes)
