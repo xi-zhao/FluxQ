@@ -32,12 +32,13 @@ class InspectReport(BaseModel):
 def inspect_workspace(workspace_root: Path) -> InspectReport:
     """Read the current workspace state into a compact inspection payload."""
     paths = WorkspacePaths(root=workspace_root)
+    normalized_root = paths.root
     issues: list[str] = []
     warnings: list[str] = []
     errors: list[str] = []
     workspace_info: dict[str, Any] = {
-        "root": str(workspace_root),
-        "exists": workspace_root.exists(),
+        "root": str(normalized_root),
+        "exists": normalized_root.exists(),
         "manifest_path": str(paths.workspace_json),
     }
 
@@ -53,8 +54,8 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
 
     active_spec_rel = manifest.active_spec if manifest is not None else "specs/current.json"
     active_report_rel = manifest.active_report if manifest is not None else "reports/latest.json"
-    active_spec_path = workspace_root / active_spec_rel
-    active_report_path = workspace_root / active_report_rel
+    active_spec_path = normalized_root / active_spec_rel
+    active_report_path = normalized_root / active_report_rel
 
     workspace_info.update(
         {
@@ -65,7 +66,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     )
     revision = manifest.current_revision if manifest is not None else "unknown"
 
-    if workspace_root.exists():
+    if normalized_root.exists():
         missing_directories = [str(path) for path in paths.required_directories() if not path.exists()]
         if missing_directories:
             issues.append("missing_directories:" + ",".join(missing_directories))
@@ -82,7 +83,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     errors.extend(report_errors)
     provenance = _build_provenance(
         latest_report=latest_report,
-        workspace_root=workspace_root,
+        workspace_root=normalized_root,
         revision=revision,
         active_spec_path=active_spec_path,
         active_report_path=active_report_path,

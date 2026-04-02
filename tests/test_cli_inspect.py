@@ -9,6 +9,7 @@ from quantum_runtime.backends.classiq_backend import ClassiqBackendReport
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
+from quantum_runtime.runtime.inspect import inspect_workspace
 from quantum_runtime.workspace import WorkspaceManager
 
 
@@ -202,6 +203,56 @@ def test_qrun_inspect_json_reconstructs_partial_artifact_provenance(tmp_path: Pa
     )
     assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"].endswith("specs/current.json")
     assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
+
+
+def test_inspect_workspace_normalizes_relative_root_and_repairs_partial_provenance(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    workspace = Path("tmp-review-relative-inspect")
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    absolute_workspace = (tmp_path / workspace).resolve()
+    report_path = absolute_workspace / "reports" / "latest.json"
+    report = json.loads(report_path.read_text())
+    report["provenance"]["artifacts"]["paths"] = {}
+    report["provenance"]["artifacts"]["current_aliases"] = {}
+    report_path.write_text(json.dumps(report, indent=2))
+
+    payload = inspect_workspace(workspace).model_dump(mode="json")
+
+    assert payload["workspace"]["root"] == str(absolute_workspace)
+    assert payload["provenance"]["workspace_root"] == str(absolute_workspace)
+    assert payload["qspec"]["path"] == str(absolute_workspace / "specs" / "current.json")
+    assert payload["provenance"]["report"]["path"] == str(absolute_workspace / "reports" / "latest.json")
+    assert payload["provenance"]["artifacts"]["paths"]["qspec"] == str(
+        absolute_workspace / "specs" / "history" / f"{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["paths"]["qspec"].endswith(
+        f"specs/history/{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["paths"]["report"].endswith(
+        f"reports/history/{payload['revision']}.json"
+    )
+    assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"] == str(
+        absolute_workspace / "specs" / "current.json"
+    )
+    assert payload["provenance"]["artifacts"]["current_aliases"]["report"] == str(
+        absolute_workspace / "reports" / "latest.json"
+    )
 
 
 def test_qrun_inspect_json_returns_exit_code_2_for_missing_manifest(tmp_path: Path) -> None:
