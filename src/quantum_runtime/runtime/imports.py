@@ -265,9 +265,18 @@ def _build_resolution(
     qspec_hash = _sha256_file(qspec_path)
     report_summary = _summarize_report(report_payload)
     qspec_summary = _summarize_qspec(qspec)
+    artifact_provenance = _extract_artifact_provenance(
+        workspace_root=workspace_root,
+        revision=revision,
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+    )
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
+    if artifact_provenance:
+        report_summary["artifact_snapshot_root"] = artifact_provenance.get("snapshot_root")
+        report_summary["artifact_current_aliases"] = artifact_provenance.get("current_aliases", {})
 
     return ImportResolution(
         source_kind=source_kind,
@@ -298,8 +307,56 @@ def _build_resolution(
             "report_hash": report_hash,
             "qspec_hash": qspec_hash,
             "revision": revision,
+            "artifacts": artifact_provenance,
         },
     )
+
+
+def _extract_artifact_provenance(
+    *,
+    workspace_root: Path,
+    revision: str,
+    artifacts: Any,
+    provenance: Any,
+) -> dict[str, Any]:
+    if isinstance(provenance, dict):
+        artifact_provenance = provenance.get("artifacts")
+        if isinstance(artifact_provenance, dict):
+            return artifact_provenance
+
+    snapshot_root = workspace_root / "artifacts" / "history" / revision
+    current_root = workspace_root / "artifacts"
+    paths: dict[str, str] = {}
+    current_aliases: dict[str, str] = {}
+
+    if not isinstance(artifacts, dict):
+        return {
+            "snapshot_root": str(snapshot_root),
+            "current_root": str(current_root),
+            "paths": paths,
+            "current_aliases": current_aliases,
+        }
+
+    for name, raw_path in artifacts.items():
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        artifact_path = Path(raw_path)
+        alias_path = _derive_current_artifact_alias(
+            artifact_path=artifact_path,
+            snapshot_root=snapshot_root,
+            current_root=current_root,
+        )
+        if alias_path is None:
+            continue
+        paths[str(name)] = str(artifact_path)
+        current_aliases[str(name)] = str(alias_path)
+
+    return {
+        "snapshot_root": str(snapshot_root),
+        "current_root": str(current_root),
+        "paths": paths,
+        "current_aliases": current_aliases,
+    }
 
 
 def _load_manifest(path: Path) -> WorkspaceManifest:
@@ -492,6 +549,26 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
+
+
+def _derive_current_artifact_alias(
+    *,
+    artifact_path: Path,
+    snapshot_root: Path,
+    current_root: Path,
+) -> Path | None:
+    if artifact_path.is_absolute():
+        if artifact_path.is_relative_to(snapshot_root):
+            return current_root / artifact_path.relative_to(snapshot_root)
+        if artifact_path.is_relative_to(current_root):
+            return artifact_path
+        return None
+
+    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
+        return current_root / Path(*artifact_path.parts[3:])
+    if artifact_path.parts[:1] == ("artifacts",):
+        return artifact_path
+    return None
 
 
 def _reference_source(reference: ImportReference) -> str:

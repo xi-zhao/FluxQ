@@ -224,7 +224,18 @@ def _execute_qspec(
 
     if "classiq" in qspec.backend_preferences:
         classiq_backend_report = run_classiq_backend(qspec, handle)
-        backend_reports["classiq"] = classiq_backend_report.model_dump(mode="json")
+        classiq_backend_payload = classiq_backend_report.model_dump(mode="json")
+        if classiq_backend_report.code_path is not None and classiq_backend_report.code_path.exists():
+            classiq_code_snapshot = handle.root / "artifacts" / "history" / revision / "classiq" / "main.py"
+            classiq_code_path = _snapshot_artifact(classiq_backend_report.code_path, classiq_code_snapshot)
+            artifacts.setdefault("classiq_code", str(classiq_code_path))
+            classiq_backend_payload["code_path"] = str(classiq_code_path)
+        if classiq_backend_report.results_path is not None and classiq_backend_report.results_path.exists():
+            classiq_results_snapshot = handle.root / "artifacts" / "history" / revision / "classiq" / "synthesis.json"
+            classiq_results_path = _snapshot_artifact(classiq_backend_report.results_path, classiq_results_snapshot)
+            artifacts["classiq_results"] = str(classiq_results_path)
+            classiq_backend_payload["results_path"] = str(classiq_results_path)
+        backend_reports["classiq"] = classiq_backend_payload
         if classiq_backend_report.status == "dependency_missing":
             warnings.append(classiq_backend_report.reason or "classiq_dependency_missing")
         elif classiq_backend_report.status == "error":

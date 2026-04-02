@@ -80,6 +80,66 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert report == payload
 
 
+def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    revision = handle.reserve_revision()
+
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+
+    qspec_path = handle.root / "specs" / "history" / f"{revision}.json"
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    snapshot_root = handle.root / "artifacts" / "history" / revision
+    qiskit_snapshot = snapshot_root / "qiskit" / "main.py"
+    diagram_txt_snapshot = snapshot_root / "figures" / "circuit.txt"
+    diagram_png_snapshot = snapshot_root / "figures" / "circuit.png"
+    for path, content in (
+        (qiskit_snapshot, "from qiskit import QuantumCircuit\n"),
+        (diagram_txt_snapshot, "q0: --H--\n"),
+        (diagram_png_snapshot, "png"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    report = write_report(
+        workspace=handle,
+        revision=revision,
+        input_data={"mode": "intent", "path": "examples/intent-ghz.md"},
+        qspec=qspec,
+        qspec_path=qspec_path,
+        artifacts={
+            "qspec": str(qspec_path),
+            "qiskit_code": str(qiskit_snapshot),
+            "diagram_txt": str(diagram_txt_snapshot),
+            "diagram_png": str(diagram_png_snapshot),
+        },
+        diagnostics={
+            "simulation": {"status": "ok", "shots": 64},
+            "resources": {"width": 4, "depth": 4, "two_qubit_gates": 3},
+            "diagram": {
+                "text_path": str(diagram_txt_snapshot),
+                "png_path": str(diagram_png_snapshot),
+            },
+        },
+        backend_reports={},
+        warnings=[],
+        errors=[],
+    )
+
+    artifact_provenance = report["provenance"]["artifacts"]
+    assert artifact_provenance["snapshot_root"] == str(snapshot_root)
+    assert artifact_provenance["current_root"] == str(handle.root / "artifacts")
+    assert artifact_provenance["paths"]["qiskit_code"] == str(qiskit_snapshot)
+    assert artifact_provenance["paths"]["diagram_txt"] == str(diagram_txt_snapshot)
+    assert artifact_provenance["current_aliases"]["qiskit_code"] == str(
+        handle.root / "artifacts" / "qiskit" / "main.py"
+    )
+    assert artifact_provenance["current_aliases"]["diagram_png"] == str(
+        handle.root / "artifacts" / "figures" / "circuit.png"
+    )
+
+
 def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()

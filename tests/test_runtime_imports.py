@@ -41,11 +41,17 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
 
     assert resolution.source_kind == "report_file"
     assert resolution.report_path == report_file
-    assert resolution.qspec_path == workspace / "specs" / "current.json"
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
     assert resolution.report_summary["input_mode"] == "intent"
+    assert resolution.report_summary["artifact_snapshot_root"] == str(
+        workspace / "artifacts" / "history" / "rev_000001"
+    )
     assert resolution.report_summary["artifact_names"][-1] == "report"
-    assert resolution.artifacts["report"] == str(report_file)
+    assert resolution.artifacts["report"] == str(workspace / "reports" / "history" / "rev_000001.json")
     assert resolution.provenance["workspace_source"] == "inferred_from_report_path"
+    assert resolution.provenance["artifacts"]["current_aliases"]["qiskit_code"] == str(
+        workspace / "artifacts" / "qiskit" / "main.py"
+    )
     assert resolution.load_report()["revision"] == "rev_000001"
 
 

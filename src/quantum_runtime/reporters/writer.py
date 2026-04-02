@@ -41,6 +41,7 @@ def write_report(
             input_data=input_data,
             qspec_path=qspec_path,
             semantics=semantics,
+            artifacts=artifacts,
         ),
         "qspec": {
             "path": str(qspec_path),
@@ -80,6 +81,7 @@ def _build_provenance(
     input_data: dict[str, Any],
     qspec_path: Path,
     semantics: dict[str, Any],
+    artifacts: dict[str, Any],
 ) -> dict[str, Any]:
     """Create a stable provenance block for replay and inspection."""
     return {
@@ -100,7 +102,65 @@ def _build_provenance(
             "layers": semantics["layers"],
             "parameter_count": semantics["parameter_count"],
         },
+        "artifacts": _build_artifact_provenance(
+            workspace=workspace,
+            revision=revision,
+            artifacts=artifacts,
+        ),
     }
+
+
+def _build_artifact_provenance(
+    *,
+    workspace: WorkspaceHandle,
+    revision: str,
+    artifacts: dict[str, Any],
+) -> dict[str, Any]:
+    snapshot_root = workspace.root / "artifacts" / "history" / revision
+    current_root = workspace.root / "artifacts"
+    paths: dict[str, str] = {}
+    current_aliases: dict[str, str] = {}
+
+    for name, raw_path in artifacts.items():
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            continue
+        artifact_path = Path(raw_path)
+        alias_path = _derive_current_artifact_alias(
+            artifact_path=artifact_path,
+            snapshot_root=snapshot_root,
+            current_root=current_root,
+        )
+        if alias_path is None:
+            continue
+        paths[str(name)] = str(artifact_path)
+        current_aliases[str(name)] = str(alias_path)
+
+    return {
+        "snapshot_root": str(snapshot_root),
+        "current_root": str(current_root),
+        "paths": paths,
+        "current_aliases": current_aliases,
+    }
+
+
+def _derive_current_artifact_alias(
+    *,
+    artifact_path: Path,
+    snapshot_root: Path,
+    current_root: Path,
+) -> Path | None:
+    if artifact_path.is_absolute():
+        if artifact_path.is_relative_to(snapshot_root):
+            return current_root / artifact_path.relative_to(snapshot_root)
+        if artifact_path.is_relative_to(current_root):
+            return artifact_path
+        return None
+
+    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
+        return current_root / Path(*artifact_path.parts[3:])
+    if artifact_path.parts[:1] == ("artifacts",):
+        return artifact_path
+    return None
 
 
 def _derive_report_status(

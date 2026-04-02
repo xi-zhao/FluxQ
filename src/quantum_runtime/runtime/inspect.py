@@ -192,6 +192,14 @@ def _build_provenance(
         "subject",
         _inspect_subject_provenance(latest_report=latest_report),
     )
+    provenance.setdefault(
+        "artifacts",
+        _inspect_artifact_provenance(
+            latest_report=latest_report,
+            workspace_root=workspace_root,
+            revision=revision,
+        ),
+    )
     return provenance
 
 
@@ -214,3 +222,63 @@ def _inspect_subject_provenance(*, latest_report: dict[str, Any]) -> dict[str, A
         if isinstance(subject, dict):
             return subject
     return {}
+
+
+def _inspect_artifact_provenance(
+    *,
+    latest_report: dict[str, Any],
+    workspace_root: Path,
+    revision: str,
+) -> dict[str, Any]:
+    nested_provenance = latest_report.get("provenance")
+    if isinstance(nested_provenance, dict):
+        artifact_provenance = nested_provenance.get("artifacts")
+        if isinstance(artifact_provenance, dict):
+            return artifact_provenance
+
+    snapshot_root = workspace_root / "artifacts" / "history" / revision
+    current_root = workspace_root / "artifacts"
+    paths: dict[str, str] = {}
+    current_aliases: dict[str, str] = {}
+    artifacts = latest_report.get("artifacts")
+    if isinstance(artifacts, dict):
+        for name, raw_path in artifacts.items():
+            if not isinstance(raw_path, str) or not raw_path.strip():
+                continue
+            artifact_path = Path(raw_path)
+            alias_path = _derive_current_artifact_alias(
+                artifact_path=artifact_path,
+                snapshot_root=snapshot_root,
+                current_root=current_root,
+            )
+            if alias_path is None:
+                continue
+            paths[str(name)] = str(artifact_path)
+            current_aliases[str(name)] = str(alias_path)
+
+    return {
+        "snapshot_root": str(snapshot_root),
+        "current_root": str(current_root),
+        "paths": paths,
+        "current_aliases": current_aliases,
+    }
+
+
+def _derive_current_artifact_alias(
+    *,
+    artifact_path: Path,
+    snapshot_root: Path,
+    current_root: Path,
+) -> Path | None:
+    if artifact_path.is_absolute():
+        if artifact_path.is_relative_to(snapshot_root):
+            return current_root / artifact_path.relative_to(snapshot_root)
+        if artifact_path.is_relative_to(current_root):
+            return artifact_path
+        return None
+
+    if artifact_path.parts[:3] == ("artifacts", "history", snapshot_root.name):
+        return current_root / Path(*artifact_path.parts[3:])
+    if artifact_path.parts[:1] == ("artifacts",):
+        return artifact_path
+    return None
