@@ -86,9 +86,9 @@ def compare_import_resolutions(
     left_report = left.report_summary if isinstance(left.report_summary, dict) else {}
     right_report = right.report_summary if isinstance(right.report_summary, dict) else {}
 
-    left_semantic_hash = left_qspec.get("semantic_hash")
-    right_semantic_hash = right_qspec.get("semantic_hash")
-    same_subject = bool(left_semantic_hash and left_semantic_hash == right_semantic_hash)
+    left_workload_hash = _identity_hash(left_qspec, preferred_key="workload_hash")
+    right_workload_hash = _identity_hash(right_qspec, preferred_key="workload_hash")
+    same_subject = bool(left_workload_hash and left_workload_hash == right_workload_hash)
     same_qspec = left.qspec_hash == right.qspec_hash
     same_report = left.report_hash == right.report_hash
 
@@ -168,7 +168,7 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
 
 
 def _semantic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    fields = ("pattern", "width", "layers", "parameter_count", "semantic_hash")
+    fields = ("pattern", "width", "layers", "parameter_count", "workload_hash", "execution_hash")
     changed_fields = [
         field
         for field in fields
@@ -479,6 +479,13 @@ def _resource_value(summary: object, field: str) -> Any:
     if not isinstance(summary, dict):
         return None
     return summary.get(field)
+
+
+def _identity_hash(summary: dict[str, Any], *, preferred_key: str) -> str | None:
+    value = summary.get(preferred_key)
+    if value is None:
+        value = summary.get("semantic_hash")
+    return _optional_string(value)
 
 
 def _status_rank(status: str | None) -> int:

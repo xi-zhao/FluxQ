@@ -150,7 +150,8 @@ def test_compare_import_resolutions_policy_fails_on_backend_regression() -> None
     left = _synthetic_resolution(
         revision="rev_000001",
         pattern="ghz",
-        semantic_hash="sha256:same",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
         qspec_hash="sha256:qspec",
         report_hash="sha256:left",
         report_status="ok",
@@ -159,7 +160,8 @@ def test_compare_import_resolutions_policy_fails_on_backend_regression() -> None
     right = _synthetic_resolution(
         revision="rev_000002",
         pattern="ghz",
-        semantic_hash="sha256:same",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
         qspec_hash="sha256:qspec",
         report_hash="sha256:right",
         report_status="degraded",
@@ -181,15 +183,55 @@ def test_compare_import_resolutions_policy_fails_on_backend_regression() -> None
     assert "backend_regressions:forbidden" in result.verdict["failed_checks"]
 
 
+def test_compare_import_resolutions_keeps_same_subject_for_execution_config_changes() -> None:
+    left = _synthetic_resolution(
+        revision="rev_000001",
+        pattern="ghz",
+        workload_hash="sha256:workload",
+        execution_hash="sha256:exec-left",
+        qspec_hash="sha256:qspec-left",
+        report_hash="sha256:report-left",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        constraints={"max_depth": 64, "optimization_level": 2},
+        backend_preferences=["qiskit-local"],
+    )
+    right = _synthetic_resolution(
+        revision="rev_000002",
+        pattern="ghz",
+        workload_hash="sha256:workload",
+        execution_hash="sha256:exec-right",
+        qspec_hash="sha256:qspec-right",
+        report_hash="sha256:report-right",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok", "classiq": "backend_unavailable"},
+        constraints={"max_depth": 128, "optimization_level": 3, "backend_name": "mock-backend"},
+        backend_preferences=["qiskit-local", "classiq"],
+    )
+
+    result = compare_import_resolutions(left, right)
+
+    assert result.same_subject is True
+    assert result.status == "same_subject"
+    assert result.same_qspec is False
+    assert result.left.qspec_summary["workload_hash"] == result.right.qspec_summary["workload_hash"]
+    assert result.left.qspec_summary["execution_hash"] != result.right.qspec_summary["execution_hash"]
+    assert result.semantic_delta["changed_fields"] == ["execution_hash"]
+    assert result.highlights[0] == "Same workload identity (ghz) across both inputs."
+
+
 def _synthetic_resolution(
     *,
     revision: str,
     pattern: str,
-    semantic_hash: str,
+    workload_hash: str,
+    execution_hash: str,
     qspec_hash: str,
     report_hash: str,
     report_status: str,
     backend_statuses: dict[str, str],
+    constraints: dict[str, object] | None = None,
+    backend_preferences: list[str] | None = None,
 ) -> ImportResolution:
     return ImportResolution(
         source_kind="report_revision",
@@ -211,7 +253,11 @@ def _synthetic_resolution(
             "width": 4,
             "layers": None,
             "parameter_count": 0,
-            "semantic_hash": semantic_hash,
+            "workload_hash": workload_hash,
+            "execution_hash": execution_hash,
+            "semantic_hash": execution_hash,
+            "constraints": constraints or {},
+            "backend_preferences": backend_preferences or ["qiskit-local"],
         },
         report_summary={
             "status": report_status,

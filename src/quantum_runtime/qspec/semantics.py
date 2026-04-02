@@ -34,7 +34,9 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
         },
         "backend_preferences": list(qspec.backend_preferences),
     }
-    summary["semantic_hash"] = _semantic_hash(summary)
+    summary["workload_hash"] = _hash_payload(_workload_payload(summary))
+    summary["execution_hash"] = _hash_payload(_execution_payload(summary))
+    summary["semantic_hash"] = summary["execution_hash"]
     return summary
 
 
@@ -80,8 +82,27 @@ def _optional_int(value: object) -> int | None:
     raise TypeError("layers must be an int-compatible value")
 
 
-def _semantic_hash(summary: dict[str, Any]) -> str:
-    payload = {key: value for key, value in summary.items() if key != "semantic_hash"}
+def _workload_payload(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "pattern": summary["pattern"],
+        "register": summary["register"],
+        "width": summary["width"],
+        "layers": summary["layers"],
+        "pattern_args": summary["pattern_args"],
+        "parameter_count": summary["parameter_count"],
+        "parameters": summary["parameters"],
+    }
+
+
+def _execution_payload(summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in summary.items()
+        if key not in {"semantic_hash", "workload_hash", "execution_hash"}
+    }
+
+
+def _hash_payload(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"

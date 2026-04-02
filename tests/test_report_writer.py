@@ -62,6 +62,9 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert payload["revision"] == revision
     assert payload["qspec"]["path"] == str(qspec_path)
     assert payload["qspec"]["semantic_hash"] == payload["semantics"]["semantic_hash"]
+    assert payload["semantics"]["semantic_hash"] == payload["semantics"]["execution_hash"]
+    assert payload["semantics"]["workload_hash"].startswith("sha256:")
+    assert payload["semantics"]["execution_hash"].startswith("sha256:")
     assert payload["provenance"]["workspace_root"] == str(handle.root)
     assert payload["provenance"]["revision"] == revision
     assert payload["provenance"]["input"]["mode"] == "intent"
