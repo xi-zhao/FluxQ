@@ -16,8 +16,10 @@ from quantum_runtime.runtime import (
     execute_qspec,
     execute_report,
     export_artifact,
+    export_artifact_from_report,
     inspect_workspace,
     list_backends,
+    load_qspec_from_report,
     run_doctor,
 )
 from quantum_runtime.runtime.exit_codes import (
@@ -89,6 +91,16 @@ def bench_command(
         "--backends",
         help="Comma-separated backend list for structural benchmarking.",
     ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to re-import for benchmarking.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -97,15 +109,23 @@ def bench_command(
 ) -> None:
     """Run structural backend benchmarks against the current QSpec."""
     handle = WorkspaceManager.load_or_init(workspace)
-    qspec_path = handle.root / "specs" / "current.json"
-
-    if not qspec_path.exists():
+    try:
+        if report_file is not None:
+            qspec = load_qspec_from_report(report_file)
+        else:
+            qspec_path = handle.root / "specs" / "current.json"
+            if not qspec_path.exists():
+                if json_output:
+                    typer.echo('{"status":"error","reason":"missing_qspec"}')
+                    raise typer.Exit(code=3)
+                raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+            qspec = QSpec.model_validate_json(qspec_path.read_text())
+    except ReportImportError as exc:
         if json_output:
-            typer.echo('{"status":"error","reason":"missing_qspec"}')
-            raise typer.Exit(code=3)
-        raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
+            raise typer.Exit(code=3) from exc
+        raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
-    qspec = QSpec.model_validate_json(qspec_path.read_text())
     benchmark = run_structural_benchmark(
         qspec,
         handle,
@@ -136,6 +156,16 @@ def export_command(
         "--format",
         help="One of: qiskit, qasm3, classiq-python.",
     ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to re-import for export.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -143,14 +173,27 @@ def export_command(
     ),
 ) -> None:
     """Re-export one artifact from the current workspace QSpec."""
-    qspec_path = workspace / "specs" / "current.json"
-    if not qspec_path.exists():
+    try:
+        if report_file is not None:
+            result = export_artifact_from_report(
+                workspace_root=workspace,
+                report_file=report_file,
+                output_format=output_format,
+            )
+        else:
+            qspec_path = workspace / "specs" / "current.json"
+            if not qspec_path.exists():
+                if json_output:
+                    typer.echo('{"status":"error","reason":"missing_qspec"}')
+                    raise typer.Exit(code=3)
+                raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+            result = export_artifact(workspace_root=workspace, output_format=output_format)
+    except ReportImportError as exc:
         if json_output:
-            typer.echo('{"status":"error","reason":"missing_qspec"}')
-            raise typer.Exit(code=3)
-        raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
+            typer.echo(f'{{"status":"error","reason":"{exc.reason}"}}')
+            raise typer.Exit(code=3) from exc
+        raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
-    result = export_artifact(workspace_root=workspace, output_format=output_format)
     if json_output:
         typer.echo(result.model_dump_json(indent=2))
         raise typer.Exit(code=exit_code_for_export(result))

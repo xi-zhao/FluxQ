@@ -124,8 +124,7 @@ def execute_report(*, workspace_root: Path, report_file: Path) -> ExecResult:
     """Execute the deterministic generation pipeline using a previously written report."""
     handle = WorkspaceManager.load_or_init(workspace_root)
     payload = _load_report_payload(report_file)
-    qspec_path = _resolve_report_qspec_path(report_file=report_file, payload=payload)
-    qspec = _load_report_qspec(qspec_path)
+    qspec = load_qspec_from_report(report_file)
     revision = handle.reserve_revision()
     handle.trace.append(
         "exec_started",
@@ -251,6 +250,13 @@ def _prepare_qspec(qspec: QSpec) -> QSpec:
     """Canonicalize and validate a QSpec before any workspace side effects."""
     prepared = normalize_qspec(qspec)
     return validate_qspec(prepared)
+
+
+def load_qspec_from_report(report_file: Path) -> QSpec:
+    """Load, normalize, and validate a QSpec referenced by a report artifact."""
+    payload = _load_report_payload(report_file)
+    qspec_path = _resolve_report_qspec_path(report_file=report_file, payload=payload)
+    return _load_report_qspec(qspec_path)
 
 
 def _load_report_payload(report_file: Path) -> dict[str, Any]:

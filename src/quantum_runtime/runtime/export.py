@@ -13,6 +13,7 @@ from quantum_runtime.lowering import (
     write_qiskit_program,
 )
 from quantum_runtime.qspec import QSpec
+from quantum_runtime.runtime.executor import load_qspec_from_report
 from quantum_runtime.workspace import WorkspaceHandle, WorkspaceManager
 
 
@@ -30,6 +31,13 @@ def export_artifact(*, workspace_root: Path, output_format: str) -> ExportResult
     handle = WorkspaceManager.load_or_init(workspace_root)
     qspec_path = handle.root / "specs" / "current.json"
     qspec = QSpec.model_validate_json(qspec_path.read_text())
+    return _export_from_qspec(handle=handle, qspec=qspec, output_format=output_format)
+
+
+def export_artifact_from_report(*, workspace_root: Path, report_file: Path, output_format: str) -> ExportResult:
+    """Re-emit a single artifact from a report-derived QSpec."""
+    handle = WorkspaceManager.load_or_init(workspace_root)
+    qspec = load_qspec_from_report(report_file)
     return _export_from_qspec(handle=handle, qspec=qspec, output_format=output_format)
 
 
