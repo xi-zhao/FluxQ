@@ -214,6 +214,11 @@ def test_write_report_canonicalizes_current_alias_artifacts(tmp_path: Path) -> N
     assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
     assert report["artifacts"]["qspec"] == str(handle.root / "specs" / "history" / f"{revision}.json")
     assert report["artifacts"]["report"] == str(handle.root / "reports" / "history" / f"{revision}.json")
+    assert report["provenance"]["qspec"]["path"] == str(
+        handle.root / "specs" / "history" / f"{revision}.json"
+    )
+    assert report["provenance"]["qspec"]["path"] == report["qspec"]["path"]
+    assert report["provenance"]["qspec"]["hash"] == report["qspec"]["hash"]
     assert report["artifacts"]["qiskit_code"] == str(
         handle.root / "artifacts" / "history" / revision / "qiskit" / "main.py"
     )

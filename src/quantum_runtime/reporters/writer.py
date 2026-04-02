@@ -40,6 +40,7 @@ def write_report(
     )
     _materialize_canonical_artifacts(artifact_provenance)
     artifact_payload = dict(artifact_provenance["paths"])
+    canonical_qspec_path = Path(artifact_payload["qspec"])
     status = _derive_report_status(
         warnings=warnings,
         errors=errors,
@@ -53,13 +54,13 @@ def write_report(
             workspace=workspace,
             revision=revision,
             input_data=input_data,
-            qspec_path=qspec_path,
+            qspec_path=canonical_qspec_path,
             semantics=semantics,
             artifact_provenance=artifact_provenance,
         ),
         "qspec": {
-            "path": artifact_payload["qspec"],
-            "hash": _sha256_file(qspec_path),
+            "path": str(canonical_qspec_path),
+            "hash": _sha256_file(canonical_qspec_path),
             "semantic_hash": semantics["semantic_hash"],
         },
         "semantics": semantics,
