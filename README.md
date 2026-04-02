@@ -9,7 +9,7 @@ Quantum Runtime CLI is an agent-facing, deterministic runtime for quantum code g
 - QSpec v0.1 planning for `ghz`, `bell`, `qft`, `hardware_efficient_ansatz`, and `qaoa_ansatz`
 - Qiskit, OpenQASM 3, and Classiq Python emission
 - local simulation, transpile validation, diagrams, and structural benchmarking
-- agent-host friendly JSON output through `qrun init`, `qrun exec`, `qrun inspect`, `qrun export`, `qrun bench`, and `qrun doctor`
+- agent-host friendly JSON output through `qrun init`, `qrun exec`, `qrun inspect`, `qrun export`, `qrun bench`, `qrun compare`, and `qrun doctor`
 
 ## Quick Start
 
@@ -25,6 +25,7 @@ qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and
 qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json
 qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json
 qrun inspect --workspace .quantum --json
+qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --json
 qrun export --workspace .quantum --format qasm3 --json
 qrun bench --workspace .quantum --json
 qrun doctor --workspace .quantum --json --fix
@@ -46,6 +47,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
 - sample hooks: `integrations/aionrs/hooks.example.toml`
 - reports include stable provenance metadata for replay and inspection
+- reports, inspect, and compare all expose stable semantic hashes for workload identity
 
 ## Workspace Layout
 
@@ -76,6 +78,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun inspect --workspace .quantum --json`
+- `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --json`
 - `qrun export --workspace .quantum --format qiskit --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun doctor --workspace .quantum --json --fix`

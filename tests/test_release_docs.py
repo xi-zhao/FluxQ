@@ -17,6 +17,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "qrun init --workspace .quantum --json" in readme
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in readme
     assert "qrun bench --workspace .quantum --json" in readme
+    assert "qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --json" in readme
     assert "docs/aionrs-integration.md" in readme
     assert "docs/plans/2026-04-02-product-roadmap.md" in readme
 

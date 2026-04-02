@@ -11,10 +11,12 @@ from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
+    CompareResult,
     ImportReference,
     ImportResolution,
     ImportSourceError,
     ReportImportError,
+    compare_import_resolutions,
     execute_intent,
     execute_intent_text,
     execute_qspec,
@@ -28,6 +30,7 @@ from quantum_runtime.runtime import (
 )
 from quantum_runtime.runtime.exit_codes import (
     exit_code_for_benchmark,
+    exit_code_for_compare,
     exit_code_for_doctor,
     exit_code_for_exec,
     exit_code_for_export,
@@ -74,6 +77,23 @@ def _resolve_report_import(
         return resolve_import_reference(
             ImportReference(workspace_root=workspace, report_file=report_file)
         )
+
+
+def _resolve_runtime_input(
+    *,
+    workspace: Path,
+    report_file: Path | None,
+    revision: str | None,
+) -> ImportResolution:
+    if report_file is None and revision is None:
+        return resolve_import_reference(ImportReference(workspace_root=workspace))
+    resolution = _resolve_report_import(
+        workspace=workspace,
+        report_file=report_file,
+        revision=revision,
+    )
+    assert resolution is not None
+    return resolution
 
 
 @app.command("init")
@@ -393,6 +413,95 @@ def inspect_command(
     else:
         typer.echo(f"inspect status: {report.status}; revision={report.revision}")
     raise typer.Exit(code=exit_code_for_inspect(report))
+
+
+@app.command("compare")
+def compare_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Workspace directory that provides the default current revision side.",
+    ),
+    left_report_file: Path | None = typer.Option(
+        None,
+        "--left-report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Left-side report JSON input. Defaults to current workspace state when omitted.",
+    ),
+    left_revision: str | None = typer.Option(
+        None,
+        "--left-revision",
+        help="Left-side workspace report history revision.",
+    ),
+    right_report_file: Path | None = typer.Option(
+        None,
+        "--right-report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Right-side report JSON input. Defaults to current workspace state when omitted.",
+    ),
+    right_revision: str | None = typer.Option(
+        None,
+        "--right-revision",
+        help="Right-side workspace report history revision.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Compare two runtime inputs and answer whether they describe the same workload."""
+    if left_report_file is not None and left_revision is not None:
+        if json_output:
+            _json_error("left_source_conflict")
+        raise typer.BadParameter("Provide at most one of --left-report-file or --left-revision.")
+    if right_report_file is not None and right_revision is not None:
+        if json_output:
+            _json_error("right_source_conflict")
+        raise typer.BadParameter("Provide at most one of --right-report-file or --right-revision.")
+
+    try:
+        left = _resolve_runtime_input(
+            workspace=workspace,
+            report_file=left_report_file,
+            revision=left_revision,
+        )
+        right = _resolve_runtime_input(
+            workspace=workspace,
+            report_file=right_report_file,
+            revision=right_revision,
+        )
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid compare input: {exc.code}") from exc
+    except ReportImportError as exc:
+        if json_output:
+            _json_error(exc.reason)
+        raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
+
+    result: CompareResult = compare_import_resolutions(left, right)
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+        raise typer.Exit(code=exit_code_for_compare(result))
+
+    typer.echo(
+        f"{result.status}; left={result.left.revision}; right={result.right.revision}; "
+        f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}"
+    )
+    raise typer.Exit(code=exit_code_for_compare(result))
 
 
 @app.command("doctor")

@@ -90,6 +90,14 @@ def exit_code_for_inspect(result: Any) -> int:
     return EXIT_DEGRADED
 
 
+def exit_code_for_compare(result: Any) -> int:
+    """Map a compare report to the documented CLI exit codes."""
+    status = str(getattr(result, "status", "different_subject"))
+    if status == "same_subject":
+        return EXIT_OK
+    return EXIT_DEGRADED
+
+
 def _as_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value

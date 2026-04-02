@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from quantum_runtime.qspec import QSpec
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
 
 
@@ -448,11 +448,18 @@ def _summarize_report(report_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
+    semantics = summarize_qspec_semantics(qspec)
     return {
         "version": qspec.version,
         "program_id": qspec.program_id,
         "goal": qspec.goal,
         "entrypoint": qspec.entrypoint,
+        "pattern": semantics["pattern"],
+        "width": semantics["width"],
+        "layers": semantics["layers"],
+        "parameter_count": semantics["parameter_count"],
+        "semantic_hash": semantics["semantic_hash"],
+        "pattern_args": semantics["pattern_args"],
         "registers": {
             "qubits": qspec.registers[0].size,
             "cbits": qspec.registers[1].size,

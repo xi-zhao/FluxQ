@@ -1,6 +1,7 @@
 """Execution flows for the Quantum Runtime CLI."""
 
 from .backend_list import BackendListReport, list_backends
+from .compare import CompareResult, compare_import_resolutions
 from .doctor import DoctorReport, collect_backend_capabilities, run_doctor
 from .executor import (
     ExecResult,
@@ -17,6 +18,7 @@ from .inspect import InspectReport, inspect_workspace
 
 __all__ = [
     "BackendListReport",
+    "CompareResult",
     "DoctorReport",
     "ExecResult",
     "ExportResult",
@@ -26,6 +28,7 @@ __all__ = [
     "InspectReport",
     "ReportImportError",
     "collect_backend_capabilities",
+    "compare_import_resolutions",
     "execute_intent",
     "execute_intent_text",
     "execute_qspec",

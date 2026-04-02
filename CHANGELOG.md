@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - deepen `hardware_efficient_ansatz` and `qaoa_ansatz` with explicit layer, topology, and parameter semantics
 - deepen backend benchmarking and Classiq synthesis reporting
 - stabilize semantic provenance across `report`, `inspect`, and `bench` outputs
+- add `qrun compare` for semantic workload identity checks across reports and revisions
 - improve packaging and release automation
 
 ## 0.1.0
