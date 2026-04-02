@@ -202,8 +202,8 @@ def _execute_qspec(
         "simulation": simulation.model_dump(mode="json"),
         "resources": resources.model_dump(mode="json"),
         "diagram": {
-            "text_path": str(diagrams.text_path),
-            "png_path": str(diagrams.png_path),
+            "text_path": "",
+            "png_path": "",
         },
         "transpile": transpile.model_dump(mode="json"),
     }
@@ -219,6 +219,8 @@ def _execute_qspec(
             handle.root / "artifacts" / "history" / revision / "figures" / "circuit.png",
         )
     )
+    diagnostics["diagram"]["text_path"] = artifacts["diagram_txt"]
+    diagnostics["diagram"]["png_path"] = artifacts["diagram_png"]
 
     if "classiq" in qspec.backend_preferences:
         classiq_backend_report = run_classiq_backend(qspec, handle)

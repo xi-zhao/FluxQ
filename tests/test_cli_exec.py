@@ -51,7 +51,14 @@ def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path)
 
     report = json.loads((workspace / "reports" / "latest.json").read_text())
     assert report["status"] == "ok"
+    assert report["qspec"]["path"].endswith(f"specs/history/{revision}.json")
     assert report["artifacts"]["qiskit_code"].endswith(f"artifacts/history/{revision}/qiskit/main.py")
+    assert report["diagnostics"]["diagram"]["text_path"].endswith(
+        f"artifacts/history/{revision}/figures/circuit.txt"
+    )
+    assert report["diagnostics"]["diagram"]["png_path"].endswith(
+        f"artifacts/history/{revision}/figures/circuit.png"
+    )
     assert report["diagnostics"]["resources"]["two_qubit_gates"] == 3
 
     trace_lines = (workspace / "trace" / "events.ndjson").read_text().strip().splitlines()
