@@ -15,7 +15,7 @@ from quantum_runtime.diagnostics import (
     validate_target_constraints,
     write_diagrams,
 )
-from quantum_runtime.intent.parser import parse_intent_file
+from quantum_runtime.intent.parser import parse_intent_file, parse_intent_text
 from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.lowering import (
     write_classiq_program,
@@ -64,6 +64,32 @@ def execute_intent(*, workspace_root: Path, intent_file: Path) -> ExecResult:
         qspec=qspec,
         requested_exports=set(intent.exports),
         input_data={"mode": "intent", "path": str(intent_file)},
+        shots=int(intent.shots),
+    )
+
+
+def execute_intent_text(*, workspace_root: Path, intent_text: str) -> ExecResult:
+    """Execute the deterministic generation pipeline for inline intent text."""
+    handle = WorkspaceManager.load_or_init(workspace_root)
+    revision = handle.reserve_revision()
+    handle.trace.append(
+        "exec_started",
+        {"intent_text": intent_text},
+        revision=revision,
+    )
+
+    intent = parse_intent_text(intent_text)
+    qspec = plan_to_qspec(intent)
+    latest_intent_path = handle.root / "intents" / "latest.md"
+    latest_intent_path.write_text(intent_text)
+    (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_text)
+
+    return _execute_qspec(
+        handle=handle,
+        revision=revision,
+        qspec=qspec,
+        requested_exports=set(intent.exports),
+        input_data={"mode": "intent_text", "path": "<inline>"},
         shots=int(intent.shots),
     )
 

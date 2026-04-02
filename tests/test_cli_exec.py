@@ -94,3 +94,26 @@ def test_qrun_exec_json_requires_exactly_one_input_source(tmp_path: Path) -> Non
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "expected_exactly_one_input"
+
+
+def test_qrun_exec_json_accepts_intent_text_input(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert Path(payload["artifacts"]["qspec"]).exists()
+    assert Path(payload["artifacts"]["qiskit_code"]).exists()
+    assert payload["diagnostics"]["simulation"]["status"] == "ok"

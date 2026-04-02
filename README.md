@@ -19,6 +19,7 @@ source .venv/bin/activate
 uv pip install -e '.[dev,qiskit]'
 qrun init --workspace .quantum --json
 qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json
 qrun bench --workspace .quantum --json
 ```
 
@@ -61,6 +62,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 
 - `qrun init --workspace .quantum --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
+- `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun version`
 

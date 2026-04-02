@@ -11,6 +11,7 @@ from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
     execute_intent,
+    execute_intent_text,
     execute_qspec,
     export_artifact,
     inspect_workspace,
@@ -178,6 +179,11 @@ def exec_command(
         resolve_path=False,
         help="Serialized QSpec JSON file to execute.",
     ),
+    intent_text: str | None = typer.Option(
+        None,
+        "--intent-text",
+        help="Inline intent text to execute directly.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -185,14 +191,20 @@ def exec_command(
     ),
 ) -> None:
     """Execute an intent file through the deterministic runtime pipeline."""
-    if (intent_file is None) == (qspec_file is None):
+    inputs_provided = sum(
+        value is not None
+        for value in (intent_file, qspec_file, intent_text)
+    )
+    if inputs_provided != 1:
         if json_output:
             typer.echo('{"status":"error","reason":"expected_exactly_one_input"}')
             raise typer.Exit(code=3)
-        raise typer.BadParameter("Provide exactly one of --intent-file or --qspec-file.")
+        raise typer.BadParameter("Provide exactly one of --intent-file, --qspec-file, or --intent-text.")
 
     if intent_file is not None:
         result = execute_intent(workspace_root=workspace, intent_file=intent_file)
+    elif intent_text is not None:
+        result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
     else:
         assert qspec_file is not None
         result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
