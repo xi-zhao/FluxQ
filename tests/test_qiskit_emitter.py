@@ -8,7 +8,11 @@ from pathlib import Path
 
 from quantum_runtime.intent.parser import parse_intent_file, parse_intent_text
 from quantum_runtime.intent.planner import plan_to_qspec
-from quantum_runtime.lowering.qiskit_emitter import emit_qiskit_source, write_qiskit_program
+from quantum_runtime.lowering.qiskit_emitter import (
+    build_qiskit_circuit,
+    emit_qiskit_source,
+    write_qiskit_program,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -68,3 +72,20 @@ def test_emit_supported_patterns_without_error() -> None:
         qspec = plan_to_qspec(intent)
         source = emit_qiskit_source(qspec)
         assert "def build_circuit()" in source
+
+
+def test_emit_parameterized_qaoa_source_and_circuit_reflect_layers_and_edges() -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
+    qspec = plan_to_qspec(intent)
+
+    source = emit_qiskit_source(qspec)
+    circuit = build_qiskit_circuit(qspec)
+    counts = circuit.count_ops()
+
+    assert source.count("qc.rz(") == 8
+    assert source.count("qc.rx(") == 8
+    assert source.count("qc.cx(") == 16
+    assert counts["h"] == 4
+    assert counts["rz"] == 8
+    assert counts["rx"] == 8
+    assert counts["cx"] == 16

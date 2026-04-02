@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 - expand `qrun exec` coverage beyond intent-only input
+- deepen `hardware_efficient_ansatz` and `qaoa_ansatz` with explicit layer, topology, and parameter semantics
 - deepen backend benchmarking and Classiq synthesis reporting
 - improve packaging and release automation
 

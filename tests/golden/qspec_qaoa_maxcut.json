@@ -2,7 +2,7 @@
   "version": "0.1",
   "program_id": "prog_qaoa_ansatz_4",
   "title": "QAOA MaxCut",
-  "goal": "Build a 4-qubit MaxCut QAOA ansatz.",
+  "goal": "Build a 4-qubit MaxCut QAOA ansatz with 2 layers on a ring graph.",
   "entrypoint": "main",
   "registers": [
     {
@@ -16,14 +16,70 @@
       "size": 4
     }
   ],
-  "parameters": [],
+  "parameters": [
+    {
+      "name": "gamma_0",
+      "kind": "angle",
+      "family": "qaoa_ansatz",
+      "role": "cost",
+      "layer": 0,
+      "default": 0.4
+    },
+    {
+      "name": "beta_0",
+      "kind": "angle",
+      "family": "qaoa_ansatz",
+      "role": "mixer",
+      "layer": 0,
+      "default": 0.3
+    },
+    {
+      "name": "gamma_1",
+      "kind": "angle",
+      "family": "qaoa_ansatz",
+      "role": "cost",
+      "layer": 1,
+      "default": 0.45
+    },
+    {
+      "name": "beta_1",
+      "kind": "angle",
+      "family": "qaoa_ansatz",
+      "role": "mixer",
+      "layer": 1,
+      "default": 0.34
+    }
+  ],
   "body": [
     {
       "kind": "pattern",
       "pattern": "qaoa_ansatz",
       "args": {
         "register": "q",
-        "size": 4
+        "size": 4,
+        "layers": 2,
+        "problem": "maxcut",
+        "cost_operator": "zz",
+        "mixer": "rx",
+        "initial_state": "hadamard_all",
+        "cost_edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            0
+          ]
+        ]
       }
     },
     {

@@ -14,7 +14,13 @@ constraints:
     - rz
     - rx
   optimization_level: 2
+  qaoa_layers: 2
+  maxcut_edges:
+    - [0, 1]
+    - [1, 2]
+    - [2, 3]
+    - [3, 0]
 shots: 512
 ---
 
-Build a 4-qubit MaxCut QAOA ansatz.
+Build a 4-qubit MaxCut QAOA ansatz with 2 layers on a ring graph.

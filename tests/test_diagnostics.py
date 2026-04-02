@@ -37,8 +37,24 @@ def test_estimate_resources_for_ghz() -> None:
     assert report.two_qubit_gates == 3
     assert report.measure_count == 4
     assert report.parameter_count == 0
+    assert report.parameter_names == []
     assert report.gate_histogram["cx"] == 3
     assert report.gate_histogram["measure"] == 4
+
+
+def test_estimate_resources_for_parameterized_qaoa() -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
+    qspec = plan_to_qspec(intent)
+
+    report = estimate_resources(qspec)
+
+    assert report.width == 4
+    assert report.two_qubit_gates == 16
+    assert report.measure_count == 4
+    assert report.parameter_count == 4
+    assert report.parameter_names == ["gamma_0", "beta_0", "gamma_1", "beta_1"]
+    assert report.gate_histogram["rz"] == 8
+    assert report.gate_histogram["rx"] == 8
 
 
 def test_write_diagrams_creates_text_and_png(tmp_path: Path) -> None:

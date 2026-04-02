@@ -31,6 +31,35 @@ def test_plan_qaoa_intent_matches_golden_snapshot() -> None:
     assert qspec.model_dump(mode="json") == golden
 
 
+def test_plan_hardware_efficient_intent_carries_parameterized_structure() -> None:
+    intent = parse_intent_text(
+        """---
+title: HEA Pattern Test
+constraints:
+  max_width: 3
+  layers: 2
+---
+
+Generate a 3-qubit hardware efficient ansatz with 2 layers.
+"""
+    )
+
+    qspec = plan_to_qspec(intent)
+    golden = json.loads(
+        (PROJECT_ROOT / "tests" / "golden" / "qspec_hardware_efficient_ansatz.json").read_text()
+    )
+    pattern = qspec.body[0]
+
+    assert qspec.model_dump(mode="json") == golden
+    assert pattern.pattern == "hardware_efficient_ansatz"
+    assert pattern.args["layers"] == 2
+    assert pattern.args["rotation_blocks"] == ["ry", "rz"]
+    assert pattern.args["entanglement_edges"] == [[0, 1], [1, 2]]
+    assert len(qspec.parameters) == 12
+    assert qspec.parameters[0]["name"] == "theta_ry_l0_q0"
+    assert qspec.parameters[-1]["name"] == "theta_rz_l1_q2"
+
+
 @pytest.mark.parametrize(
     ("goal", "expected_pattern", "expected_size"),
     [
@@ -57,6 +86,10 @@ constraints:
     assert qspec.program_id == f"prog_{expected_pattern}_{expected_size}"
     assert qspec.body[0].pattern == expected_pattern
     assert qspec.registers[0].size == expected_size
+
+    if expected_pattern in {"hardware_efficient_ansatz", "qaoa_ansatz"}:
+        assert qspec.parameters
+        assert "layers" in qspec.body[0].args
 
 
 def test_plan_unknown_goal_requires_manual_qspec() -> None:

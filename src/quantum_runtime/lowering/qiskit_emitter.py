@@ -15,6 +15,7 @@ def emit_qiskit_source(qspec: QSpec) -> str:
     pattern_node = _first_pattern(qspec)
     measure_node = _first_measure(qspec)
     needs_math = pattern_node.pattern == "qft"
+    parameter_defaults = _parameter_defaults(qspec)
 
     imports = [
         "from __future__ import annotations",
@@ -36,7 +37,7 @@ def emit_qiskit_source(qspec: QSpec) -> str:
     body_lines = ["def build_circuit() -> QuantumCircuit:"]
     size = qspec.registers[0].size
     body_lines.append(f"    qc = QuantumCircuit({size}, {size})")
-    body_lines.extend(_render_pattern(pattern_node))
+    body_lines.extend(_render_pattern(pattern_node, parameter_defaults))
     body_lines.extend(_render_measurement(measure_node))
     body_lines.append("    return qc")
     body_lines.extend(
@@ -71,6 +72,7 @@ def build_qiskit_circuit(qspec: QSpec) -> QuantumCircuit:
     measure_node = _first_measure(qspec)
     size = qspec.registers[0].size
     circuit = QuantumCircuit(size, size)
+    parameter_defaults = _parameter_defaults(qspec)
 
     if pattern_node.pattern == "ghz":
         circuit.h(0)
@@ -87,21 +89,29 @@ def build_qiskit_circuit(qspec: QSpec) -> QuantumCircuit:
         for index in range(size // 2):
             circuit.swap(index, size - index - 1)
     elif pattern_node.pattern == "hardware_efficient_ansatz":
-        for qubit in range(size):
-            circuit.ry(0.5, qubit)
-            circuit.rz(0.25, qubit)
-        for control in range(size - 1):
-            circuit.cx(control, control + 1)
+        layers = int(pattern_node.args.get("layers", 1))
+        rotation_blocks = _rotation_blocks(pattern_node)
+        entanglement_edges = _edge_pairs(pattern_node.args.get("entanglement_edges", []), size=size)
+        for layer in range(layers):
+            for qubit in range(size):
+                for block in rotation_blocks:
+                    angle = _lookup_hea_angle(parameter_defaults, gate=block, layer=layer, qubit=qubit)
+                    _apply_rotation(circuit, gate=block, angle=angle, qubit=qubit)
+            _apply_entanglement(circuit, entanglement_edges)
     elif pattern_node.pattern == "qaoa_ansatz":
+        layers = int(pattern_node.args.get("layers", 1))
+        cost_edges = _edge_pairs(pattern_node.args.get("cost_edges", []), size=size)
         for qubit in range(size):
             circuit.h(qubit)
-        for control in range(size - 1):
-            target = control + 1
-            circuit.cx(control, target)
-            circuit.rz(0.8, target)
-            circuit.cx(control, target)
-        for qubit in range(size):
-            circuit.rx(0.6, qubit)
+        for layer in range(layers):
+            gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}", fallback=round(0.4 + (0.05 * layer), 3))
+            beta = _lookup_parameter(parameter_defaults, f"beta_{layer}", fallback=round(0.3 + (0.04 * layer), 3))
+            for left, right in cost_edges:
+                circuit.cx(left, right)
+                circuit.rz(2 * gamma, right)
+                circuit.cx(left, right)
+            for qubit in range(size):
+                circuit.rx(2 * beta, qubit)
     else:  # pragma: no cover - guarded by planner
         raise ValueError(f"Unsupported Qiskit pattern: {pattern_node.pattern}")
 
@@ -125,7 +135,7 @@ def _first_measure(qspec: QSpec) -> MeasureNode:
     raise ValueError("QSpec does not contain a measurement node.")
 
 
-def _render_pattern(node: PatternNode) -> list[str]:
+def _render_pattern(node: PatternNode, parameter_defaults: dict[str, float]) -> list[str]:
     size = int(node.args.get("size", 0))
     if node.pattern == "ghz":
         return _render_ghz(size)
@@ -134,9 +144,9 @@ def _render_pattern(node: PatternNode) -> list[str]:
     if node.pattern == "qft":
         return _render_qft(size)
     if node.pattern == "hardware_efficient_ansatz":
-        return _render_hardware_efficient_ansatz(size)
+        return _render_hardware_efficient_ansatz(node, parameter_defaults)
     if node.pattern == "qaoa_ansatz":
-        return _render_qaoa_ansatz(size)
+        return _render_qaoa_ansatz(node, parameter_defaults)
     raise ValueError(f"Unsupported Qiskit pattern: {node.pattern}")
 
 
@@ -172,25 +182,124 @@ def _render_qft(size: int) -> list[str]:
     return lines
 
 
-def _render_hardware_efficient_ansatz(size: int) -> list[str]:
+def _render_hardware_efficient_ansatz(
+    node: PatternNode,
+    parameter_defaults: dict[str, float],
+) -> list[str]:
+    size = int(node.args.get("size", 0))
+    layers = int(node.args.get("layers", 1))
+    rotation_blocks = _rotation_blocks(node)
+    entanglement_edges = _edge_pairs(node.args.get("entanglement_edges", []), size=size)
     lines: list[str] = []
-    for qubit in range(size):
-        lines.append(f"    qc.ry(0.5, {qubit})")
-        lines.append(f"    qc.rz(0.25, {qubit})")
-    for control in range(size - 1):
-        lines.append(f"    qc.cx({control}, {control + 1})")
+    for layer in range(layers):
+        for qubit in range(size):
+            for block in rotation_blocks:
+                angle = _lookup_hea_angle(parameter_defaults, gate=block, layer=layer, qubit=qubit)
+                lines.append(f"    qc.{block}({_format_float(angle)}, {qubit})")
+        for left, right in entanglement_edges:
+            lines.append(f"    qc.cx({left}, {right})")
     return lines
 
 
-def _render_qaoa_ansatz(size: int) -> list[str]:
+def _render_qaoa_ansatz(
+    node: PatternNode,
+    parameter_defaults: dict[str, float],
+) -> list[str]:
+    size = int(node.args.get("size", 0))
+    layers = int(node.args.get("layers", 1))
+    cost_edges = _edge_pairs(node.args.get("cost_edges", []), size=size)
     lines: list[str] = []
     for qubit in range(size):
         lines.append(f"    qc.h({qubit})")
-    for control in range(size - 1):
-        target = control + 1
-        lines.append(f"    qc.cx({control}, {target})")
-        lines.append(f"    qc.rz(0.8, {target})")
-        lines.append(f"    qc.cx({control}, {target})")
-    for qubit in range(size):
-        lines.append(f"    qc.rx(0.6, {qubit})")
+    for layer in range(layers):
+        gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}", fallback=round(0.4 + (0.05 * layer), 3))
+        beta = _lookup_parameter(parameter_defaults, f"beta_{layer}", fallback=round(0.3 + (0.04 * layer), 3))
+        for left, right in cost_edges:
+            lines.append(f"    qc.cx({left}, {right})")
+            lines.append(f"    qc.rz({_format_float(2 * gamma)}, {right})")
+            lines.append(f"    qc.cx({left}, {right})")
+        for qubit in range(size):
+            lines.append(f"    qc.rx({_format_float(2 * beta)}, {qubit})")
     return lines
+
+
+def _parameter_defaults(qspec: QSpec) -> dict[str, float]:
+    defaults: dict[str, float] = {}
+    for parameter in qspec.parameters:
+        name = str(parameter.get("name", "")).strip()
+        if not name:
+            continue
+        default = parameter.get("default")
+        if isinstance(default, (int, float, str)):
+            try:
+                defaults[name] = float(default)
+            except ValueError:
+                continue
+    return defaults
+
+
+def _rotation_blocks(node: PatternNode) -> list[str]:
+    blocks = node.args.get("rotation_blocks", ["ry", "rz"])
+    if not isinstance(blocks, list) or not blocks:
+        return ["ry", "rz"]
+    return [str(block).strip().lower() for block in blocks if str(block).strip()]
+
+
+def _edge_pairs(value: object, *, size: int) -> list[tuple[int, int]]:
+    if not isinstance(value, list):
+        return [(index, index + 1) for index in range(size - 1)]
+    edges: list[tuple[int, int]] = []
+    for edge in value:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            continue
+        edges.append((int(edge[0]), int(edge[1])))
+    return edges
+
+
+def _lookup_hea_angle(
+    defaults: dict[str, float],
+    *,
+    gate: str,
+    layer: int,
+    qubit: int,
+) -> float:
+    return _lookup_parameter(
+        defaults,
+        f"theta_{gate}_l{layer}_q{qubit}",
+        fallback=_fallback_hea_angle(gate=gate, layer=layer, qubit=qubit),
+    )
+
+
+def _lookup_parameter(defaults: dict[str, float], name: str, *, fallback: float) -> float:
+    return defaults.get(name, fallback)
+
+
+def _fallback_hea_angle(*, gate: str, layer: int, qubit: int) -> float:
+    base_by_gate = {
+        "rx": 0.38,
+        "ry": 0.5,
+        "rz": 0.25,
+    }
+    base = base_by_gate.get(gate, 0.2)
+    return round(base + (0.05 * layer) + (0.02 * qubit), 3)
+
+
+def _apply_rotation(circuit: QuantumCircuit, *, gate: str, angle: float, qubit: int) -> None:
+    if gate == "rx":
+        circuit.rx(angle, qubit)
+    elif gate == "ry":
+        circuit.ry(angle, qubit)
+    elif gate == "rz":
+        circuit.rz(angle, qubit)
+    else:  # pragma: no cover - guarded by planner / validation
+        raise ValueError(f"Unsupported rotation block: {gate}")
+
+
+def _apply_entanglement(circuit: QuantumCircuit, edges: list[tuple[int, int]]) -> None:
+    for left, right in edges:
+        circuit.cx(left, right)
+
+
+def _format_float(value: float) -> str:
+    rendered = f"{value:.6f}".rstrip("0").rstrip(".")
+    return rendered or "0"

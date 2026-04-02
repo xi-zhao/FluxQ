@@ -1,0 +1,185 @@
+{
+  "version": "0.1",
+  "program_id": "prog_hardware_efficient_ansatz_3",
+  "title": "HEA Pattern Test",
+  "goal": "Generate a 3-qubit hardware efficient ansatz with 2 layers.",
+  "entrypoint": "main",
+  "registers": [
+    {
+      "kind": "qubit",
+      "name": "q",
+      "size": 3
+    },
+    {
+      "kind": "cbit",
+      "name": "c",
+      "size": 3
+    }
+  ],
+  "parameters": [
+    {
+      "name": "theta_ry_l0_q0",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 0,
+      "qubit": 0,
+      "default": 0.5
+    },
+    {
+      "name": "theta_rz_l0_q0",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 0,
+      "qubit": 0,
+      "default": 0.25
+    },
+    {
+      "name": "theta_ry_l0_q1",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 0,
+      "qubit": 1,
+      "default": 0.52
+    },
+    {
+      "name": "theta_rz_l0_q1",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 0,
+      "qubit": 1,
+      "default": 0.27
+    },
+    {
+      "name": "theta_ry_l0_q2",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 0,
+      "qubit": 2,
+      "default": 0.54
+    },
+    {
+      "name": "theta_rz_l0_q2",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 0,
+      "qubit": 2,
+      "default": 0.29
+    },
+    {
+      "name": "theta_ry_l1_q0",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 1,
+      "qubit": 0,
+      "default": 0.55
+    },
+    {
+      "name": "theta_rz_l1_q0",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 1,
+      "qubit": 0,
+      "default": 0.3
+    },
+    {
+      "name": "theta_ry_l1_q1",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 1,
+      "qubit": 1,
+      "default": 0.57
+    },
+    {
+      "name": "theta_rz_l1_q1",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 1,
+      "qubit": 1,
+      "default": 0.32
+    },
+    {
+      "name": "theta_ry_l1_q2",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "ry",
+      "layer": 1,
+      "qubit": 2,
+      "default": 0.59
+    },
+    {
+      "name": "theta_rz_l1_q2",
+      "kind": "angle",
+      "family": "hardware_efficient_ansatz",
+      "gate": "rz",
+      "layer": 1,
+      "qubit": 2,
+      "default": 0.34
+    }
+  ],
+  "body": [
+    {
+      "kind": "pattern",
+      "pattern": "hardware_efficient_ansatz",
+      "args": {
+        "register": "q",
+        "size": 3,
+        "layers": 2,
+        "rotation_blocks": [
+          "ry",
+          "rz"
+        ],
+        "entanglement": "linear",
+        "entanglement_edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "measure",
+      "qubits": [
+        "q[0]",
+        "q[1]",
+        "q[2]"
+      ],
+      "cbits": [
+        "c[0]",
+        "c[1]",
+        "c[2]"
+      ]
+    }
+  ],
+  "observables": [],
+  "constraints": {
+    "max_width": 3,
+    "max_depth": null,
+    "basis_gates": null,
+    "connectivity_map": null,
+    "backend_provider": null,
+    "backend_name": null,
+    "shots": 1024,
+    "optimization_level": 2
+  },
+  "backend_preferences": [
+    "qiskit-local"
+  ],
+  "metadata": {
+    "source": "intent"
+  }
+}

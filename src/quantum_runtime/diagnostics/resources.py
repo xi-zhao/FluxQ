@@ -18,6 +18,7 @@ class ResourceReport(BaseModel):
     two_qubit_gates: int
     measure_count: int
     parameter_count: int
+    parameter_names: list[str] = Field(default_factory=list)
 
 
 def estimate_resources(qspec: QSpec) -> ResourceReport:
@@ -37,6 +38,11 @@ def estimate_resources(qspec: QSpec) -> ResourceReport:
         for item in circuit.data
         if item.operation.name == "measure"
     )
+    parameter_names = [
+        str(parameter.get("name"))
+        for parameter in qspec.parameters
+        if str(parameter.get("name", "")).strip()
+    ]
     return ResourceReport(
         width=circuit.num_qubits,
         depth=int(circuit.depth() or 0),
@@ -44,5 +50,6 @@ def estimate_resources(qspec: QSpec) -> ResourceReport:
         gate_histogram=gate_histogram,
         two_qubit_gates=two_qubit_gates,
         measure_count=measure_count,
-        parameter_count=len(circuit.parameters),
+        parameter_count=len(parameter_names) if parameter_names else len(circuit.parameters),
+        parameter_names=parameter_names,
     )

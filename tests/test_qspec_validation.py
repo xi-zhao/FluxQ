@@ -74,6 +74,44 @@ def test_validate_qspec_rejects_incomplete_measurement_pattern() -> None:
     assert "measure" in str(exc.value).lower()
 
 
+def test_validate_qspec_rejects_parameterized_qaoa_without_layer_parameters() -> None:
+    invalid = QSpec(
+        program_id="prog_qaoa_4",
+        goal="Build a 4-qubit MaxCut QAOA ansatz.",
+        registers=[
+            Register(kind="qubit", name="q", size=4),
+            Register(kind="cbit", name="c", size=4),
+        ],
+        parameters=[
+            {"name": "gamma_0", "family": "qaoa_ansatz", "role": "cost", "default": 0.4},
+            {"name": "beta_0", "family": "qaoa_ansatz", "role": "mixer", "default": 0.3},
+        ],
+        body=[
+            PatternNode(
+                pattern="qaoa_ansatz",
+                args={
+                    "register": "q",
+                    "size": 4,
+                    "layers": 2,
+                    "cost_operator": "zz",
+                    "mixer": "rx",
+                    "cost_edges": [[0, 1], [1, 2], [2, 3], [3, 0]],
+                },
+            ),
+            MeasureNode(
+                qubits=["q[0]", "q[1]", "q[2]", "q[3]"],
+                cbits=["c[0]", "c[1]", "c[2]", "c[3]"],
+            ),
+        ],
+        constraints=Constraints(shots=256),
+    )
+
+    with pytest.raises(QSpecValidationError) as exc:
+        validate_qspec(invalid)
+
+    assert "gamma" in str(exc.value).lower() or "beta" in str(exc.value).lower()
+
+
 def test_execute_qspec_normalizes_before_persisting_artifacts(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
     handle = WorkspaceManager.load_or_init(workspace)

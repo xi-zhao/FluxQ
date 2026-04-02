@@ -52,6 +52,7 @@ def normalize_qspec(qspec: QSpec) -> QSpec:
     if connectivity_map is not None:
         constraints["connectivity_map"] = _normalize_connectivity_map(connectivity_map)
     payload["constraints"] = constraints
+    payload["parameters"] = [_normalize_parameter(parameter) for parameter in payload.get("parameters", [])]
 
     return QSpec.model_validate(payload)
 
@@ -84,6 +85,7 @@ def validate_qspec(qspec: QSpec) -> QSpec:
     _require_positive_int(qspec.constraints.shots, "constraints.shots", issues)
     _validate_optimization_level(qspec.constraints.optimization_level, issues)
     _validate_constraint_bounds(qspec, issues)
+    _validate_parameters(qspec, issues)
 
     if issues:
         raise QSpecValidationError("QSpec validation failed", issues=issues)
@@ -135,6 +137,97 @@ def _validate_constraint_bounds(qspec: QSpec, issues: list[str]) -> None:
             issues.append("connectivity_map indices must fit within the qubit register")
         if left == right:
             issues.append("connectivity_map cannot contain self-loops")
+
+
+def _validate_parameters(qspec: QSpec, issues: list[str]) -> None:
+    seen_names: set[str] = set()
+    for index, parameter in enumerate(qspec.parameters):
+        name = str(parameter.get("name", "")).strip()
+        if not name:
+            issues.append(f"parameters[{index}].name must be non-empty")
+            continue
+        if name in seen_names:
+            issues.append("parameter names must be unique")
+        seen_names.add(name)
+        if "default" in parameter:
+            try:
+                float(parameter["default"])
+            except (TypeError, ValueError):
+                issues.append(f"parameters[{index}].default must be numeric")
+
+    for node in qspec.body:
+        if not isinstance(node, PatternNode):
+            continue
+        size = int(node.args.get("size", qspec.registers[0].size))
+        if node.pattern == "hardware_efficient_ansatz":
+            layers = int(node.args.get("layers", 1))
+            if layers <= 0:
+                issues.append("hardware_efficient_ansatz layers must be positive")
+            rotation_blocks = node.args.get("rotation_blocks", [])
+            if not isinstance(rotation_blocks, list) or not rotation_blocks:
+                issues.append("hardware_efficient_ansatz rotation_blocks must be a non-empty list")
+            else:
+                invalid_blocks = [
+                    str(block)
+                    for block in rotation_blocks
+                    if str(block) not in {"rx", "ry", "rz"}
+                ]
+                if invalid_blocks:
+                    issues.append("hardware_efficient_ansatz rotation_blocks must be rx, ry, or rz")
+            _validate_edge_pairs(
+                node.args.get("entanglement_edges", []),
+                size=size,
+                field_name="hardware_efficient_ansatz entanglement_edges",
+                issues=issues,
+            )
+            expected = layers * size * len(rotation_blocks or [])
+            actual = _count_family_parameters(qspec, "hardware_efficient_ansatz")
+            if expected and actual != expected:
+                issues.append("hardware_efficient_ansatz parameter count does not match layers * qubits * rotation blocks")
+        if node.pattern == "qaoa_ansatz":
+            layers = int(node.args.get("layers", 1))
+            if layers <= 0:
+                issues.append("qaoa_ansatz layers must be positive")
+            if str(node.args.get("cost_operator", "zz")) != "zz":
+                issues.append("qaoa_ansatz cost_operator must be zz")
+            if str(node.args.get("mixer", "rx")) != "rx":
+                issues.append("qaoa_ansatz mixer must be rx")
+            _validate_edge_pairs(
+                node.args.get("cost_edges", []),
+                size=size,
+                field_name="qaoa_ansatz cost_edges",
+                issues=issues,
+            )
+            gamma_count = _count_parameter_role(qspec, family="qaoa_ansatz", role="cost")
+            beta_count = _count_parameter_role(qspec, family="qaoa_ansatz", role="mixer")
+            if gamma_count != layers or beta_count != layers:
+                issues.append("qaoa_ansatz must define one gamma and one beta parameter per layer")
+
+
+def _validate_edge_pairs(
+    value: object,
+    *,
+    size: int,
+    field_name: str,
+    issues: list[str],
+) -> None:
+    if not isinstance(value, list):
+        issues.append(f"{field_name} must be a list of edge pairs")
+        return
+
+    for edge in value:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            issues.append(f"{field_name} entries must contain exactly two indices")
+            continue
+        left = int(edge[0])
+        right = int(edge[1])
+        if left < 0 or right < 0:
+            issues.append(f"{field_name} indices must be non-negative")
+            continue
+        if left >= size or right >= size:
+            issues.append(f"{field_name} indices must fit within the qubit register")
+        if left == right:
+            issues.append(f"{field_name} cannot contain self-loops")
 
 
 def _validate_register_names(registers: Iterable[Any], issues: list[str]) -> None:
@@ -199,3 +292,30 @@ def _normalize_connectivity_map(value: object) -> list[tuple[int, int]]:
         seen.add(normalized)
         result.append(normalized)
     return result
+
+
+def _normalize_parameter(parameter: object) -> dict[str, Any]:
+    if not isinstance(parameter, dict):
+        raise TypeError("parameter entries must be objects")
+
+    result = dict(parameter)
+    if "name" in result:
+        result["name"] = _strip_string(result["name"])
+    for key in ("kind", "family", "gate", "role"):
+        if key in result:
+            result[key] = _strip_optional_string(result[key])
+    if "default" in result and result["default"] is not None:
+        result["default"] = float(result["default"])
+    return result
+
+
+def _count_family_parameters(qspec: QSpec, family: str) -> int:
+    return sum(1 for parameter in qspec.parameters if str(parameter.get("family")) == family)
+
+
+def _count_parameter_role(qspec: QSpec, *, family: str, role: str) -> int:
+    return sum(
+        1
+        for parameter in qspec.parameters
+        if str(parameter.get("family")) == family and str(parameter.get("role")) == role
+    )
