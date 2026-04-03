@@ -1,8 +1,10 @@
 # Quantum Runtime CLI
 
-Quantum Runtime CLI is an agent-facing, deterministic runtime for quantum code generation workflows. It is designed to be called by any coding agent through file I/O plus shell commands rather than custom host-specific tools.
+Quantum Runtime CLI is a workspace-native runtime for quantum workflows. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
 
-Current release target: `0.2.0`
+Instead of treating quantum generation as one-off code emission, Quantum Runtime CLI gives you revisioned workspaces, replayable reports, semantic workload comparison, and guardrails for drift and replay integrity. It is designed for agent-driven development loops where reproducibility matters more than demo-only codegen.
+
+Current release: `0.2.0`
 
 ## Features
 
@@ -61,6 +63,15 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun compare --forbid-replay-integrity-regressions --json` lets CI fail when the right-hand replay input is less trustworthy than the baseline
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
 
+## Open Source
+
+Quantum Runtime CLI is released under `Apache-2.0`.
+
+- License: `LICENSE`
+- Contributing guide: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
+- Support guide: `SUPPORT.md`
+
 ## Workspace Layout
 
 `qrun init --workspace .quantum` creates:
@@ -112,3 +123,7 @@ uv run --python 3.11 --extra dev --extra qiskit pytest -q
 - Versioning: `docs/versioning.md`
 - aionrs integration: `docs/aionrs-integration.md`
 - Changelog: `CHANGELOG.md`
+- License: `LICENSE`
+- Contributing: `CONTRIBUTING.md`
+- Security: `SECURITY.md`
+- Support: `SUPPORT.md`

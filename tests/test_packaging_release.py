@@ -12,6 +12,11 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     gitignore = (PROJECT_ROOT / ".gitignore").read_text()
 
     assert 'version = "0.2.0"' in pyproject
+    assert 'license = "Apache-2.0"' in pyproject
+    assert 'license-files = ["LICENSE"]' in pyproject
+    assert 'description = "Workspace-native quantum workflow runtime for coding agents and CI"' in pyproject
+    assert "keywords = [" in pyproject
+    assert '"Topic :: Software Development :: Code Generators"' in pyproject
     assert '"build>=' in pyproject
     assert "python -m build" in ci_workflow
     assert "dist/" in gitignore

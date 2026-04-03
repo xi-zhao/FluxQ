@@ -13,8 +13,10 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     roadmap = PROJECT_ROOT / "docs" / "plans" / "2026-04-02-product-roadmap.md"
     versioning = PROJECT_ROOT / "docs" / "versioning.md"
 
+    assert "workspace-native runtime for quantum workflows" in readme
+    assert "coding agents and CI systems can trust" in readme
     assert "uv pip install -e '.[dev,qiskit]'" in readme
-    assert "Current release target: `0.2.0`" in readme
+    assert "Current release: `0.2.0`" in readme
     assert "qrun init --workspace .quantum --json" in readme
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in readme
     assert "qrun bench --workspace .quantum --json" in readme
@@ -28,6 +30,10 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "report-backed imports now enforce replay integrity for QSpec identity" in readme
     assert "qrun compare --forbid-replay-integrity-regressions --json" in readme
     assert "Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2`" in readme
+    assert "Apache-2.0" in readme
+    assert "CONTRIBUTING.md" in readme
+    assert "SECURITY.md" in readme
+    assert "SUPPORT.md" in readme
 
     assert architecture.exists()
     architecture_text = architecture.read_text()

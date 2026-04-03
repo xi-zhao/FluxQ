@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 `0.2.0` establishes Quantum Runtime CLI as an agent-facing quantum workflow runtime rather than a narrow codegen demo.
 
+- publish an Apache-2.0 open-source release surface with contributor, security, and support docs
 - expand `qrun exec` coverage beyond intent-only input
 - keep report-backed replay and export flows anchored to revision-stable qspec/report/artifact provenance
 - let copied report files replay safely through stored workspace provenance and revision snapshots
