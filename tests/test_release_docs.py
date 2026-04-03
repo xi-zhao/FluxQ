@@ -13,12 +13,22 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     roadmap = PROJECT_ROOT / "docs" / "plans" / "2026-04-02-product-roadmap.md"
     versioning = PROJECT_ROOT / "docs" / "versioning.md"
 
-    assert "workspace-native runtime for quantum workflows" in readme
+    assert "# FluxQ" in readme
+    assert "workspace-native quantum workflow runtime" in readme
     assert "coding agents and CI systems can trust" in readme
+    assert "## Why FluxQ" in readme
+    assert "replayable reports" in readme
+    assert "semantic workload comparison" in readme
+    assert "## Install" in readme
+    assert "uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.0" in readme
     assert "uv pip install -e '.[dev,qiskit]'" in readme
-    assert "Current release: `0.2.0`" in readme
+    assert "## First Run" in readme
     assert "qrun init --workspace .quantum --json" in readme
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in readme
+    assert "qrun inspect --workspace .quantum --json" in readme
+    assert "qrun export --workspace .quantum --format qasm3 --json" in readme
+    assert "## Trust And Replay" in readme
+    assert "## Command Reference" in readme
     assert "qrun bench --workspace .quantum --json" in readme
     assert "qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json" in readme
     assert "docs/aionrs-integration.md" in readme
@@ -46,7 +56,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     changelog_text = changelog.read_text()
     assert "Unreleased" in changelog_text
     assert "0.2.0" in changelog_text
-    assert "agent-facing quantum workflow runtime" in changelog_text
+    assert "public release baseline" in changelog_text
     assert "emit replay provenance fields from `qrun export --json`" in changelog_text
     assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
     assert "surface `replay_integrity` in `qrun inspect --json`" in changelog_text

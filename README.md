@@ -1,42 +1,56 @@
-# Quantum Runtime CLI
+# FluxQ
 
-Quantum Runtime CLI is a workspace-native runtime for quantum workflows. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
+Workspace-native quantum runtime for coding agents, CI, and reproducible circuit workflows.
 
-Instead of treating quantum generation as one-off code emission, Quantum Runtime CLI gives you revisioned workspaces, replayable reports, semantic workload comparison, and guardrails for drift and replay integrity. It is designed for agent-driven development loops where reproducibility matters more than demo-only codegen.
+FluxQ is a workspace-native quantum workflow runtime. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
 
+Instead of treating quantum generation as one-off code emission, FluxQ gives you revisioned workspaces, replayable reports, semantic workload comparison, and guardrails for drift and replay integrity.
+
+Package: `quantum-runtime`  
+CLI: `qrun`  
 Current release: `0.2.0`
 
-## Features
+## Why FluxQ
 
-- deterministic workspace initialization with revision tracking
-- revision-stable artifact snapshots for replayable reports and exports
-- markdown intent parsing with YAML front matter
-- QSpec v0.1 planning for `ghz`, `bell`, `qft`, `hardware_efficient_ansatz`, and `qaoa_ansatz`
-- Qiskit, OpenQASM 3, and Classiq Python emission
-- local simulation, transpile validation, diagrams, and structural benchmarking
-- agent-host friendly JSON output through `qrun init`, `qrun exec`, `qrun inspect`, `qrun export`, `qrun bench`, `qrun compare`, and `qrun doctor`
+- reproducible quantum runs should survive beyond one generated script
+- replayable reports let hosts and developers re-run work from revision-stable inputs
+- semantic workload comparison is more useful than raw file diff when you need to know whether a circuit family actually changed
+- one workload can be exported into Qiskit, OpenQASM 3, and Classiq Python outputs
+- local simulation, transpile validation, diagrams, and structural benchmarking make iteration fast before deeper backend work begins
 
-## Quick Start
+## Who It's For
+
+- quantum developers who want circuits, exports, and diagnostics anchored to a stable workspace
+- agent and CI builders who need file-based orchestration, JSON output, and explicit trust signals
+- teams that want to compare revisions, catch replay regressions, and keep generated quantum workflows understandable over time
+
+## Install
+
+For CLI use from the public GitHub release:
+
+```bash
+uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.0
+```
+
+For local development and contributor workflows:
 
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
 uv pip install -e '.[dev,qiskit]'
-qrun init --workspace .quantum --json
-qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
-qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json
-qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json
-qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json
-qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json
-qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json
-qrun inspect --workspace .quantum --json
-qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json
-qrun export --workspace .quantum --format qasm3 --json
-qrun bench --workspace .quantum --json
-qrun doctor --workspace .quantum --json --fix
 ```
 
-The GHZ example writes:
+## First Run
+
+```bash
+qrun init --workspace .quantum --json
+qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun inspect --workspace .quantum --json
+qrun export --workspace .quantum --format qasm3 --json
+qrun bench --workspace .quantum --json
+```
+
+After one GHZ run, FluxQ writes:
 
 - `.quantum/specs/current.json`
 - `.quantum/artifacts/qiskit/main.py`
@@ -44,13 +58,18 @@ The GHZ example writes:
 - `.quantum/figures/circuit.png`
 - `.quantum/reports/latest.json`
 
-## Host Integration
+You can also execute from existing workspace state instead of starting from an intent every time:
 
-Quantum Runtime CLI is intended to be orchestrated by coding agents through files plus shell commands.
+```bash
+qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json
+qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json
+qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json
+```
 
-- aionrs integration examples: `docs/aionrs-integration.md`
-- sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
-- sample hooks: `integrations/aionrs/hooks.example.toml`
+## Trust And Replay
+
+FluxQ is designed to be orchestrated by coding agents through files plus shell commands. The release focus is not just generation, but repeatability and inspectability.
+
 - reports include stable provenance metadata for replay and inspection
 - copied report files remain replayable as long as their recorded revision snapshots are still available
 - report-backed imports now enforce replay integrity for QSpec identity instead of trusting path existence alone
@@ -62,15 +81,6 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun compare` separates workload identity drift from generated artifact output drift and diagnostics drift
 - `qrun compare --forbid-replay-integrity-regressions --json` lets CI fail when the right-hand replay input is less trustworthy than the baseline
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
-
-## Open Source
-
-Quantum Runtime CLI is released under `Apache-2.0`.
-
-- License: `LICENSE`
-- Contributing guide: `CONTRIBUTING.md`
-- Security policy: `SECURITY.md`
-- Support guide: `SUPPORT.md`
 
 ## Workspace Layout
 
@@ -92,23 +102,40 @@ Quantum Runtime CLI is released under `Apache-2.0`.
 └─ cache/
 ```
 
-## Commands
+## Command Reference
 
 - `qrun init --workspace .quantum --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
 - `qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json`
 - `qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
-- `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
-- `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun inspect --workspace .quantum --json`
+- `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
+- `qrun export --workspace .quantum --format qiskit --json`
+- `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
+- `qrun bench --workspace .quantum --json`
 - `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json`
 - `qrun compare --workspace .quantum --left-report-file .quantum/reports/history/rev_000001.json --forbid-replay-integrity-regressions --json`
-- `qrun export --workspace .quantum --format qiskit --json`
-- `qrun bench --workspace .quantum --json`
 - `qrun doctor --workspace .quantum --json --fix`
 - `qrun backend list --json`
 - `qrun version`
+
+## Agent And Host Integration
+
+- aionrs integration examples: `docs/aionrs-integration.md`
+- sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
+- sample hooks: `integrations/aionrs/hooks.example.toml`
+
+## Open Source
+
+FluxQ is released under `Apache-2.0`.
+
+- Repository: `https://github.com/xi-zhao/FluxQ`
+- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.0`
+- License: `LICENSE`
+- Contributing guide: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
+- Support guide: `SUPPORT.md`
 
 ## Development
 
