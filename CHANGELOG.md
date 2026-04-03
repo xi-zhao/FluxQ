@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 - polish the public README with clearer install, first-run, and trust-surface sections
+- add curated `v0.2.0` release notes and stronger public release discoverability
 
 ## 0.2.0
 

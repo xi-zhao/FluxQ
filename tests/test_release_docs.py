@@ -10,10 +10,14 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text()
     architecture = PROJECT_ROOT / "ARCHITECTURE.md"
     changelog = PROJECT_ROOT / "CHANGELOG.md"
+    release_notes = PROJECT_ROOT / "docs" / "releases" / "v0.2.0.md"
     roadmap = PROJECT_ROOT / "docs" / "plans" / "2026-04-02-product-roadmap.md"
     versioning = PROJECT_ROOT / "docs" / "versioning.md"
 
     assert "# FluxQ" in readme
+    assert "![Release]" in readme
+    assert "![License]" in readme
+    assert "![Python]" in readme
     assert "workspace-native quantum workflow runtime" in readme
     assert "coding agents and CI systems can trust" in readme
     assert "## Why FluxQ" in readme
@@ -41,6 +45,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "qrun compare --forbid-replay-integrity-regressions --json" in readme
     assert "Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2`" in readme
     assert "Apache-2.0" in readme
+    assert "docs/releases/v0.2.0.md" in readme
     assert "CONTRIBUTING.md" in readme
     assert "SECURITY.md" in readme
     assert "SUPPORT.md" in readme
@@ -61,6 +66,16 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
     assert "surface `replay_integrity` in `qrun inspect --json`" in changelog_text
     assert "add replay-trust deltas and `--forbid-replay-integrity-regressions` to `qrun compare`" in changelog_text
+
+    assert release_notes.exists()
+    release_notes_text = release_notes.read_text()
+    assert "# FluxQ v0.2.0" in release_notes_text
+    assert "## Why This Release Matters" in release_notes_text
+    assert "## Highlights" in release_notes_text
+    assert "## Install" in release_notes_text
+    assert "uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.0" in release_notes_text
+    assert "## What To Try First" in release_notes_text
+    assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in release_notes_text
 
     assert roadmap.exists()
     roadmap_text = roadmap.read_text()

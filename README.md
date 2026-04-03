@@ -1,5 +1,9 @@
 # FluxQ
 
+![Release](https://img.shields.io/github/v/release/xi-zhao/FluxQ?sort=semver)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11-3776AB.svg)
+
 Reproducible quantum workflows for coding agents, CI, and revision-aware teams.
 
 FluxQ is a workspace-native quantum workflow runtime. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
@@ -134,6 +138,7 @@ FluxQ is released under `Apache-2.0`.
 
 - Repository: `https://github.com/xi-zhao/FluxQ`
 - Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.0`
+- Release notes source: `docs/releases/v0.2.0.md`
 - License: `LICENSE`
 - Contributing guide: `CONTRIBUTING.md`
 - Security policy: `SECURITY.md`
