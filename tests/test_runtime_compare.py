@@ -183,6 +183,105 @@ def test_compare_import_resolutions_policy_fails_on_backend_regression() -> None
     assert "backend_regressions:forbidden" in result.verdict["failed_checks"]
 
 
+def test_compare_import_resolutions_surfaces_replay_integrity_regression() -> None:
+    left = _synthetic_resolution(
+        revision="rev_000001",
+        pattern="ghz",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
+        qspec_hash="sha256:qspec",
+        report_hash="sha256:left",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        replay_integrity={
+            "status": "ok",
+            "warnings": [],
+            "verified_artifacts": ["qiskit_code"],
+            "missing_artifacts": [],
+            "mismatched_artifacts": [],
+        },
+    )
+    right = _synthetic_resolution(
+        revision="rev_000002",
+        pattern="ghz",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
+        qspec_hash="sha256:qspec",
+        report_hash="sha256:right",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        replay_integrity={
+            "status": "legacy",
+            "warnings": ["artifact_output_digests_missing"],
+            "verified_artifacts": [],
+            "missing_artifacts": [],
+            "mismatched_artifacts": [],
+        },
+    )
+
+    result = compare_import_resolutions(left, right)
+
+    assert result.left.replay_integrity["status"] == "ok"
+    assert result.right.replay_integrity["status"] == "legacy"
+    assert result.replay_integrity_delta["status_changed"] is True
+    assert result.replay_integrity_delta["left"]["status"] == "ok"
+    assert result.replay_integrity_delta["right"]["status"] == "legacy"
+    assert result.replay_integrity_delta["warnings_added"] == ["artifact_output_digests_missing"]
+    assert result.replay_integrity_regressions == ["status:ok->legacy"]
+    assert "replay_integrity_changed" in result.differences
+    assert any("Replay trust changed: ok -> legacy." == highlight for highlight in result.highlights)
+
+
+def test_compare_import_resolutions_policy_fails_on_replay_integrity_regression() -> None:
+    left = _synthetic_resolution(
+        revision="rev_000001",
+        pattern="ghz",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
+        qspec_hash="sha256:qspec",
+        report_hash="sha256:left",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        replay_integrity={
+            "status": "ok",
+            "warnings": [],
+            "verified_artifacts": ["qiskit_code"],
+            "missing_artifacts": [],
+            "mismatched_artifacts": [],
+        },
+    )
+    right = _synthetic_resolution(
+        revision="rev_000002",
+        pattern="ghz",
+        workload_hash="sha256:same",
+        execution_hash="sha256:same",
+        qspec_hash="sha256:qspec",
+        report_hash="sha256:right",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        replay_integrity={
+            "status": "degraded",
+            "warnings": ["artifact_outputs_missing"],
+            "verified_artifacts": [],
+            "missing_artifacts": ["qiskit_code"],
+            "mismatched_artifacts": [],
+        },
+    )
+
+    result = compare_import_resolutions(
+        left,
+        right,
+        policy=ComparePolicy(
+            expect="same-subject",
+            forbid_replay_integrity_regressions=True,
+        ),
+    )
+
+    assert result.replay_integrity_regressions == ["status:ok->degraded", "missing_artifacts:qiskit_code"]
+    assert result.verdict["status"] == "fail"
+    assert "replay_integrity_regressions:forbidden" in result.verdict["failed_checks"]
+
+
 def test_compare_import_resolutions_keeps_same_subject_for_execution_config_changes() -> None:
     left = _synthetic_resolution(
         revision="rev_000001",
@@ -232,7 +331,15 @@ def _synthetic_resolution(
     backend_statuses: dict[str, str],
     constraints: dict[str, object] | None = None,
     backend_preferences: list[str] | None = None,
+    replay_integrity: dict[str, object] | None = None,
 ) -> ImportResolution:
+    replay_payload = replay_integrity or {
+        "status": "ok",
+        "warnings": [],
+        "verified_artifacts": ["qiskit_code"],
+        "missing_artifacts": [],
+        "mismatched_artifacts": [],
+    }
     return ImportResolution(
         source_kind="report_revision",
         source=f"revision:{revision}",
@@ -276,7 +383,12 @@ def _synthetic_resolution(
             },
             "warning_count": 0,
             "error_count": 0,
+            "replay_integrity_status": replay_payload["status"],
+            "replay_integrity_warnings": replay_payload["warnings"],
+            "replay_integrity_missing_artifacts": replay_payload["missing_artifacts"],
+            "replay_integrity_mismatched_artifacts": replay_payload["mismatched_artifacts"],
         },
+        replay_integrity=replay_payload,
         artifacts={},
         provenance={},
     )

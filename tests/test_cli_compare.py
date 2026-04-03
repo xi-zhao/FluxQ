@@ -511,6 +511,73 @@ def test_qrun_compare_json_policy_fails_for_backend_regression(tmp_path: Path) -
     assert "backend_regressions:forbidden" in payload["verdict"]["failed_checks"]
 
 
+def test_qrun_compare_json_policy_fails_for_replay_integrity_regression(tmp_path: Path) -> None:
+    left_workspace = tmp_path / ".quantum-left"
+    right_workspace = tmp_path / ".quantum-right"
+
+    left_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(left_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert left_result.exit_code == 0, left_result.stdout
+
+    right_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(right_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert right_result.exit_code == 0, right_result.stdout
+
+    right_report_path = right_workspace / "reports" / "latest.json"
+    right_report = json.loads(right_report_path.read_text())
+    replay_integrity = right_report.get("replay_integrity", {})
+    assert isinstance(replay_integrity, dict)
+    replay_integrity.pop("artifact_output_digests", None)
+    right_report["replay_integrity"] = replay_integrity
+    right_report_path.write_text(json.dumps(right_report, indent=2))
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(right_workspace),
+            "--left-report-file",
+            str(left_workspace / "reports" / "latest.json"),
+            "--right-report-file",
+            str(right_report_path),
+            "--expect",
+            "same-subject",
+            "--forbid-replay-integrity-regressions",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["same_subject"] is True
+    assert payload["left"]["replay_integrity"]["status"] == "ok"
+    assert payload["right"]["replay_integrity"]["status"] == "legacy"
+    assert payload["replay_integrity_delta"]["status_changed"] is True
+    assert payload["replay_integrity_regressions"] == ["status:ok->legacy"]
+    assert payload["verdict"]["status"] == "fail"
+    assert "replay_integrity_regressions:forbidden" in payload["verdict"]["failed_checks"]
+    assert "Replay trust changed: ok -> legacy." in payload["highlights"]
+
+
 def test_qrun_compare_plaintext_surfaces_first_highlight(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 

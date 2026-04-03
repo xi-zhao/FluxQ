@@ -33,6 +33,7 @@ class CompareSide(BaseModel):
     report_status: str | None = None
     qspec_summary: dict[str, Any] = Field(default_factory=dict)
     report_summary: dict[str, Any] = Field(default_factory=dict)
+    replay_integrity: dict[str, Any] = Field(default_factory=dict)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -48,10 +49,12 @@ class CompareResult(BaseModel):
     report_delta: dict[str, Any] = Field(default_factory=dict)
     diagnostic_delta: dict[str, Any] = Field(default_factory=dict)
     backend_delta: dict[str, Any] = Field(default_factory=dict)
+    replay_integrity_delta: dict[str, Any] = Field(default_factory=dict)
     highlights: list[str] = Field(default_factory=list)
     detached_report_inputs: list[str] = Field(default_factory=list)
     report_drift_detected: bool = False
     backend_regressions: list[str] = Field(default_factory=list)
+    replay_integrity_regressions: list[str] = Field(default_factory=list)
     policy: dict[str, Any] = Field(default_factory=dict)
     verdict: dict[str, Any] = Field(default_factory=dict)
     left: CompareSide
@@ -64,6 +67,7 @@ class ComparePolicy(BaseModel):
     expect: CompareExpectation | None = None
     allow_report_drift: bool = True
     forbid_backend_regressions: bool = False
+    forbid_replay_integrity_regressions: bool = False
 
 
 class CompareVerdict(BaseModel):
@@ -86,6 +90,8 @@ def compare_import_resolutions(
     right_qspec = right.qspec_summary if isinstance(right.qspec_summary, dict) else {}
     left_report = left.report_summary if isinstance(left.report_summary, dict) else {}
     right_report = right.report_summary if isinstance(right.report_summary, dict) else {}
+    left_replay_integrity = left.replay_integrity if isinstance(left.replay_integrity, dict) else {}
+    right_replay_integrity = right.replay_integrity if isinstance(right.replay_integrity, dict) else {}
 
     left_workload_hash = _identity_hash(left_qspec, preferred_key="workload_hash")
     right_workload_hash = _identity_hash(right_qspec, preferred_key="workload_hash")
@@ -97,6 +103,7 @@ def compare_import_resolutions(
     report_delta = _report_delta(left_report, right_report)
     diagnostic_delta = _diagnostic_delta(left_report, right_report)
     backend_delta = _backend_delta(left_report, right_report)
+    replay_integrity_delta = _replay_integrity_delta(left_replay_integrity, right_replay_integrity)
     detached_report_inputs = _detached_report_inputs(left, right)
     report_drift_detected = _report_drift_detected(
         report_delta=report_delta,
@@ -104,6 +111,10 @@ def compare_import_resolutions(
         backend_delta=backend_delta,
     )
     backend_regressions = _backend_regressions(left_report, right_report)
+    replay_integrity_regressions = _replay_integrity_regressions(
+        left_replay_integrity,
+        right_replay_integrity,
+    )
     differences = _differences(
         same_subject=same_subject,
         same_qspec=same_qspec,
@@ -112,6 +123,8 @@ def compare_import_resolutions(
         report_delta=report_delta,
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
+        replay_integrity_delta=replay_integrity_delta,
+        replay_integrity_regressions=replay_integrity_regressions,
     )
     highlights = _highlights(
         same_subject=same_subject,
@@ -121,6 +134,7 @@ def compare_import_resolutions(
         report_delta=report_delta,
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
+        replay_integrity_delta=replay_integrity_delta,
         detached_report_inputs=detached_report_inputs,
         left_report=left_report,
         right_report=right_report,
@@ -132,6 +146,7 @@ def compare_import_resolutions(
         same_report=same_report,
         report_drift_detected=report_drift_detected,
         backend_regressions=backend_regressions,
+        replay_integrity_regressions=replay_integrity_regressions,
     )
 
     return CompareResult(
@@ -144,10 +159,12 @@ def compare_import_resolutions(
         report_delta=report_delta,
         diagnostic_delta=diagnostic_delta,
         backend_delta=backend_delta,
+        replay_integrity_delta=replay_integrity_delta,
         highlights=highlights,
         detached_report_inputs=detached_report_inputs,
         report_drift_detected=report_drift_detected,
         backend_regressions=backend_regressions,
+        replay_integrity_regressions=replay_integrity_regressions,
         policy=policy.model_dump(mode="json") if policy is not None else {},
         verdict=verdict.model_dump(mode="json"),
         left=_compare_side(left),
@@ -168,6 +185,7 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
         report_status=resolution.report_status,
         qspec_summary=resolution.qspec_summary,
         report_summary=resolution.report_summary,
+        replay_integrity=resolution.replay_integrity,
         provenance=resolution.provenance,
     )
 
@@ -268,6 +286,38 @@ def _backend_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _replay_integrity_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    left_warnings = set(_string_list(left.get("warnings")))
+    right_warnings = set(_string_list(right.get("warnings")))
+    left_missing = set(_string_list(left.get("missing_artifacts")))
+    right_missing = set(_string_list(right.get("missing_artifacts")))
+    left_mismatched = set(_string_list(left.get("mismatched_artifacts")))
+    right_mismatched = set(_string_list(right.get("mismatched_artifacts")))
+    return {
+        "status_changed": left.get("status") != right.get("status"),
+        "warnings_added": sorted(right_warnings - left_warnings),
+        "warnings_removed": sorted(left_warnings - right_warnings),
+        "missing_artifacts_added": sorted(right_missing - left_missing),
+        "missing_artifacts_removed": sorted(left_missing - right_missing),
+        "mismatched_artifacts_added": sorted(right_mismatched - left_mismatched),
+        "mismatched_artifacts_removed": sorted(left_mismatched - right_mismatched),
+        "left": {
+            "status": left.get("status"),
+            "warnings": sorted(left_warnings),
+            "missing_artifacts": sorted(left_missing),
+            "mismatched_artifacts": sorted(left_mismatched),
+            "verified_artifacts": _string_list(left.get("verified_artifacts")),
+        },
+        "right": {
+            "status": right.get("status"),
+            "warnings": sorted(right_warnings),
+            "missing_artifacts": sorted(right_missing),
+            "mismatched_artifacts": sorted(right_mismatched),
+            "verified_artifacts": _string_list(right.get("verified_artifacts")),
+        },
+    }
+
+
 def _detached_report_inputs(left: ImportResolution, right: ImportResolution) -> list[str]:
     detached: list[str] = []
     for side_name, resolution in (("left", left), ("right", right)):
@@ -327,6 +377,20 @@ def _backend_regressions(left: dict[str, Any], right: dict[str, Any]) -> list[st
     return sorted(regressions)
 
 
+def _replay_integrity_regressions(left: dict[str, Any], right: dict[str, Any]) -> list[str]:
+    regressions: list[str] = []
+    left_status = _optional_string(left.get("status"))
+    right_status = _optional_string(right.get("status"))
+    if _replay_integrity_rank(right_status) > _replay_integrity_rank(left_status):
+        regressions.append(f"status:{left_status or 'unknown'}->{right_status or 'unknown'}")
+
+    for name in sorted(set(_string_list(right.get("missing_artifacts"))) - set(_string_list(left.get("missing_artifacts")))):
+        regressions.append(f"missing_artifacts:{name}")
+    for name in sorted(set(_string_list(right.get("mismatched_artifacts"))) - set(_string_list(left.get("mismatched_artifacts")))):
+        regressions.append(f"mismatched_artifacts:{name}")
+    return regressions
+
+
 def _differences(
     *,
     same_subject: bool,
@@ -336,6 +400,8 @@ def _differences(
     report_delta: dict[str, Any],
     diagnostic_delta: dict[str, Any],
     backend_delta: dict[str, Any],
+    replay_integrity_delta: dict[str, Any],
+    replay_integrity_regressions: list[str],
 ) -> list[str]:
     differences: list[str] = []
     if not same_subject:
@@ -374,6 +440,18 @@ def _differences(
     status_changed = backend_delta.get("status_changed")
     if isinstance(status_changed, dict) and status_changed:
         differences.append("backend_status_changed")
+    if (
+        replay_integrity_delta.get("status_changed")
+        or replay_integrity_delta.get("warnings_added")
+        or replay_integrity_delta.get("warnings_removed")
+        or replay_integrity_delta.get("missing_artifacts_added")
+        or replay_integrity_delta.get("missing_artifacts_removed")
+        or replay_integrity_delta.get("mismatched_artifacts_added")
+        or replay_integrity_delta.get("mismatched_artifacts_removed")
+    ):
+        differences.append("replay_integrity_changed")
+    if replay_integrity_regressions:
+        differences.append("replay_integrity_regressed")
     return differences
 
 
@@ -386,11 +464,17 @@ def _highlights(
     report_delta: dict[str, Any],
     diagnostic_delta: dict[str, Any],
     backend_delta: dict[str, Any],
+    replay_integrity_delta: dict[str, Any],
     detached_report_inputs: list[str],
     left_report: dict[str, Any],
     right_report: dict[str, Any],
 ) -> list[str]:
     highlights: list[str] = []
+
+    if replay_integrity_delta.get("status_changed"):
+        left_status = replay_integrity_delta.get("left", {}).get("status", "unknown")
+        right_status = replay_integrity_delta.get("right", {}).get("status", "unknown")
+        highlights.append(f"Replay trust changed: {left_status} -> {right_status}.")
 
     if same_subject:
         pattern = semantic_delta.get("left", {}).get("pattern")
@@ -413,6 +497,16 @@ def _highlights(
     if detached_report_inputs:
         sides = ", ".join(detached_report_inputs)
         highlights.append(f"Detached report replay input on: {sides}.")
+
+    warnings_added = replay_integrity_delta.get("warnings_added")
+    if isinstance(warnings_added, list) and warnings_added:
+        names = ", ".join(str(name) for name in warnings_added[:4])
+        highlights.append(f"Replay integrity warnings added: {names}.")
+
+    missing_added = replay_integrity_delta.get("missing_artifacts_added")
+    if isinstance(missing_added, list) and missing_added:
+        names = ", ".join(str(name) for name in missing_added[:4])
+        highlights.append(f"Replay artifacts missing on right side: {names}.")
 
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:
@@ -460,6 +554,7 @@ def _evaluate_policy(
     same_report: bool,
     report_drift_detected: bool,
     backend_regressions: list[str],
+    replay_integrity_regressions: list[str],
 ) -> CompareVerdict:
     if policy is None:
         return CompareVerdict(
@@ -495,6 +590,14 @@ def _evaluate_policy(
             passed_checks.append("backend_regressions:none")
     else:
         passed_checks.append("backend_regressions:allowed")
+
+    if policy.forbid_replay_integrity_regressions:
+        if replay_integrity_regressions:
+            failed_checks.append("replay_integrity_regressions:forbidden")
+        else:
+            passed_checks.append("replay_integrity_regressions:none")
+    else:
+        passed_checks.append("replay_integrity_regressions:allowed")
 
     if failed_checks:
         return CompareVerdict(
@@ -552,6 +655,17 @@ def _status_rank(status: str | None) -> int:
     if status is None:
         return 4
     return ordering.get(status, 4)
+
+
+def _replay_integrity_rank(status: str | None) -> int:
+    ordering = {
+        "ok": 0,
+        "legacy": 1,
+        "degraded": 2,
+    }
+    if status is None:
+        return 3
+    return ordering.get(status, 3)
 
 
 def _expectation_matches(

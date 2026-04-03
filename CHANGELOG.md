@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - stabilize semantic provenance across `report`, `inspect`, and `bench` outputs
 - add `qrun compare` for semantic workload identity checks across reports and revisions
 - add compare policy verdicts for CI and agent guardrails
+- add replay-trust deltas and `--forbid-replay-integrity-regressions` to `qrun compare`
 - surface artifact output digests and output-set drift in compare/report summaries
 - improve packaging and release automation
 

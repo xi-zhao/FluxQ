@@ -53,8 +53,10 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
 - `qrun compare --json` reports `detached_report_inputs` so hosts can detect copied-report replay explicitly
 - `qrun inspect --json` reports `replay_integrity` so hosts can detect legacy, degraded, or invalid replay trust directly
+- `qrun compare --json` reports side-level `replay_integrity`, `replay_integrity_delta`, and `replay_integrity_regressions`
 - reports, inspect, and compare all expose stable semantic hashes for workload identity
 - `qrun compare` separates workload identity drift from generated artifact output drift and diagnostics drift
+- `qrun compare --forbid-replay-integrity-regressions --json` lets CI fail when the right-hand replay input is less trustworthy than the baseline
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
 
 ## Workspace Layout
@@ -88,6 +90,7 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun inspect --workspace .quantum --json`
 - `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json`
+- `qrun compare --workspace .quantum --left-report-file .quantum/reports/history/rev_000001.json --forbid-replay-integrity-regressions --json`
 - `qrun export --workspace .quantum --format qiskit --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun doctor --workspace .quantum --json --fix`

@@ -472,6 +472,11 @@ def compare_command(
         "--forbid-backend-regressions",
         help="Fail compare when backend availability regresses on the right side.",
     ),
+    forbid_replay_integrity_regressions: bool = typer.Option(
+        False,
+        "--forbid-replay-integrity-regressions",
+        help="Fail compare when replay trust regresses on the right side.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -513,10 +518,12 @@ def compare_command(
             "expect": expect,
             "allow_report_drift": allow_report_drift,
             "forbid_backend_regressions": forbid_backend_regressions,
+            "forbid_replay_integrity_regressions": forbid_replay_integrity_regressions,
         }) if (
             expect is not None
             or not allow_report_drift
             or forbid_backend_regressions
+            or forbid_replay_integrity_regressions
         ) else None
     except Exception as exc:
         if json_output:
