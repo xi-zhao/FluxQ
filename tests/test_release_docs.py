@@ -30,7 +30,9 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "## First Run" in readme
     assert "qrun init --workspace .quantum --json" in readme
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in readme
+    assert "qrun baseline set --workspace .quantum --revision rev_000001 --json" in readme
     assert "qrun inspect --workspace .quantum --json" in readme
+    assert "qrun compare --workspace .quantum --baseline --json" in readme
     assert "qrun export --workspace .quantum --format qasm3 --json" in readme
     assert "## Trust And Replay" in readme
     assert "## Command Reference" in readme
@@ -42,6 +44,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "`source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`" in readme
     assert "`detached_report_inputs`" in readme
     assert "`replay_integrity`" in readme
+    assert "workspace baselines persist approved report/QSpec states" in readme
+    assert "`baseline` block" in readme
     assert "`replay_integrity_delta`" in readme
     assert "report-backed imports now enforce replay integrity for QSpec identity" in readme
     assert "qrun compare --forbid-replay-integrity-regressions --json" in readme
@@ -68,6 +72,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
     assert "surface `replay_integrity` in `qrun inspect --json`" in changelog_text
     assert "add replay-trust deltas and `--forbid-replay-integrity-regressions` to `qrun compare`" in changelog_text
+    assert "add workspace baseline persistence with `qrun baseline set/show/clear`" in changelog_text
+    assert "add `qrun compare --baseline`" in changelog_text
 
     assert release_notes.exists()
     release_notes_text = release_notes.read_text()

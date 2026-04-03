@@ -27,10 +27,19 @@ class WorkspacePaths:
     def trace_events(self) -> Path:
         return self.root / "trace" / "events.ndjson"
 
+    @property
+    def baselines_dir(self) -> Path:
+        return self.root / "baselines"
+
+    @property
+    def baseline_current_json(self) -> Path:
+        return self.baselines_dir / "current.json"
+
     def required_directories(self) -> list[Path]:
         """Return the required directory skeleton for a workspace."""
         return [
             self.root,
+            self.baselines_dir,
             self.root / "intents",
             self.root / "intents" / "history",
             self.root / "specs",

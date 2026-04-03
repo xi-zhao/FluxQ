@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 - polish the public README with clearer install, first-run, and trust-surface sections
 - add curated `v0.2.0` release notes and stronger public release discoverability
+- add workspace baseline persistence with `qrun baseline set/show/clear`
+- add `qrun compare --baseline` so CI and agents can compare the current workspace against a saved approved baseline
+- surface baseline state in `qrun inspect --json` and degrade cleanly when the saved baseline can no longer be resolved
+- enforce stored report/QSpec identity when replaying saved baselines, including copied-report canonicalization back to stable history paths when hashes match
 
 ## 0.2.0
 

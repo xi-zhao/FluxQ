@@ -70,6 +70,7 @@ def test_qrun_compare_json_detects_same_subject_across_current_and_report_file(t
         payload["left"]["report_summary"]["artifact_output_set_hash"]
         == payload["right"]["report_summary"]["artifact_output_set_hash"]
     )
+    assert "baseline" not in payload
     assert payload["detached_report_inputs"] == []
     assert payload["verdict"]["status"] == "not_requested"
     assert payload["highlights"][0] == "Same workload identity (ghz) across both inputs."
@@ -623,3 +624,160 @@ def test_qrun_compare_plaintext_surfaces_first_highlight(tmp_path: Path) -> None
     assert compare_result.exit_code == 2, compare_result.stdout
     assert "different_subject" in compare_result.stdout
     assert "highlight=Different workload identity: ghz -> qaoa_ansatz." in compare_result.stdout
+
+
+def test_qrun_compare_json_uses_saved_workspace_baseline(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--expect",
+            "same-subject",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 0, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "same_subject"
+    assert payload["baseline"]["side"] == "left"
+    assert payload["baseline"]["revision"] == "rev_000001"
+    assert payload["baseline"]["path"].endswith("baselines/current.json")
+    assert payload["left"]["revision"] == "rev_000001"
+    assert payload["right"]["revision"] == "rev_000002"
+    assert payload["verdict"]["status"] == "pass"
+    assert "expect:same-subject" in payload["verdict"]["passed_checks"]
+
+
+def test_qrun_compare_json_baseline_mode_requires_saved_baseline(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 3, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload == {
+        "status": "error",
+        "reason": "baseline_missing",
+    }
+
+
+def test_qrun_compare_json_rejects_tampered_baseline_record_inputs(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    baseline_report_path = workspace / "reports" / "history" / "rev_000001.json"
+    baseline_report = json.loads(baseline_report_path.read_text())
+    baseline_report["warnings"] = ["tampered"]
+    baseline_report_path.write_text(json.dumps(baseline_report, indent=2))
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 3, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload == {
+        "status": "error",
+        "reason": "baseline_integrity_invalid",
+    }

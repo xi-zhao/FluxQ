@@ -51,7 +51,9 @@ FluxQ currently targets Python `3.11`.
 ```bash
 qrun init --workspace .quantum --json
 qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun baseline set --workspace .quantum --revision rev_000001 --json
 qrun inspect --workspace .quantum --json
+qrun compare --workspace .quantum --baseline --json
 qrun export --workspace .quantum --format qasm3 --json
 qrun bench --workspace .quantum --json
 ```
@@ -78,10 +80,14 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 
 - reports include stable provenance metadata for replay and inspection
 - copied report files remain replayable as long as their recorded revision snapshots are still available
+- workspace baselines persist approved report/QSpec states at `.quantum/baselines/current.json`
+- `qrun compare --baseline --json` compares the saved baseline against the current workspace without retyping revisions
 - report-backed imports now enforce replay integrity for QSpec identity instead of trusting path existence alone
+- baseline-backed compares also enforce stored report/QSpec identity so tampered baseline inputs fail closed
 - `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
 - `qrun compare --json` reports `detached_report_inputs` so hosts can detect copied-report replay explicitly
 - `qrun inspect --json` reports `replay_integrity` so hosts can detect legacy, degraded, or invalid replay trust directly
+- `qrun inspect --json` reports a `baseline` block so hosts can tell whether the current workspace still matches the approved baseline
 - `qrun compare --json` reports side-level `replay_integrity`, `replay_integrity_delta`, and `replay_integrity_regressions`
 - reports, inspect, and compare all expose stable semantic hashes for workload identity
 - `qrun compare` separates workload identity drift from generated artifact output drift and diagnostics drift
@@ -96,6 +102,7 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 .quantum/
 ├─ workspace.json
 ├─ qrun.toml
+├─ baselines/
 ├─ intents/history/
 ├─ specs/history/
 ├─ artifacts/qiskit/
@@ -115,7 +122,11 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 - `qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json`
 - `qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
+- `qrun baseline set --workspace .quantum --revision rev_000001 --json`
+- `qrun baseline show --workspace .quantum --json`
+- `qrun baseline clear --workspace .quantum --json`
 - `qrun inspect --workspace .quantum --json`
+- `qrun compare --workspace .quantum --baseline --expect same-subject --json`
 - `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
 - `qrun export --workspace .quantum --format qiskit --json`
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`

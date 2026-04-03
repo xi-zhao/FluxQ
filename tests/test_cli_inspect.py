@@ -107,6 +107,67 @@ def test_qrun_inspect_json_surfaces_parameterized_ansatz_semantics(tmp_path: Pat
     assert payload["provenance"]["subject"]["parameter_count"] == 4
 
 
+def test_qrun_inspect_json_includes_baseline_summary(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 0, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["baseline"]["status"] == "ok"
+    assert payload["baseline"]["revision"] == "rev_000001"
+    assert payload["baseline"]["source_kind"] == "report_revision"
+    assert payload["baseline"]["source"] == "revision:rev_000001"
+    assert payload["baseline"]["same_subject"] is False
+    assert payload["baseline"]["same_qspec"] is False
+    assert payload["baseline"]["same_report"] is False
+    assert payload["baseline"]["compare_status"] == "different_subject"
+    assert payload["baseline"]["path"].endswith("baselines/current.json")
+
+
 def test_qrun_inspect_json_reports_classiq_artifact_snapshot_aliases(
     tmp_path: Path,
     monkeypatch,
@@ -240,6 +301,52 @@ def test_qrun_inspect_json_degrades_when_replay_integrity_is_weakened(tmp_path: 
     assert payload["status"] == "degraded"
     assert payload["replay_integrity"]["status"] == "degraded"
     assert payload["replay_integrity"]["mismatched_artifacts"] == ["qiskit_code"]
+
+
+def test_qrun_inspect_json_degrades_when_baseline_input_is_missing(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    (workspace / "reports" / "history" / "rev_000001.json").unlink()
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 2, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["baseline"]["status"] == "degraded"
+    assert payload["baseline"]["reason"] == "report_file_missing"
+    assert payload["baseline"]["revision"] == "rev_000001"
+    assert "baseline_invalid:report_file_missing" in payload["issues"]
 
 
 def test_qrun_inspect_json_canonicalizes_top_level_legacy_alias_artifacts(tmp_path: Path) -> None:

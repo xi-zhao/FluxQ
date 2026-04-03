@@ -14,9 +14,14 @@ from quantum_runtime.artifact_provenance import (
     select_accessible_artifact_paths,
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.runtime.compare import compare_workspace_baseline
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
-from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
-from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
+from quantum_runtime.runtime.imports import (
+    ImportSourceError,
+    resolve_report_file,
+    resolve_workspace_baseline,
+)
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, WorkspacePaths
 
 
 class InspectReport(BaseModel):
@@ -28,6 +33,7 @@ class InspectReport(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
     qspec: dict[str, Any]
     artifacts: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] = Field(default_factory=dict)
     replay_integrity: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     backend_capabilities: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -102,6 +108,8 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     )
     issues.extend(replay_issues)
     errors.extend(replay_errors)
+    baseline, baseline_issues = _load_baseline_summary(workspace_root=normalized_root)
+    issues.extend(baseline_issues)
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
 
@@ -112,6 +120,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         provenance=provenance,
         qspec=qspec_summary,
         artifacts=canonical_artifacts,
+        baseline=baseline,
         replay_integrity=replay_integrity,
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
         backend_capabilities=collect_backend_capabilities(),
@@ -288,6 +297,54 @@ def _load_replay_integrity(
     elif status == "degraded":
         issues.append("replay_integrity_degraded")
     return replay_integrity, issues, []
+
+
+def _load_baseline_summary(*, workspace_root: Path) -> tuple[dict[str, Any], list[str]]:
+    record_path = WorkspacePaths(root=workspace_root).baseline_current_json.resolve()
+    if not record_path.exists():
+        return {
+            "status": "not_set",
+            "path": str(record_path),
+        }, []
+
+    metadata = _load_baseline_record_metadata(record_path)
+    try:
+        baseline_resolution = resolve_workspace_baseline(workspace_root)
+        comparison = compare_workspace_baseline(workspace_root)
+    except ImportSourceError as exc:
+        payload = {
+            "status": "degraded",
+            "path": str(record_path),
+            "reason": exc.code,
+        }
+        payload.update(metadata)
+        return payload, [f"baseline_invalid:{exc.code}"]
+
+    return {
+        "status": "ok",
+        "path": str(record_path),
+        "source_kind": baseline_resolution.record.source_kind,
+        "source": baseline_resolution.record.source,
+        "revision": baseline_resolution.record.revision,
+        "same_subject": comparison.same_subject,
+        "same_qspec": comparison.same_qspec,
+        "same_report": comparison.same_report,
+        "compare_status": comparison.status,
+        "highlight": comparison.highlights[0] if comparison.highlights else None,
+    }, []
+
+
+def _load_baseline_record_metadata(record_path: Path) -> dict[str, Any]:
+    try:
+        record = WorkspaceBaseline.load(record_path)
+    except Exception:
+        return {}
+
+    return {
+        "source_kind": record.source_kind,
+        "source": record.source,
+        "revision": record.revision,
+    }
 
 
 def _inspect_qspec_provenance(*, latest_report: dict[str, Any], active_spec_path: Path) -> dict[str, Any]:

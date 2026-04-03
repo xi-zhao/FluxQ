@@ -7,9 +7,11 @@ from quantum_runtime.runtime import (
     ImportReference,
     ImportResolution,
     compare_import_resolutions,
+    compare_workspace_baseline,
     execute_intent,
     resolve_import_reference,
 )
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspacePaths
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -317,6 +319,36 @@ def test_compare_import_resolutions_keeps_same_subject_for_execution_config_chan
     assert result.left.qspec_summary["execution_hash"] != result.right.qspec_summary["execution_hash"]
     assert result.semantic_delta["changed_fields"] == ["execution_hash"]
     assert result.highlights[0] == "Same workload identity (ghz) across both inputs."
+
+
+def test_compare_workspace_baseline_uses_saved_baseline_record(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
+    )
+    baseline_resolution = resolve_import_reference(ImportReference(workspace_root=workspace))
+    WorkspaceBaseline.from_import_resolution(baseline_resolution).save(
+        WorkspacePaths(root=workspace).baseline_current_json
+    )
+
+    execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md",
+    )
+
+    result = compare_workspace_baseline(workspace)
+
+    assert result.status == "different_subject"
+    assert result.baseline is not None
+    assert result.baseline["side"] == "left"
+    assert result.baseline["path"].endswith("baselines/current.json")
+    assert result.baseline["revision"] == "rev_000001"
+    assert result.left.revision == "rev_000001"
+    assert result.right.revision == "rev_000002"
+    assert result.left.qspec_summary["pattern"] == "ghz"
+    assert result.right.qspec_summary["pattern"] == "qaoa_ansatz"
 
 
 def _synthetic_resolution(

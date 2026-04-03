@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from quantum_runtime.runtime.imports import ImportResolution
+from quantum_runtime.runtime.imports import (
+    ImportResolution,
+    resolve_workspace_baseline,
+    resolve_workspace_current,
+)
 
 
 CompareExpectation = Literal[
@@ -57,6 +62,7 @@ class CompareResult(BaseModel):
     replay_integrity_regressions: list[str] = Field(default_factory=list)
     policy: dict[str, Any] = Field(default_factory=dict)
     verdict: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] | None = None
     left: CompareSide
     right: CompareSide
 
@@ -77,6 +83,32 @@ class CompareVerdict(BaseModel):
     summary: str
     failed_checks: list[str] = Field(default_factory=list)
     passed_checks: list[str] = Field(default_factory=list)
+
+
+def compare_workspace_baseline(
+    workspace_root: Path,
+    *,
+    policy: ComparePolicy | None = None,
+) -> CompareResult:
+    """Compare the saved workspace baseline against the current workspace state."""
+    baseline = resolve_workspace_baseline(workspace_root)
+    current = resolve_workspace_current(workspace_root)
+    result = compare_import_resolutions(
+        baseline.resolution,
+        current,
+        policy=policy,
+    )
+    return result.model_copy(
+        update={
+            "baseline": {
+                "side": "left",
+                "path": str(baseline.record_path),
+                "source_kind": baseline.record.source_kind,
+                "source": baseline.record.source,
+                "revision": baseline.record.revision,
+            }
+        }
+    )
 
 
 def compare_import_resolutions(

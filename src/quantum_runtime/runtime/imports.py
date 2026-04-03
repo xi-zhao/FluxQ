@@ -16,7 +16,7 @@ from quantum_runtime.artifact_provenance import (
     select_accessible_artifact_paths,
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
-from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, WorkspacePaths
 
 
 ImportSourceKind = Literal["workspace_current", "report_file", "report_revision"]
@@ -76,6 +76,14 @@ class ImportResolution(BaseModel):
     def load_report(self) -> dict[str, Any]:
         """Load the resolved report payload from disk."""
         return json.loads(self.report_path.read_text())
+
+
+class WorkspaceBaselineResolution(BaseModel):
+    """Resolved workspace baseline plus its underlying runtime input."""
+
+    record_path: Path
+    record: WorkspaceBaseline
+    resolution: ImportResolution
 
 
 def resolve_import_reference(reference: ImportReference) -> ImportResolution:
@@ -150,6 +158,49 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         report_payload=report_payload,
         qspec=qspec,
         provenance={"workspace_source": "manifest"},
+    )
+
+
+def resolve_workspace_baseline(workspace_root: Path) -> WorkspaceBaselineResolution:
+    """Resolve the persisted workspace baseline into a runtime input."""
+    paths = WorkspacePaths(root=workspace_root)
+    record_path = paths.baseline_current_json.resolve()
+    if not record_path.exists():
+        raise ImportSourceError(
+            "baseline_missing",
+            source=str(record_path),
+        )
+
+    try:
+        record = WorkspaceBaseline.load(record_path)
+    except ValidationError as exc:
+        raise ImportSourceError(
+            "baseline_invalid",
+            source=str(record_path),
+            details={"errors": exc.errors()},
+        ) from exc
+
+    resolution = resolve_report_file(
+        Path(record.report_path),
+        workspace_root=Path(record.workspace_root),
+    )
+    mismatches: list[str] = []
+    if resolution.revision != record.revision:
+        mismatches.append("revision")
+    if resolution.report_hash != record.report_hash:
+        mismatches.append("report_hash")
+    if resolution.qspec_hash != record.qspec_hash:
+        mismatches.append("qspec_hash")
+    if mismatches:
+        raise ImportSourceError(
+            "baseline_integrity_invalid",
+            source=str(record_path),
+            details={"mismatches": mismatches},
+        )
+    return WorkspaceBaselineResolution(
+        record_path=record_path,
+        record=record,
+        resolution=resolution,
     )
 
 

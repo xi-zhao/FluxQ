@@ -12,12 +12,12 @@ from quantum_runtime.diagnostics import run_structural_benchmark
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
     ComparePolicy,
-    CompareResult,
     ImportReference,
     ImportResolution,
     ImportSourceError,
     ReportImportError,
     compare_import_resolutions,
+    compare_workspace_baseline,
     execute_intent,
     execute_intent_text,
     execute_qspec,
@@ -37,7 +37,7 @@ from quantum_runtime.runtime.exit_codes import (
     exit_code_for_export,
     exit_code_for_inspect,
 )
-from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManager, WorkspacePaths
 
 
 app = typer.Typer(
@@ -46,7 +46,9 @@ app = typer.Typer(
     help="Deterministic quantum runtime CLI for agent hosts.",
 )
 backend_app = typer.Typer(add_completion=False, help="Backend discovery helpers.")
+baseline_app = typer.Typer(add_completion=False, help="Workspace baseline helpers.")
 app.add_typer(backend_app, name="backend")
+app.add_typer(baseline_app, name="baseline")
 
 
 def _json_error(reason: str) -> None:
@@ -129,6 +131,135 @@ def init_command(
 def version_command() -> None:
     """Print the package version."""
     typer.echo(__version__)
+
+
+@baseline_app.command("set")
+def baseline_set_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains the baseline target.",
+    ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Specific report file to persist as the workspace baseline.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to persist as the baseline.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Persist one runtime input as the workspace baseline."""
+    try:
+        resolution = _resolve_runtime_input(
+            workspace=workspace,
+            report_file=report_file,
+            revision=revision,
+        )
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid baseline input: {exc.code}") from exc
+    except ReportImportError as exc:
+        if json_output:
+            _json_error(exc.reason)
+        raise typer.BadParameter(f"Invalid baseline input: {exc.reason}") from exc
+
+    paths = WorkspacePaths(root=workspace)
+    baseline = WorkspaceBaseline.from_import_resolution(resolution)
+    baseline.save(paths.baseline_current_json)
+
+    if json_output:
+        typer.echo(baseline.model_dump_json(indent=2))
+        return
+
+    typer.echo(f"Set workspace baseline to {baseline.revision}")
+
+
+@baseline_app.command("show")
+def baseline_show_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains the persisted baseline.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Show the currently persisted workspace baseline."""
+    paths = WorkspacePaths(root=workspace)
+    baseline_path = paths.baseline_current_json
+    if not baseline_path.exists():
+        if json_output:
+            _json_error("baseline_missing")
+        typer.echo(f"No baseline set at {baseline_path}")
+        raise typer.Exit(code=3)
+
+    baseline = WorkspaceBaseline.load(baseline_path)
+    if json_output:
+        typer.echo(baseline.model_dump_json(indent=2))
+        return
+
+    typer.echo(f"Workspace baseline: {baseline.revision}")
+
+
+@baseline_app.command("clear")
+def baseline_clear_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains the persisted baseline.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Clear the currently persisted workspace baseline."""
+    paths = WorkspacePaths(root=workspace)
+    baseline_path = paths.baseline_current_json.resolve()
+    cleared = baseline_path.exists()
+    if cleared:
+        baseline_path.unlink()
+
+    payload = {
+        "status": "ok",
+        "cleared": cleared,
+        "path": str(baseline_path),
+    }
+    if json_output:
+        typer.echo(json.dumps(payload))
+        return
+
+    typer.echo("Cleared workspace baseline." if cleared else "No baseline set.")
 
 
 @app.command("bench")
@@ -457,6 +588,11 @@ def compare_command(
         "--right-revision",
         help="Right-side workspace report history revision.",
     ),
+    baseline_mode: bool = typer.Option(
+        False,
+        "--baseline",
+        help="Compare the saved workspace baseline against the current workspace state.",
+    ),
     expect: str | None = typer.Option(
         None,
         "--expect",
@@ -484,6 +620,16 @@ def compare_command(
     ),
 ) -> None:
     """Compare two runtime inputs and answer whether they describe the same workload."""
+    if baseline_mode and any(
+        value is not None
+        for value in (left_report_file, left_revision, right_report_file, right_revision)
+    ):
+        if json_output:
+            _json_error("baseline_mode_conflict")
+        raise typer.BadParameter(
+            "--baseline cannot be combined with explicit left/right compare inputs."
+        )
+
     if left_report_file is not None and left_revision is not None:
         if json_output:
             _json_error("left_source_conflict")
@@ -492,26 +638,6 @@ def compare_command(
         if json_output:
             _json_error("right_source_conflict")
         raise typer.BadParameter("Provide at most one of --right-report-file or --right-revision.")
-
-    try:
-        left = _resolve_runtime_input(
-            workspace=workspace,
-            report_file=left_report_file,
-            revision=left_revision,
-        )
-        right = _resolve_runtime_input(
-            workspace=workspace,
-            report_file=right_report_file,
-            revision=right_revision,
-        )
-    except ImportSourceError as exc:
-        if json_output:
-            _json_error(exc.code)
-        raise typer.BadParameter(f"Invalid compare input: {exc.code}") from exc
-    except ReportImportError as exc:
-        if json_output:
-            _json_error(exc.reason)
-        raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
 
     try:
         policy = ComparePolicy.model_validate({
@@ -530,9 +656,32 @@ def compare_command(
             _json_error("invalid_compare_policy")
         raise typer.BadParameter("Invalid compare policy.") from exc
 
-    result: CompareResult = compare_import_resolutions(left, right, policy=policy)
+    try:
+        if baseline_mode:
+            result = compare_workspace_baseline(workspace, policy=policy)
+        else:
+            left = _resolve_runtime_input(
+                workspace=workspace,
+                report_file=left_report_file,
+                revision=left_revision,
+            )
+            right = _resolve_runtime_input(
+                workspace=workspace,
+                report_file=right_report_file,
+                revision=right_revision,
+            )
+            result = compare_import_resolutions(left, right, policy=policy)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid compare input: {exc.code}") from exc
+    except ReportImportError as exc:
+        if json_output:
+            _json_error(exc.reason)
+        raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
+
     if json_output:
-        typer.echo(result.model_dump_json(indent=2))
+        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
         raise typer.Exit(code=exit_code_for_compare(result, structured=True))
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
