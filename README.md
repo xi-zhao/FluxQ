@@ -2,6 +2,8 @@
 
 Quantum Runtime CLI is an agent-facing, deterministic runtime for quantum code generation workflows. It is designed to be called by any coding agent through file I/O plus shell commands rather than custom host-specific tools.
 
+Current release target: `0.2.0`
+
 ## Features
 
 - deterministic workspace initialization with revision tracking

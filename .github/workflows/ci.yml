@@ -44,3 +44,20 @@ jobs:
 
       - name: Run tests without Classiq-only coverage
         run: pytest -q --ignore tests/test_classiq_backend.py --ignore tests/test_classiq_emitter.py --ignore tests/test_qspec_validation.py
+
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package and build tooling
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+
+      - name: Build release artifacts
+        run: python -m build

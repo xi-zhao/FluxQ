@@ -14,6 +14,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     versioning = PROJECT_ROOT / "docs" / "versioning.md"
 
     assert "uv pip install -e '.[dev,qiskit]'" in readme
+    assert "Current release target: `0.2.0`" in readme
     assert "qrun init --workspace .quantum --json" in readme
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in readme
     assert "qrun bench --workspace .quantum --json" in readme
@@ -38,7 +39,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert changelog.exists()
     changelog_text = changelog.read_text()
     assert "Unreleased" in changelog_text
-    assert "0.1.0" in changelog_text
+    assert "0.2.0" in changelog_text
+    assert "agent-facing quantum workflow runtime" in changelog_text
     assert "emit replay provenance fields from `qrun export --json`" in changelog_text
     assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
     assert "surface `replay_integrity` in `qrun inspect --json`" in changelog_text
@@ -53,4 +55,5 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     versioning_text = versioning.read_text()
     assert "0.1.x" in versioning_text
     assert "0.2.x" in versioning_text
+    assert "Released baseline: `0.2.0`" in versioning_text
     assert "QSpec.version" in versioning_text

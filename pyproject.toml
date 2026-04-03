@@ -1,6 +1,6 @@
 [project]
 name = "quantum-runtime"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-facing quantum runtime CLI"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -20,6 +20,7 @@ classiq = [
   "classiq",
 ]
 dev = [
+  "build>=1.2",
   "pytest>=8.0",
   "ruff>=0.6.0",
   "mypy>=1.11",

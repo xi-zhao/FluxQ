@@ -4,11 +4,14 @@ See also: `docs/plans/2026-04-02-product-roadmap.md` for the current product-lev
 
 ## Runtime versions
 
+Released baseline: `0.2.0`
+
 - `0.1.x`
   Stabilize CLI JSON output, workspace layout, and baseline QSpec fields.
 
 - `0.2.x`
-  Extend pattern coverage, improve Classiq synthesis support, and add richer import paths.
+  Released baseline covers richer import paths, replay trust guardrails, and stronger compare/report contracts.
+  Next `0.2.x` work should extend pattern coverage, improve Classiq synthesis support, and deepen baseline workflows.
 
 - `0.3.x`
   Consider optional remote hardware submission and richer backend benchmarking.
