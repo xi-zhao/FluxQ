@@ -1,6 +1,6 @@
 # FluxQ
 
-Workspace-native quantum runtime for coding agents, CI, and reproducible circuit workflows.
+Reproducible quantum workflows for coding agents, CI, and revision-aware teams.
 
 FluxQ is a workspace-native quantum workflow runtime. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
 
@@ -13,12 +13,12 @@ Current release: `0.2.0`
 ## Why FluxQ
 
 - reproducible quantum runs should survive beyond one generated script
-- replayable reports let hosts and developers re-run work from revision-stable inputs
+- replayable reports let hosts and developers re-run work from revision-stable inputs instead of rebuilding context from scratch
 - semantic workload comparison is more useful than raw file diff when you need to know whether a circuit family actually changed
-- one workload can be exported into Qiskit, OpenQASM 3, and Classiq Python outputs
+- one workload can be exported into Qiskit, OpenQASM 3, and Classiq Python outputs without losing the surrounding workspace history
 - local simulation, transpile validation, diagrams, and structural benchmarking make iteration fast before deeper backend work begins
 
-## Who It's For
+## Use FluxQ If
 
 - quantum developers who want circuits, exports, and diagnostics anchored to a stable workspace
 - agent and CI builders who need file-based orchestration, JSON output, and explicit trust signals
@@ -39,6 +39,8 @@ uv venv --python 3.11
 source .venv/bin/activate
 uv pip install -e '.[dev,qiskit]'
 ```
+
+FluxQ currently targets Python `3.11`.
 
 ## First Run
 
