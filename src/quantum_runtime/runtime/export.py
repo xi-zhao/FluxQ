@@ -14,7 +14,12 @@ from quantum_runtime.lowering import (
     write_qiskit_program,
 )
 from quantum_runtime.qspec import QSpec
-from quantum_runtime.runtime.imports import ImportReference, ImportResolution, resolve_import_reference
+from quantum_runtime.runtime.imports import (
+    ImportReference,
+    ImportResolution,
+    ImportSourceError,
+    resolve_import_reference,
+)
 from quantum_runtime.workspace import WorkspaceHandle, WorkspaceManager
 
 
@@ -38,7 +43,19 @@ def export_artifact(*, workspace_root: Path, output_format: str) -> ExportResult
     handle = WorkspaceManager.load_or_init(workspace_root)
     qspec_path = handle.root / "specs" / "current.json"
     qspec = QSpec.model_validate_json(qspec_path.read_text())
-    return _export_from_qspec(handle=handle, qspec=qspec, output_format=output_format)
+    resolution: ImportResolution | None = None
+    try:
+        resolution = resolve_import_reference(ImportReference(workspace_root=handle.root))
+    except ImportSourceError:
+        # Keep export usable for manually prepared workspaces that have a current QSpec
+        # but do not yet have a matching active report/import surface.
+        resolution = None
+    return _export_from_qspec(
+        handle=handle,
+        qspec=qspec,
+        output_format=output_format,
+        resolution=resolution,
+    )
 
 
 def export_artifact_from_report(*, workspace_root: Path, report_file: Path, output_format: str) -> ExportResult:

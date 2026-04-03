@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime.backend_registry import backend_capabilities_as_dict
@@ -21,6 +21,7 @@ class DoctorReport(BaseModel):
     workspace: dict[str, Any]
     dependencies: dict[str, dict[str, Any]]
     issues: list[str]
+    advisories: list[str] = Field(default_factory=list)
 
 
 def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
@@ -43,11 +44,11 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
         workspace_ok = not issues
 
     dependencies = collect_backend_capabilities()
-    dependency_issues = [
-        f"{name} unavailable: {details.get('reason') or details.get('error') or 'backend_unavailable'}"
-        for name, details in dependencies.items()
-        if not details["available"]
-    ]
+    required_backends = _required_backend_names(paths, manifest=manifest)
+    dependency_issues, dependency_advisories = _dependency_findings(
+        dependencies=dependencies,
+        required_backends=required_backends,
+    )
     all_issues = issues + dependency_issues
     status: Literal["ok", "degraded", "error"] = "ok" if not all_issues else "degraded"
 
@@ -58,6 +59,7 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
         workspace=_workspace_health(paths, manifest=manifest, current_revision=current_revision),
         dependencies=dependencies,
         issues=all_issues,
+        advisories=dependency_advisories,
     )
 
 
@@ -160,6 +162,52 @@ def _workspace_health(
             "cache": _check_path(paths.root / "cache", kind="directory"),
         },
     }
+
+
+def _dependency_findings(
+    *,
+    dependencies: dict[str, dict[str, Any]],
+    required_backends: set[str],
+) -> tuple[list[str], list[str]]:
+    issues: list[str] = []
+    advisories: list[str] = []
+    for name, details in dependencies.items():
+        if details.get("available"):
+            continue
+        message = f"{name} unavailable: {details.get('reason') or details.get('error') or 'backend_unavailable'}"
+        if _is_optional_backend(details) and name not in required_backends:
+            advisories.append(message)
+        else:
+            issues.append(message)
+    return issues, advisories
+
+
+def _required_backend_names(paths: WorkspacePaths, *, manifest: WorkspaceManifest | None) -> set[str]:
+    if manifest is None or manifest.current_revision == "rev_000000":
+        return set()
+    active_spec_path = paths.root / manifest.active_spec
+    if not active_spec_path.exists():
+        return set()
+    try:
+        qspec = QSpec.model_validate_json(active_spec_path.read_text())
+    except Exception:
+        return set()
+
+    required = {name for name in qspec.backend_preferences if name}
+    backend_name = qspec.constraints.backend_name
+    if backend_name:
+        required.add(backend_name)
+    backend_provider = qspec.constraints.backend_provider
+    if backend_provider == "classiq":
+        required.add("classiq")
+    if backend_provider == "qiskit":
+        required.add("qiskit-local")
+    return required
+
+
+def _is_optional_backend(details: dict[str, Any]) -> bool:
+    raw = details.get("optional")
+    return bool(raw)
 
 
 def _check_path(path: Path, *, kind: Literal["file", "directory"]) -> dict[str, Any]:

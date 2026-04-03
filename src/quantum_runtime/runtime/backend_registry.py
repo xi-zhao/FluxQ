@@ -26,6 +26,7 @@ class BackendCapabilityDescriptor(BaseModel):
     backend: str
     provider: str
     available: bool
+    optional: bool = False
     reason: str | None = None
     module_dependencies: list[BackendDependency] = Field(default_factory=list)
     capabilities: dict[str, bool] = Field(default_factory=dict)
@@ -46,6 +47,7 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
             backend="qiskit-local",
             provider="qiskit",
             available=qiskit_local_available,
+            optional=False,
             reason=None if qiskit_local_available else (qiskit.error or qiskit_aer.error or "qiskit_unavailable"),
             module_dependencies=[qiskit, qiskit_aer],
             capabilities={
@@ -66,6 +68,7 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
             backend="classiq",
             provider="classiq",
             available=classiq_available,
+            optional=True,
             reason=None if classiq_available else classiq.error or "classiq_not_installed",
             module_dependencies=[classiq],
             capabilities={

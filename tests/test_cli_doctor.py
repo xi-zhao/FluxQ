@@ -6,7 +6,10 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.intent.parser import parse_intent_file
+from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.runtime.backend_registry import BackendCapabilityDescriptor, BackendDependency
+from quantum_runtime.workspace import WorkspaceManager
 
 
 RUNNER = CliRunner()
@@ -56,6 +59,7 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
                 backend="classiq",
                 provider="classiq",
                 available=False,
+                optional=True,
                 reason="No module named 'classiq'",
                 module_dependencies=[
                     BackendDependency(
@@ -84,9 +88,9 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
         ["doctor", "--workspace", str(workspace), "--json", "--fix"],
     )
 
-    assert result.exit_code == 7, result.stdout
+    assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "ok"
     assert payload["workspace_ok"] is True
     assert payload["fix_applied"] is True
     assert payload["workspace"]["required_active_artifacts"] is False
@@ -98,6 +102,84 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert payload["dependencies"]["qiskit-local"]["module_dependencies"][0]["module"] == "qiskit"
     assert payload["dependencies"]["classiq"]["available"] is False
     assert payload["dependencies"]["classiq"]["module_dependencies"][0]["module"] == "classiq"
+    assert payload["issues"] == []
+    assert payload["advisories"] == ["classiq unavailable: No module named 'classiq'"]
+
+
+def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests_it(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    handle = WorkspaceManager.load_or_init(workspace)
+    qspec = plan_to_qspec(parse_intent_file(Path(__file__).resolve().parents[1] / "examples" / "intent-ghz.md"))
+    qspec.backend_preferences = ["classiq"]
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: {
+            "qiskit-local": BackendCapabilityDescriptor(
+                backend="qiskit-local",
+                provider="qiskit",
+                available=True,
+                module_dependencies=[],
+                capabilities={},
+                notes=[],
+            ).model_dump(mode="json"),
+            "classiq": BackendCapabilityDescriptor(
+                backend="classiq",
+                provider="classiq",
+                available=False,
+                optional=True,
+                reason="No module named 'classiq'",
+                module_dependencies=[
+                    BackendDependency(
+                        module="classiq",
+                        distribution="classiq",
+                        available=False,
+                        version=None,
+                        location=None,
+                        error="No module named 'classiq'",
+                    )
+                ],
+                capabilities={
+                    "classiq_synthesis": True,
+                },
+                notes=["Optional Classiq synthesis backend"],
+            ).model_dump(mode="json"),
+        },
+    )
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(Path(__file__).resolve().parents[1] / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    qspec_path = workspace / "specs" / "current.json"
+    current_qspec = json.loads(qspec_path.read_text())
+    current_qspec["backend_preferences"] = ["classiq"]
+    qspec_path.write_text(json.dumps(current_qspec, indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json"],
+    )
+
+    assert result.exit_code == 7, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["workspace_ok"] is True
+    assert payload["issues"] == ["classiq unavailable: No module named 'classiq'"]
+    assert payload["advisories"] == []
 
 
 def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
