@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - let copied report files replay safely through stored workspace provenance and revision snapshots
 - emit replay provenance fields from `qrun export --json` so hosts can trace `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
 - surface `detached_report_inputs` in `qrun compare --json` so hosts can detect copied-report replay explicitly
+- enforce replay-integrity checks for report-backed QSpec imports and surface `replay_integrity` in `qrun inspect --json`
 - deepen `hardware_efficient_ansatz` and `qaoa_ansatz` with explicit layer, topology, and parameter semantics
 - deepen backend benchmarking and Classiq synthesis reporting
 - stabilize semantic provenance across `report`, `inspect`, and `bench` outputs

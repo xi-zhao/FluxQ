@@ -65,6 +65,7 @@ class ImportResolution(BaseModel):
     qspec_status: str = "ok"
     qspec_summary: dict[str, Any] = Field(default_factory=dict)
     report_summary: dict[str, Any] = Field(default_factory=dict)
+    replay_integrity: dict[str, Any] = Field(default_factory=dict)
     artifacts: dict[str, Any] = Field(default_factory=dict)
     provenance: dict[str, Any] = Field(default_factory=dict)
 
@@ -300,6 +301,17 @@ def _build_resolution(
         artifact_provenance=artifact_provenance,
     )
     qspec_summary = _summarize_qspec(qspec)
+    replay_integrity = _evaluate_replay_integrity(
+        report_payload=report_payload,
+        report_path=report_path,
+        qspec=qspec,
+        qspec_hash=qspec_hash,
+        resolved_artifacts=resolved_artifacts,
+    )
+    report_summary["replay_integrity_status"] = replay_integrity["status"]
+    report_summary["replay_integrity_warnings"] = replay_integrity["warnings"]
+    report_summary["replay_integrity_missing_artifacts"] = replay_integrity["missing_artifacts"]
+    report_summary["replay_integrity_mismatched_artifacts"] = replay_integrity["mismatched_artifacts"]
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
@@ -321,6 +333,7 @@ def _build_resolution(
         qspec_status="ok",
         qspec_summary=qspec_summary,
         report_summary=report_summary,
+        replay_integrity=replay_integrity,
         artifacts=resolved_artifacts,
         provenance={
             **provenance,
@@ -334,6 +347,7 @@ def _build_resolution(
             "qspec_hash": qspec_hash,
             "revision": revision,
             "artifacts": artifact_provenance,
+            "replay_integrity": replay_integrity,
         },
     )
 
@@ -360,6 +374,96 @@ def _extract_artifact_provenance(
             source=source,
             details=exc.to_dict(),
         ) from exc
+
+
+def _evaluate_replay_integrity(
+    *,
+    report_payload: dict[str, Any],
+    report_path: Path,
+    qspec: QSpec,
+    qspec_hash: str,
+    resolved_artifacts: dict[str, str],
+) -> dict[str, Any]:
+    qspec_block = report_payload.get("qspec") if isinstance(report_payload, dict) else {}
+    replay_block = report_payload.get("replay_integrity") if isinstance(report_payload, dict) else {}
+    expected_qspec_hash = _optional_string(
+        replay_block.get("qspec_hash") if isinstance(replay_block, dict) else None
+    ) or _optional_string(qspec_block.get("hash") if isinstance(qspec_block, dict) else None)
+    expected_semantic_hash = _optional_string(
+        replay_block.get("qspec_semantic_hash") if isinstance(replay_block, dict) else None
+    ) or _optional_string(qspec_block.get("semantic_hash") if isinstance(qspec_block, dict) else None)
+    actual_semantic_hash = _optional_string(summarize_qspec_semantics(qspec).get("semantic_hash"))
+
+    if expected_qspec_hash is not None and qspec_hash != expected_qspec_hash:
+        raise ImportSourceError(
+            "report_qspec_hash_mismatch",
+            source=str(report_path),
+            details={"expected_hash": expected_qspec_hash, "actual_hash": qspec_hash},
+        )
+    if (
+        expected_semantic_hash is not None
+        and actual_semantic_hash is not None
+        and actual_semantic_hash != expected_semantic_hash
+    ):
+        raise ImportSourceError(
+            "report_qspec_semantic_hash_mismatch",
+            source=str(report_path),
+            details={
+                "expected_semantic_hash": expected_semantic_hash,
+                "actual_semantic_hash": actual_semantic_hash,
+            },
+        )
+
+    stored_digests = replay_block.get("artifact_output_digests") if isinstance(replay_block, dict) else None
+    artifact_output_digests = _string_mapping(stored_digests)
+    verified_artifacts: list[str] = []
+    missing_artifacts: list[str] = []
+    mismatched_artifacts: list[str] = []
+    for name, expected_digest in sorted(artifact_output_digests.items()):
+        if expected_digest is None:
+            continue
+        raw_path = resolved_artifacts.get(name)
+        if raw_path is None:
+            missing_artifacts.append(name)
+            continue
+        path = Path(raw_path)
+        if not path.exists() or not path.is_file():
+            missing_artifacts.append(name)
+            continue
+        actual_digest = _sha256_file(path)
+        if actual_digest != expected_digest:
+            mismatched_artifacts.append(name)
+            continue
+        verified_artifacts.append(name)
+
+    warnings: list[str] = []
+    if not artifact_output_digests:
+        warnings.append("artifact_output_digests_missing")
+    if missing_artifacts:
+        warnings.append("artifact_outputs_missing")
+    if mismatched_artifacts:
+        warnings.append("artifact_outputs_mismatched")
+
+    status: Literal["ok", "legacy", "degraded"]
+    if warnings:
+        status = "legacy" if warnings == ["artifact_output_digests_missing"] else "degraded"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "qspec_hash_matches": expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+        "qspec_semantic_hash_matches": (
+            expected_semantic_hash is None
+            or actual_semantic_hash is None
+            or actual_semantic_hash == expected_semantic_hash
+        ),
+        "artifact_digests_present": bool(artifact_output_digests),
+        "verified_artifacts": verified_artifacts,
+        "missing_artifacts": missing_artifacts,
+        "mismatched_artifacts": mismatched_artifacts,
+        "warnings": warnings,
+    }
 
 
 def _load_manifest(path: Path) -> WorkspaceManifest:
@@ -668,6 +772,18 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
         "backend_preferences": list(qspec.backend_preferences),
         "constraints": qspec.constraints.model_dump(mode="json"),
     }
+
+
+def _string_mapping(value: object) -> dict[str, str | None]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): _optional_string(item) for key, item in value.items()}
+
+
+def _optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _sha256_file(path: Path) -> str:

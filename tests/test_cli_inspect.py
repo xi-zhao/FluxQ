@@ -67,6 +67,10 @@ def test_qrun_inspect_json_summarizes_current_workspace_state(tmp_path: Path) ->
     )
     assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"].endswith("specs/current.json")
     assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
+    assert payload["replay_integrity"]["status"] == "ok"
+    assert payload["replay_integrity"]["qspec_hash_matches"] is True
+    assert payload["replay_integrity"]["qspec_semantic_hash_matches"] is True
+    assert payload["replay_integrity"]["artifact_digests_present"] is True
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
     assert "qiskit" in payload["backend_capabilities"]
 
@@ -203,6 +207,39 @@ def test_qrun_inspect_json_reconstructs_partial_artifact_provenance(tmp_path: Pa
     )
     assert payload["provenance"]["artifacts"]["current_aliases"]["qspec"].endswith("specs/current.json")
     assert payload["provenance"]["artifacts"]["current_aliases"]["report"].endswith("reports/latest.json")
+
+
+def test_qrun_inspect_json_degrades_when_replay_integrity_is_weakened(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    history_qiskit = workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    current_qiskit = workspace / "artifacts" / "qiskit" / "main.py"
+    history_qiskit.unlink()
+    current_qiskit.write_text(current_qiskit.read_text() + "\n# tampered replay alias\n")
+
+    inspect_result = RUNNER.invoke(
+        app,
+        ["inspect", "--workspace", str(workspace), "--json"],
+    )
+
+    assert inspect_result.exit_code == 2, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "degraded"
+    assert payload["replay_integrity"]["status"] == "degraded"
+    assert payload["replay_integrity"]["mismatched_artifacts"] == ["qiskit_code"]
 
 
 def test_qrun_inspect_json_canonicalizes_top_level_legacy_alias_artifacts(tmp_path: Path) -> None:

@@ -49,8 +49,10 @@ Quantum Runtime CLI is intended to be orchestrated by coding agents through file
 - sample hooks: `integrations/aionrs/hooks.example.toml`
 - reports include stable provenance metadata for replay and inspection
 - copied report files remain replayable as long as their recorded revision snapshots are still available
+- report-backed imports now enforce replay integrity for QSpec identity instead of trusting path existence alone
 - `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
 - `qrun compare --json` reports `detached_report_inputs` so hosts can detect copied-report replay explicitly
+- `qrun inspect --json` reports `replay_integrity` so hosts can detect legacy, degraded, or invalid replay trust directly
 - reports, inspect, and compare all expose stable semantic hashes for workload identity
 - `qrun compare` separates workload identity drift from generated artifact output drift and diagnostics drift
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -156,6 +157,9 @@ def test_resolve_report_file_uses_report_provenance_for_copied_report_files(tmp_
     assert resolution.provenance["artifacts"]["snapshot_root"] == str(
         workspace / "artifacts" / "history" / "rev_000001"
     )
+    assert resolution.provenance["replay_integrity"]["status"] == "ok"
+    assert resolution.provenance["replay_integrity"]["qspec_hash_matches"] is True
+    assert resolution.provenance["replay_integrity"]["qspec_semantic_hash_matches"] is True
 
 
 def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Path) -> None:
@@ -253,6 +257,60 @@ def test_resolve_report_file_rejects_revision_inconsistent_artifact_provenance(t
     assert excinfo.value.code == "artifact_provenance_invalid"
 
 
+def test_resolve_report_file_rejects_mutated_current_qspec_hash_fallback(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    history_qspec = workspace / "specs" / "history" / "rev_000001.json"
+    current_qspec = workspace / "specs" / "current.json"
+
+    mutated_qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    current_qspec.write_text(mutated_qspec.model_dump_json(indent=2))
+    history_qspec.unlink()
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(report_file)
+
+    assert excinfo.value.code == "report_qspec_hash_mismatch"
+
+
+def test_resolve_report_file_rejects_mutated_current_qspec_semantic_fallback(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    history_qspec = workspace / "specs" / "history" / "rev_000001.json"
+    current_qspec = workspace / "specs" / "current.json"
+
+    mutated_qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    current_qspec.write_text(mutated_qspec.model_dump_json(indent=2))
+    history_qspec.unlink()
+
+    payload = json.loads(report_file.read_text())
+    payload["qspec"]["hash"] = _sha256_file(current_qspec)
+    payload["replay_integrity"]["qspec_hash"] = payload["qspec"]["hash"]
+    report_file.write_text(json.dumps(payload, indent=2))
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(report_file)
+
+    assert excinfo.value.code == "report_qspec_semantic_hash_mismatch"
+
+
+def test_resolve_report_file_marks_artifact_digest_drift_when_snapshot_missing(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    history_qiskit = workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    current_qiskit = workspace / "artifacts" / "qiskit" / "main.py"
+
+    history_qiskit.unlink()
+    current_qiskit.write_text(current_qiskit.read_text() + "\n# tampered replay alias\n")
+
+    resolution = resolve_report_file(report_file)
+
+    assert resolution.provenance["replay_integrity"]["status"] == "degraded"
+    assert resolution.provenance["replay_integrity"]["artifact_digests_present"] is True
+    assert resolution.provenance["replay_integrity"]["mismatched_artifacts"] == ["qiskit_code"]
+    assert resolution.provenance["replay_integrity"]["missing_artifacts"] == []
+
+
 def test_resolve_report_file_accepts_workspace_prefixed_legacy_relative_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -311,3 +369,8 @@ def _seed_workspace(tmp_path: Path) -> Path:
     result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
     assert result.status == "ok"
     return workspace
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return f"sha256:{digest}"

@@ -15,6 +15,7 @@ from quantum_runtime.artifact_provenance import (
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
+from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
 from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
 
 
@@ -27,6 +28,7 @@ class InspectReport(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
     qspec: dict[str, Any]
     artifacts: dict[str, Any] = Field(default_factory=dict)
+    replay_integrity: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     backend_capabilities: dict[str, dict[str, Any]] = Field(default_factory=dict)
     issues: list[str] = Field(default_factory=list)
@@ -94,6 +96,12 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         active_report_path=active_report_path,
     )
     errors.extend(provenance_errors)
+    replay_integrity, replay_issues, replay_errors = _load_replay_integrity(
+        active_report_path=active_report_path,
+        workspace_root=normalized_root,
+    )
+    issues.extend(replay_issues)
+    errors.extend(replay_errors)
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
 
@@ -104,6 +112,7 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         provenance=provenance,
         qspec=qspec_summary,
         artifacts=canonical_artifacts,
+        replay_integrity=replay_integrity,
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
         backend_capabilities=collect_backend_capabilities(),
         issues=issues,
@@ -244,6 +253,41 @@ def _safe_build_provenance(
         raw_artifact_provenance = provenance.get("artifacts") if isinstance(provenance, dict) else {}
         artifact_provenance = raw_artifact_provenance if isinstance(raw_artifact_provenance, dict) else {}
         return provenance, select_accessible_artifact_paths(artifact_provenance), ["artifact_provenance_invalid"]
+
+
+def _load_replay_integrity(
+    *,
+    active_report_path: Path,
+    workspace_root: Path,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    if not active_report_path.exists():
+        return {}, [], []
+    try:
+        resolution = resolve_report_file(active_report_path, workspace_root=workspace_root)
+    except ImportSourceError as exc:
+        return (
+            {
+                "status": "error",
+                "reason": exc.code,
+                "warnings": [],
+                "errors": [exc.code],
+            },
+            [],
+            [exc.code],
+        )
+
+    replay_integrity = (
+        resolution.replay_integrity
+        if isinstance(resolution.replay_integrity, dict)
+        else {}
+    )
+    status = replay_integrity.get("status")
+    issues: list[str] = []
+    if status == "legacy":
+        issues.append("replay_integrity_legacy")
+    elif status == "degraded":
+        issues.append("replay_integrity_degraded")
+    return replay_integrity, issues, []
 
 
 def _inspect_qspec_provenance(*, latest_report: dict[str, Any], active_spec_path: Path) -> dict[str, Any]:

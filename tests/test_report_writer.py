@@ -65,6 +65,9 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
     assert payload["semantics"]["semantic_hash"] == payload["semantics"]["execution_hash"]
     assert payload["semantics"]["workload_hash"].startswith("sha256:")
     assert payload["semantics"]["execution_hash"].startswith("sha256:")
+    assert payload["replay_integrity"]["qspec_hash"] == payload["qspec"]["hash"]
+    assert payload["replay_integrity"]["qspec_semantic_hash"] == payload["qspec"]["semantic_hash"]
+    assert sorted(payload["replay_integrity"]["artifact_output_digests"]) == ["diagram_png", "diagram_txt"]
     assert payload["provenance"]["workspace_root"] == str(handle.root)
     assert payload["provenance"]["revision"] == revision
     assert payload["provenance"]["input"]["mode"] == "intent"
@@ -141,6 +144,9 @@ def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> No
     assert artifact_provenance["current_aliases"]["diagram_png"] == str(
         handle.root / "figures" / "circuit.png"
     )
+    assert report["replay_integrity"]["artifact_output_digests"]["qiskit_code"].startswith("sha256:")
+    assert report["replay_integrity"]["artifact_output_digests"]["diagram_txt"].startswith("sha256:")
+    assert report["replay_integrity"]["artifact_output_digests"]["diagram_png"].startswith("sha256:")
 
 
 def test_write_report_records_report_and_qspec_aliases_in_artifact_provenance(

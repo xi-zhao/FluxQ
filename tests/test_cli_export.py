@@ -175,6 +175,50 @@ def test_qrun_export_json_accepts_copied_report_file_via_report_provenance(tmp_p
     assert "ry(" not in exported_qasm
 
 
+def test_qrun_export_json_returns_exit_code_3_for_tampered_report_qspec_fallback(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    current_qspec = workspace / "specs" / "current.json"
+    history_qspec = workspace / "specs" / "history" / "rev_000001.json"
+    mutated_qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    current_qspec.write_text(mutated_qspec.model_dump_json(indent=2))
+    history_qspec.unlink()
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(workspace),
+            "--report-file",
+            str(workspace / "reports" / "latest.json"),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "report_qspec_hash_mismatch"
+
+
 def test_qrun_export_json_reports_replay_source_for_revision_input(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 

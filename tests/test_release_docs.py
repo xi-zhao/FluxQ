@@ -22,6 +22,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "docs/plans/2026-04-02-product-roadmap.md" in readme
     assert "`source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`" in readme
     assert "`detached_report_inputs`" in readme
+    assert "`replay_integrity`" in readme
+    assert "report-backed imports now enforce replay integrity for QSpec identity" in readme
     assert "Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2`" in readme
 
     assert architecture.exists()
@@ -37,6 +39,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "0.1.0" in changelog_text
     assert "emit replay provenance fields from `qrun export --json`" in changelog_text
     assert "surface `detached_report_inputs` in `qrun compare --json`" in changelog_text
+    assert "surface `replay_integrity` in `qrun inspect --json`" in changelog_text
 
     assert roadmap.exists()
     roadmap_text = roadmap.read_text()

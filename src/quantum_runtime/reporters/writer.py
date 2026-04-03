@@ -41,6 +41,12 @@ def write_report(
     _materialize_canonical_artifacts(artifact_provenance)
     artifact_payload = dict(artifact_provenance["paths"])
     canonical_qspec_path = Path(artifact_payload["qspec"])
+    qspec_hash = _sha256_file(canonical_qspec_path)
+    replay_integrity = _build_replay_integrity(
+        qspec_hash=qspec_hash,
+        qspec_semantic_hash=semantics["semantic_hash"],
+        artifact_paths=artifact_payload,
+    )
     status = _derive_report_status(
         warnings=warnings,
         errors=errors,
@@ -60,10 +66,11 @@ def write_report(
         ),
         "qspec": {
             "path": str(canonical_qspec_path),
-            "hash": _sha256_file(canonical_qspec_path),
+            "hash": qspec_hash,
             "semantic_hash": semantics["semantic_hash"],
         },
         "semantics": semantics,
+        "replay_integrity": replay_integrity,
         "artifacts": artifact_payload,
         "diagnostics": diagnostics,
         "backend_reports": backend_reports,
@@ -137,6 +144,30 @@ def _build_provenance(
         },
         "artifacts": artifact_provenance,
     }
+
+
+def _build_replay_integrity(
+    *,
+    qspec_hash: str,
+    qspec_semantic_hash: str,
+    artifact_paths: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "qspec_hash": qspec_hash,
+        "qspec_semantic_hash": qspec_semantic_hash,
+        "artifact_output_digests": _artifact_output_digests(artifact_paths),
+    }
+
+
+def _artifact_output_digests(artifact_paths: dict[str, str]) -> dict[str, str]:
+    digests: dict[str, str] = {}
+    for name, raw_path in sorted(artifact_paths.items()):
+        if name in {"qspec", "report"}:
+            continue
+        path = Path(raw_path)
+        if path.exists() and path.is_file():
+            digests[name] = _sha256_file(path)
+    return digests
 
 
 def _derive_report_status(
