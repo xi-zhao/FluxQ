@@ -11,6 +11,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     architecture = PROJECT_ROOT / "ARCHITECTURE.md"
     changelog = PROJECT_ROOT / "CHANGELOG.md"
     release_notes = PROJECT_ROOT / "docs" / "releases" / "v0.2.0.md"
+    product_strategy = PROJECT_ROOT / "docs" / "product-strategy.md"
     roadmap = PROJECT_ROOT / "docs" / "plans" / "2026-04-02-product-roadmap.md"
     versioning = PROJECT_ROOT / "docs" / "versioning.md"
 
@@ -35,6 +36,7 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "## Command Reference" in readme
     assert "qrun bench --workspace .quantum --json" in readme
     assert "qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json" in readme
+    assert "docs/product-strategy.md" in readme
     assert "docs/aionrs-integration.md" in readme
     assert "docs/plans/2026-04-02-product-roadmap.md" in readme
     assert "`source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`" in readme
@@ -77,8 +79,21 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "## What To Try First" in release_notes_text
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json" in release_notes_text
 
+    assert product_strategy.exists()
+    product_strategy_text = product_strategy.read_text()
+    assert "decision-grade quantum workflow runtime" in product_strategy_text
+    assert "workspace-native quantum workflow runtime" in product_strategy_text
+    assert "AI-Native Quantum R&D Teams" in product_strategy_text
+    assert "teams using AI agents plus CI to iterate on quantum prototypes" in product_strategy_text
+    assert "notebooks" in product_strategy_text
+    assert "Adoption Ladder" in product_strategy_text
+    assert "it does not treat transpile metrics and synthesis metrics as equivalent by default" in product_strategy_text
+    assert "benchmark honesty instead of benchmark theater" in product_strategy_text
+    assert "If a feature mostly increases backend count, novelty, or demo value" in product_strategy_text
+
     assert roadmap.exists()
     roadmap_text = roadmap.read_text()
+    assert "docs/product-strategy.md" in roadmap_text
     assert "workspace-native quantum workflow runtime" in roadmap_text
     assert "Priority 1: Complete The Import/Load Contract" in roadmap_text
 

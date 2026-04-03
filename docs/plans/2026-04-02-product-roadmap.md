@@ -1,5 +1,7 @@
 # Product Roadmap
 
+This roadmap should be read together with `docs/product-strategy.md`, which defines the customer, beachhead market, and product promise that roadmap decisions must serve.
+
 ## Thesis
 
 Quantum Runtime CLI should become a `workspace-native quantum workflow runtime`, not a thin remote execution wrapper.

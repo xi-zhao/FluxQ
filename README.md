@@ -153,6 +153,7 @@ uv run --python 3.11 --extra dev --extra qiskit pytest -q
 ## Docs
 
 - Architecture: `ARCHITECTURE.md`
+- Product strategy: `docs/product-strategy.md`
 - Product roadmap: `docs/plans/2026-04-02-product-roadmap.md`
 - Versioning: `docs/versioning.md`
 - aionrs integration: `docs/aionrs-integration.md`
