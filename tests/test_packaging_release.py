@@ -17,6 +17,10 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     assert 'description = "Workspace-native quantum workflow runtime for coding agents and CI"' in pyproject
     assert "keywords = [" in pyproject
     assert '"Topic :: Software Development :: Code Generators"' in pyproject
+    assert "[project.urls]" in pyproject
+    assert 'Homepage = "https://github.com/xi-zhao/FluxQ"' in pyproject
+    assert 'Repository = "https://github.com/xi-zhao/FluxQ.git"' in pyproject
+    assert 'Issues = "https://github.com/xi-zhao/FluxQ/issues"' in pyproject
     assert '"build>=' in pyproject
     assert "python -m build" in ci_workflow
     assert "dist/" in gitignore
