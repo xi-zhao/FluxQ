@@ -100,6 +100,24 @@ FluxQ labels benchmark entries as `structural_only`, `target_aware`, and `synthe
 
 FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as directly equivalent by default. `qrun bench --json` exposes `benchmark_mode`, `comparable`, `comparability_reason`, `target_parity`, `target_assumptions`, and `fallback_reason` so hosts can decide when a comparison is trustworthy.
 
+## Upcoming In 0.2.3: Parameterized Local Evaluation
+
+FluxQ is adding a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
+
+- `parameter_workflow.mode` is `binding` or `sweep`
+- observables are explicit weighted `X/Y/Z` Pauli-string terms
+- QAOA MaxCut lowers a built-in cost observable into explicit Pauli-sum terms
+- local expectation values are evaluated from the pre-measure state with `exact_statevector` on `qiskit-local`
+- exported Qiskit/QASM/Classiq source and diagrams follow the representative evaluated point for the run
+- `best_point` currently supports one objective observable, not multi-objective optimization
+- `0.2.3` is not an optimizer, gradient engine, or remote execution story
+
+Example:
+
+```bash
+qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.md --json
+```
+
 ## Workspace Layout
 
 `qrun init --workspace .quantum` creates:
@@ -146,6 +164,7 @@ FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as
 ## Agent And Host Integration
 
 - aionrs integration examples: `docs/aionrs-integration.md`
+- parameterized QAOA example: `examples/intent-qaoa-maxcut-sweep.md`
 - sample `CLAUDE.md`: `integrations/aionrs/CLAUDE.md.example`
 - sample hooks: `integrations/aionrs/hooks.example.toml`
 

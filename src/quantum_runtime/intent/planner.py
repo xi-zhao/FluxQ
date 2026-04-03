@@ -8,13 +8,17 @@ from typing import Any
 from quantum_runtime.errors import ManualQspecRequiredError
 from quantum_runtime.intent.structured import IntentModel
 from quantum_runtime.qspec import Constraints, MeasureNode, PatternNode, QSpec, Register
+from quantum_runtime.qspec.observables import (
+    build_maxcut_cost_observable,
+    normalize_observable_specs,
+)
 
 
 def plan_to_qspec(intent: IntentModel) -> QSpec:
     """Lower a parsed intent into the v0.1 QSpec IR."""
     pattern = _detect_pattern(intent.goal)
     size = _infer_size(intent, pattern)
-    pattern_args, parameters = _build_pattern_semantics(intent, pattern, size)
+    pattern_args, parameters, observables, metadata = _build_pattern_semantics(intent, pattern, size)
 
     constraints = Constraints(
         max_width=_as_optional_int(intent.constraints.get("max_width")),
@@ -36,6 +40,7 @@ def plan_to_qspec(intent: IntentModel) -> QSpec:
             Register(kind="cbit", name="c", size=size),
         ],
         parameters=parameters,
+        observables=observables,
         body=[
             PatternNode(pattern=pattern, args=pattern_args),
             MeasureNode(
@@ -45,7 +50,7 @@ def plan_to_qspec(intent: IntentModel) -> QSpec:
         ],
         constraints=constraints,
         backend_preferences=list(intent.backend_preferences),
-        metadata={"source": "intent"},
+        metadata={"source": "intent", **metadata},
     )
 
 
@@ -86,9 +91,11 @@ def _build_pattern_semantics(
     intent: IntentModel,
     pattern: str,
     size: int,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     args: dict[str, Any] = {"register": "q", "size": size}
     parameters: list[dict[str, Any]] = []
+    observables: list[dict[str, Any]] = []
+    metadata: dict[str, Any] = {}
 
     if pattern == "hardware_efficient_ansatz":
         layers = _infer_layer_count(intent, default=2)
@@ -139,8 +146,17 @@ def _build_pattern_semantics(
                 ),
             )
         )
+        observables.append(build_maxcut_cost_observable(cost_edges))
 
-    return args, parameters
+    parameter_workflow = _infer_parameter_workflow(intent)
+    if parameter_workflow:
+        metadata["parameter_workflow"] = parameter_workflow
+
+    explicit_observables = normalize_observable_specs(intent.constraints.get("observables"))
+    if explicit_observables:
+        observables = explicit_observables
+
+    return args, parameters, observables, metadata
 
 
 def _infer_layer_count(intent: IntentModel, *, default: int) -> int:
@@ -317,6 +333,28 @@ def _as_optional_int(value: object) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _infer_parameter_workflow(intent: IntentModel) -> dict[str, Any]:
+    bindings = intent.constraints.get("parameter_bindings")
+    sweep = intent.constraints.get("parameter_sweep")
+    if bindings is not None:
+        return {
+            "mode": "binding",
+            "bindings": {
+                str(name).strip(): float(value)
+                for name, value in dict(bindings).items()
+            },
+        }
+    if sweep is not None:
+        return {
+            "mode": "sweep",
+            "grid": {
+                str(name).strip(): [float(item) for item in values]
+                for name, values in dict(sweep).items()
+            },
+        }
+    return {}
 
 
 def _as_int(value: object, default: int) -> int:

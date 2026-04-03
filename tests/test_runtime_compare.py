@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import hashlib
 from pathlib import Path
 
 from quantum_runtime.runtime import (
@@ -40,6 +42,90 @@ def test_compare_import_resolutions_detects_same_subject_across_workspaces(tmp_p
     assert result.verdict["status"] == "not_requested"
     assert result.highlights[0] == "Same workload identity (ghz) across both inputs."
     assert result.highlights[1] == "Identical QSpec semantics, but report artifacts or runtime outputs differ."
+
+
+def test_compare_import_resolutions_tracks_parameter_workflow_execution_drift() -> None:
+    left = _synthetic_resolution(
+        revision="rev_000001",
+        pattern="qaoa_ansatz",
+        workload_hash="sha256:same-workload",
+        execution_hash="sha256:exec-defaults",
+        qspec_hash="sha256:qspec-left",
+        report_hash="sha256:report-left",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        observable_count=1,
+        parameter_workflow_mode="defaults",
+    )
+    right = _synthetic_resolution(
+        revision="rev_000002",
+        pattern="qaoa_ansatz",
+        workload_hash="sha256:same-workload",
+        execution_hash="sha256:exec-sweep",
+        qspec_hash="sha256:qspec-right",
+        report_hash="sha256:report-right",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        observable_count=1,
+        parameter_workflow_mode="sweep",
+    )
+
+    result = compare_import_resolutions(left, right)
+
+    assert result.same_subject is True
+    assert result.status == "same_subject"
+    assert "parameter_workflow_mode" in result.semantic_delta["changed_fields"]
+    assert "execution_hash" in result.semantic_delta["changed_fields"]
+
+
+def test_compare_import_resolutions_surfaces_parameterized_expectation_drift() -> None:
+    left = _synthetic_resolution(
+        revision="rev_000001",
+        pattern="qaoa_ansatz",
+        workload_hash="sha256:same-workload",
+        execution_hash="sha256:same-execution",
+        qspec_hash="sha256:qspec-left",
+        report_hash="sha256:report-left",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        observable_count=1,
+        parameter_workflow_mode="sweep",
+        representative_point_label="sweep_000",
+        representative_expectations={"maxcut_cost": 1.25},
+        best_point={
+            "label": "sweep_000",
+            "objective_observable": "maxcut_cost",
+            "objective": "maximize",
+            "objective_value": 1.25,
+        },
+    )
+    right = _synthetic_resolution(
+        revision="rev_000002",
+        pattern="qaoa_ansatz",
+        workload_hash="sha256:same-workload",
+        execution_hash="sha256:same-execution",
+        qspec_hash="sha256:qspec-right",
+        report_hash="sha256:report-right",
+        report_status="ok",
+        backend_statuses={"qiskit-local": "ok"},
+        observable_count=1,
+        parameter_workflow_mode="sweep",
+        representative_point_label="sweep_003",
+        representative_expectations={"maxcut_cost": 1.75},
+        best_point={
+            "label": "sweep_003",
+            "objective_observable": "maxcut_cost",
+            "objective": "maximize",
+            "objective_value": 1.75,
+        },
+    )
+
+    result = compare_import_resolutions(left, right)
+
+    assert result.same_subject is True
+    assert result.report_drift_detected is True
+    assert "execution_diagnostics_changed" in result.differences
+    assert any("Best sweep point changed:" in highlight for highlight in result.highlights)
 
 
 def test_compare_import_resolutions_detects_semantic_drift_across_revisions(tmp_path: Path) -> None:
@@ -361,6 +447,11 @@ def _synthetic_resolution(
     report_hash: str,
     report_status: str,
     backend_statuses: dict[str, str],
+    observable_count: int = 0,
+    parameter_workflow_mode: str = "defaults",
+    representative_point_label: str = "defaults",
+    representative_expectations: dict[str, float] | None = None,
+    best_point: dict[str, object] | None = None,
     constraints: dict[str, object] | None = None,
     backend_preferences: list[str] | None = None,
     replay_integrity: dict[str, object] | None = None,
@@ -372,6 +463,8 @@ def _synthetic_resolution(
         "missing_artifacts": [],
         "mismatched_artifacts": [],
     }
+    representative_expectations_payload = representative_expectations or {}
+    best_point_payload = best_point
     return ImportResolution(
         source_kind="report_revision",
         source=f"revision:{revision}",
@@ -392,6 +485,8 @@ def _synthetic_resolution(
             "width": 4,
             "layers": None,
             "parameter_count": 0,
+            "observable_count": observable_count,
+            "parameter_workflow_mode": parameter_workflow_mode,
             "workload_hash": workload_hash,
             "execution_hash": execution_hash,
             "semantic_hash": execution_hash,
@@ -415,6 +510,12 @@ def _synthetic_resolution(
             },
             "warning_count": 0,
             "error_count": 0,
+            "parameter_mode": parameter_workflow_mode,
+            "representative_point_label": representative_point_label,
+            "representative_expectations": representative_expectations_payload,
+            "representative_expectations_hash": _stable_hash(representative_expectations_payload),
+            "best_point": best_point_payload,
+            "best_point_hash": _stable_hash(best_point_payload),
             "replay_integrity_status": replay_payload["status"],
             "replay_integrity_warnings": replay_payload["warnings"],
             "replay_integrity_missing_artifacts": replay_payload["missing_artifacts"],
@@ -424,3 +525,8 @@ def _synthetic_resolution(
         artifacts={},
         provenance={},
     )
+
+
+def _stable_hash(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"

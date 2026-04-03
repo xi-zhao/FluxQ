@@ -223,7 +223,16 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
 
 
 def _semantic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    fields = ("pattern", "width", "layers", "parameter_count", "workload_hash", "execution_hash")
+    fields = (
+        "pattern",
+        "width",
+        "layers",
+        "parameter_count",
+        "observable_count",
+        "parameter_workflow_mode",
+        "workload_hash",
+        "execution_hash",
+    )
     changed_fields = [
         field
         for field in fields
@@ -272,17 +281,38 @@ def _diagnostic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
     left_resources = left.get("resource_summary")
     right_resources = right.get("resource_summary")
     fields = ("width", "depth", "two_qubit_gates", "measure_count", "parameter_count")
+    execution_fields = (
+        "parameter_mode",
+        "representative_point_label",
+        "representative_bindings_hash",
+        "representative_expectations_hash",
+        "best_point_hash",
+        "export_point_label",
+        "export_parameter_mode",
+        "export_bindings_hash",
+    )
     changed_fields = [
         field
         for field in fields
         if _resource_value(left_resources, field) != _resource_value(right_resources, field)
     ]
+    execution_fields_changed = [
+        field
+        for field in execution_fields
+        if left.get(field) != right.get(field)
+    ]
     return {
         "simulation_status_changed": left.get("simulation_status") != right.get("simulation_status"),
         "transpile_status_changed": left.get("transpile_status") != right.get("transpile_status"),
         "resource_fields_changed": changed_fields,
+        "execution_fields_changed": execution_fields_changed,
         "left": {
             "simulation_status": left.get("simulation_status"),
+            "parameter_mode": left.get("parameter_mode"),
+            "representative_point_label": left.get("representative_point_label"),
+            "representative_expectations": left.get("representative_expectations"),
+            "best_point": left.get("best_point"),
+            "export_point_label": left.get("export_point_label"),
             "transpile_status": left.get("transpile_status"),
             "resources": {
                 field: _resource_value(left_resources, field)
@@ -291,6 +321,11 @@ def _diagnostic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         },
         "right": {
             "simulation_status": right.get("simulation_status"),
+            "parameter_mode": right.get("parameter_mode"),
+            "representative_point_label": right.get("representative_point_label"),
+            "representative_expectations": right.get("representative_expectations"),
+            "best_point": right.get("best_point"),
+            "export_point_label": right.get("export_point_label"),
             "transpile_status": right.get("transpile_status"),
             "resources": {
                 field: _resource_value(right_resources, field)
@@ -388,6 +423,9 @@ def _report_drift_detected(
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:
         return True
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        return True
     status_changed = backend_delta.get("status_changed")
     if isinstance(status_changed, dict) and status_changed:
         return True
@@ -469,6 +507,9 @@ def _differences(
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:
         differences.append("resource_metrics_changed:" + ",".join(str(field) for field in resource_fields_changed))
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        differences.append("execution_diagnostics_changed")
     status_changed = backend_delta.get("status_changed")
     if isinstance(status_changed, dict) and status_changed:
         differences.append("backend_status_changed")
@@ -549,6 +590,27 @@ def _highlights(
             for field in resource_fields_changed[:3]
         )
         highlights.append(f"Structural diagnostics changed: {fields}.")
+
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        left_best_raw = diagnostic_delta.get("left", {}).get("best_point")
+        right_best_raw = diagnostic_delta.get("right", {}).get("best_point")
+        left_best = left_best_raw if isinstance(left_best_raw, dict) else {}
+        right_best = right_best_raw if isinstance(right_best_raw, dict) else {}
+        left_name = left_best.get("objective_observable")
+        right_name = right_best.get("objective_observable")
+        left_value = left_best.get("objective_value")
+        right_value = right_best.get("objective_value")
+        if left_name and right_name and left_value is not None and right_value is not None:
+            highlights.append(
+                f"Best sweep point changed: {left_name} {left_value} -> {right_value}."
+            )
+        else:
+            left_label = diagnostic_delta.get("left", {}).get("representative_point_label")
+            right_label = diagnostic_delta.get("right", {}).get("representative_point_label")
+            highlights.append(
+                f"Representative execution point changed: {left_label} -> {right_label}."
+            )
 
     backend_status_changed = backend_delta.get("status_changed")
     if isinstance(backend_status_changed, dict) and backend_status_changed:

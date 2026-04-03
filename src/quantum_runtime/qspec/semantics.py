@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any
 
+from .parameter_workflow import summarize_parameter_workflow
 from .model import PatternNode, QSpec
 
 
@@ -13,6 +14,8 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
     """Return a host-friendly semantic summary of the active QSpec."""
     pattern_node = _first_pattern(qspec)
     parameter_records = [_normalize_parameter(parameter) for parameter in qspec.parameters]
+    observable_records = [_normalize_value(observable) for observable in qspec.observables]
+    parameter_workflow = summarize_parameter_workflow(qspec)
     summary: dict[str, Any] = {
         "program_id": qspec.program_id,
         "pattern": pattern_node.pattern,
@@ -22,6 +25,10 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
         "pattern_args": _normalize_value(pattern_node.args),
         "parameter_count": len(parameter_records),
         "parameters": parameter_records,
+        "observable_count": len(observable_records),
+        "observables": observable_records,
+        "parameter_workflow_mode": parameter_workflow["mode"],
+        "parameter_workflow": parameter_workflow,
         "constraints": {
             "max_width": qspec.constraints.max_width,
             "max_depth": qspec.constraints.max_depth,
@@ -91,6 +98,8 @@ def _workload_payload(summary: dict[str, Any]) -> dict[str, Any]:
         "pattern_args": summary["pattern_args"],
         "parameter_count": summary["parameter_count"],
         "parameters": summary["parameters"],
+        "observable_count": summary["observable_count"],
+        "observables": summary["observables"],
     }
 
 

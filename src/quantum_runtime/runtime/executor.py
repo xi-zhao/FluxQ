@@ -166,9 +166,23 @@ def _execute_qspec(
     warnings: list[str] = []
     errors: list[str] = []
     backend_reports: dict[str, Any] = {}
-
+    simulation = run_local_simulation(qspec, shots=shots)
+    representative_bindings = (
+        dict(simulation.representative_bindings)
+        if simulation.status == "ok" and simulation.representative_bindings
+        else None
+    )
+    export_context = {
+        "point_label": simulation.representative_point_label,
+        "parameter_mode": simulation.parameter_mode,
+        "bindings": dict(representative_bindings or {}),
+    }
     if "qiskit" in requested_exports:
-        qiskit_path = write_qiskit_program(qspec, handle.root / "artifacts" / "qiskit" / "main.py")
+        qiskit_path = write_qiskit_program(
+            qspec,
+            handle.root / "artifacts" / "qiskit" / "main.py",
+            parameter_bindings=representative_bindings,
+        )
         artifacts["qiskit_code"] = str(
             _snapshot_artifact(
                 qiskit_path,
@@ -176,7 +190,11 @@ def _execute_qspec(
             )
         )
     if "qasm3" in requested_exports:
-        qasm_path = write_qasm3_program(qspec, handle.root / "artifacts" / "qasm" / "main.qasm")
+        qasm_path = write_qasm3_program(
+            qspec,
+            handle.root / "artifacts" / "qasm" / "main.qasm",
+            parameter_bindings=representative_bindings,
+        )
         artifacts["qasm3"] = str(
             _snapshot_artifact(
                 qasm_path,
@@ -184,7 +202,11 @@ def _execute_qspec(
             )
         )
     if "classiq-python" in requested_exports:
-        classiq_emit = write_classiq_program(qspec, handle.root / "artifacts" / "classiq" / "main.py")
+        classiq_emit = write_classiq_program(
+            qspec,
+            handle.root / "artifacts" / "classiq" / "main.py",
+            parameter_bindings=representative_bindings,
+        )
         if classiq_emit.status == "ok" and classiq_emit.path is not None:
             artifacts["classiq_code"] = str(
                 _snapshot_artifact(
@@ -195,12 +217,12 @@ def _execute_qspec(
         elif classiq_emit.reason is not None:
             warnings.append(classiq_emit.reason)
 
-    diagrams = write_diagrams(qspec, handle)
-    simulation = run_local_simulation(qspec, shots=shots)
+    diagrams = write_diagrams(qspec, handle, parameter_bindings=representative_bindings)
     resources = estimate_resources(qspec)
     transpile = validate_target_constraints(qspec)
     diagnostics = {
         "simulation": simulation.model_dump(mode="json"),
+        "exports": export_context,
         "resources": resources.model_dump(mode="json"),
         "diagram": {
             "text_path": "",

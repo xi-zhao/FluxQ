@@ -57,6 +57,94 @@ def test_estimate_resources_for_parameterized_qaoa() -> None:
     assert report.gate_histogram["rx"] == 8
 
 
+def test_run_local_simulation_reports_qaoa_expectation_sweep() -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md")
+    qspec = plan_to_qspec(intent)
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "sweep",
+        "grid": {
+            "gamma_0": [0.2, 0.4],
+            "beta_0": [0.1, 0.3],
+            "gamma_1": [0.45],
+            "beta_1": [0.35],
+        },
+    }
+
+    report = run_local_simulation(qspec, shots=96)
+
+    assert report.status == "ok"
+    assert report.parameter_mode == "sweep"
+    assert report.observables[0]["name"] == "maxcut_cost"
+    assert len(report.parameter_points) == 4
+    assert report.best_point is not None
+    assert report.best_point["objective_observable"] == "maxcut_cost"
+    assert report.best_point["objective"] == "maximize"
+    assert report.representative_point_label.startswith("sweep_")
+    assert report.expectation_values[0]["name"] == "maxcut_cost"
+    assert report.expectation_values[0]["evaluation_mode"] == "exact_statevector"
+    assert sum(report.counts.values()) == 96
+
+
+def test_run_local_simulation_reports_bound_hea_observable() -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.body[0] = qspec.body[0].model_copy(
+        update={
+            "pattern": "hardware_efficient_ansatz",
+            "args": {
+                "register": "q",
+                "size": 4,
+                "layers": 1,
+                "rotation_blocks": ["ry"],
+                "entanglement": "linear",
+                "entanglement_edges": [[0, 1], [1, 2], [2, 3]],
+            },
+        }
+    )
+    qspec.parameters = [
+        {
+            "name": f"theta_ry_l0_q{qubit}",
+            "kind": "angle",
+            "family": "hardware_efficient_ansatz",
+            "gate": "ry",
+            "layer": 0,
+            "qubit": qubit,
+            "default": 0.5 + (0.1 * qubit),
+        }
+        for qubit in range(4)
+    ]
+    qspec.observables = [
+        {
+            "name": "z0_plus_z1z2",
+            "kind": "pauli_sum",
+            "objective": "maximize",
+            "terms": [
+                {"pauli": "Z", "qubits": [0], "coefficient": 1.0},
+                {"pauli": "ZZ", "qubits": [1, 2], "coefficient": -0.5},
+            ],
+        }
+    ]
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "binding",
+        "bindings": {
+            "theta_ry_l0_q0": 0.12,
+            "theta_ry_l0_q3": 0.91,
+        },
+    }
+
+    report = run_local_simulation(qspec, shots=64)
+
+    assert report.status == "ok"
+    assert report.parameter_mode == "binding"
+    assert report.representative_point_label == "bound"
+    assert report.representative_bindings["theta_ry_l0_q0"] == 0.12
+    assert report.representative_bindings["theta_ry_l0_q3"] == 0.91
+    assert report.expectation_values[0]["name"] == "z0_plus_z1z2"
+    assert report.expectation_values[0]["evaluation_mode"] == "exact_statevector"
+    assert isinstance(report.expectation_values[0]["value"], float)
+    assert sum(report.counts.values()) == 64
+
+
 def test_write_diagrams_creates_text_and_png(tmp_path: Path) -> None:
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
     qspec = plan_to_qspec(intent)

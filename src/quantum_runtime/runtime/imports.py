@@ -755,8 +755,19 @@ def _summarize_report(
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
     simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
+    exports = diagnostics.get("exports") if isinstance(diagnostics, dict) else {}
     transpile = diagnostics.get("transpile") if isinstance(diagnostics, dict) else {}
     resources = diagnostics.get("resources") if isinstance(diagnostics, dict) else {}
+    representative_expectations = _summarize_expectation_values(
+        simulation.get("expectation_values") if isinstance(simulation, dict) else None
+    )
+    best_point = _summarize_best_point(
+        simulation.get("best_point") if isinstance(simulation, dict) else None
+    )
+    representative_bindings = _float_mapping(
+        simulation.get("representative_bindings") if isinstance(simulation, dict) else None
+    )
+    export_bindings = _float_mapping(exports.get("bindings") if isinstance(exports, dict) else None)
 
     artifact_outputs = _summarize_artifact_outputs(resolved_artifacts)
     artifact_paths = artifact_provenance.get("paths", {})
@@ -776,6 +787,19 @@ def _summarize_report(
         if isinstance(backend_reports, dict)
         else {},
         "simulation_status": simulation.get("status") if isinstance(simulation, dict) else None,
+        "parameter_mode": simulation.get("parameter_mode") if isinstance(simulation, dict) else None,
+        "representative_point_label": (
+            simulation.get("representative_point_label") if isinstance(simulation, dict) else None
+        ),
+        "representative_bindings": representative_bindings,
+        "representative_bindings_hash": _hash_payload(representative_bindings),
+        "representative_expectations": representative_expectations,
+        "representative_expectations_hash": _hash_payload(representative_expectations),
+        "best_point": best_point,
+        "best_point_hash": _hash_payload(best_point),
+        "export_point_label": exports.get("point_label") if isinstance(exports, dict) else None,
+        "export_parameter_mode": exports.get("parameter_mode") if isinstance(exports, dict) else None,
+        "export_bindings_hash": _hash_payload(export_bindings),
         "transpile_status": transpile.get("status") if isinstance(transpile, dict) else None,
         "resource_summary": {
             key: resources.get(key)
@@ -811,10 +835,14 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
         "width": semantics["width"],
         "layers": semantics["layers"],
         "parameter_count": semantics["parameter_count"],
+        "observable_count": semantics["observable_count"],
         "workload_hash": semantics["workload_hash"],
         "execution_hash": semantics["execution_hash"],
         "semantic_hash": semantics["semantic_hash"],
         "pattern_args": semantics["pattern_args"],
+        "observables": semantics["observables"],
+        "parameter_workflow_mode": semantics["parameter_workflow_mode"],
+        "parameter_workflow": semantics["parameter_workflow"],
         "registers": {
             "qubits": qspec.registers[0].size,
             "cbits": qspec.registers[1].size,
@@ -862,7 +890,56 @@ def _summarize_artifact_outputs(resolved_artifacts: dict[str, str]) -> dict[str,
     }
 
 
-def _hash_payload(payload: dict[str, Any]) -> str:
+def _summarize_expectation_values(value: object) -> dict[str, float]:
+    if not isinstance(value, list):
+        return {}
+    summary: dict[str, float] = {}
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name", "")).strip()
+        if not name:
+            continue
+        raw_value = entry.get("value")
+        if raw_value is None:
+            continue
+        try:
+            summary[name] = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+    return summary
+
+
+def _summarize_best_point(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    summary: dict[str, Any] = {}
+    for key in ("label", "objective_observable", "objective"):
+        raw = value.get(key)
+        if raw is not None:
+            summary[key] = str(raw)
+    raw_objective_value = value.get("objective_value")
+    if raw_objective_value is not None:
+        try:
+            summary["objective_value"] = float(raw_objective_value)
+        except (TypeError, ValueError):
+            pass
+    return summary or None
+
+
+def _float_mapping(value: object) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    summary: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            summary[str(key)] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return summary
+
+
+def _hash_payload(payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"

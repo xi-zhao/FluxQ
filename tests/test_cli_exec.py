@@ -15,6 +15,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
 
 
+def _fmt(value: float) -> str:
+    rendered = f"{value:.6f}".rstrip("0").rstrip(".")
+    return rendered or "0"
+
+
 def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -90,6 +95,84 @@ def test_qrun_exec_json_accepts_qspec_file_input(tmp_path: Path) -> None:
     assert Path(payload["artifacts"]["qspec"]).exists()
     assert Path(payload["artifacts"]["qiskit_code"]).exists()
     assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 3
+
+
+def test_qrun_exec_json_persists_parameterized_expectation_diagnostics(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    qspec_path = tmp_path / "qaoa-sweep-qspec.json"
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "sweep",
+        "grid": {
+            "gamma_0": [0.2, 0.4],
+            "beta_0": [0.1, 0.3],
+            "gamma_1": [0.45],
+            "beta_1": [0.35],
+        },
+    }
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--qspec-file",
+            str(qspec_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["diagnostics"]["simulation"]["parameter_mode"] == "sweep"
+    assert payload["diagnostics"]["simulation"]["best_point"]["objective_observable"] == "maxcut_cost"
+    assert payload["diagnostics"]["simulation"]["observables"][0]["name"] == "maxcut_cost"
+
+    report = json.loads((workspace / "reports" / "latest.json").read_text())
+    assert report["semantics"]["observable_count"] == 1
+    assert report["semantics"]["parameter_workflow_mode"] == "sweep"
+    assert report["semantics"]["parameter_workflow"]["point_count"] == 4
+    assert report["diagnostics"]["simulation"]["best_point"]["objective"] == "maximize"
+
+
+def test_qrun_exec_qiskit_export_uses_representative_parameter_point(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    qspec_path = tmp_path / "qaoa-sweep-qspec.json"
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "sweep",
+        "grid": {
+            "gamma_0": [0.2, 0.4],
+            "beta_0": [0.1, 0.3],
+            "gamma_1": [0.45],
+            "beta_1": [0.35],
+        },
+    }
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--qspec-file",
+            str(qspec_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    report = json.loads((workspace / "reports" / "latest.json").read_text())
+    representative_bindings = report["diagnostics"]["simulation"]["representative_bindings"]
+    qiskit_code = Path(payload["artifacts"]["qiskit_code"]).read_text()
+
+    assert f"qc.rz({_fmt(2 * representative_bindings['gamma_0'])}, 1)" in qiskit_code
+    assert f"qc.rx({_fmt(2 * representative_bindings['beta_1'])}, 0)" in qiskit_code
+    assert "qc.rx(0.68, 0)" not in qiskit_code
 
 
 def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:

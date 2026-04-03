@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - enforce stored report/QSpec identity when replaying saved baselines, including copied-report canonicalization back to stable history paths when hashes match
 - label benchmark entries as `structural_only`, `target_aware`, or `synthesis_backed`
 - separate target-aware transpile provenance from Classiq synthesis-backed provenance so FluxQ does not overclaim cross-backend equivalence
+- add upcoming `0.2.3` parameterized local expectation workflows for `qaoa_ansatz` and `hardware_efficient_ansatz`
+- report explicit parameter workflow metadata, weighted `X/Y/Z` Pauli-sum observable specs, exact local expectation values, representative-bound exports, and sampled best sweep points without claiming optimization or backend parity
 
 ## 0.2.0
 
