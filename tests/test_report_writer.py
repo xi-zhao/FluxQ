@@ -286,6 +286,40 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     assert normalized_summary == golden
 
 
+def test_summarize_report_includes_backend_benchmark_modes() -> None:
+    report = {
+        "status": "degraded",
+        "revision": "rev_000123",
+        "qspec": {"path": "/tmp/specs/history/rev_000123.json"},
+        "semantics": {"pattern": "ghz", "parameter_count": 0},
+        "artifacts": {},
+        "diagnostics": {"simulation": {"status": "ok"}},
+        "backend_reports": {
+            "qiskit-local": {
+                "status": "ok",
+                "details": {
+                    "benchmark_mode": "target_aware",
+                },
+            },
+            "classiq": {
+                "status": "ok",
+                "details": {
+                    "benchmark_mode": "synthesis_backed",
+                    "target_parity": "partial",
+                },
+            },
+        },
+        "warnings": [],
+        "errors": [],
+        "suggestions": [],
+    }
+
+    summary = summarize_report(report)
+
+    assert "qiskit-local:ok[target_aware]" in summary
+    assert "classiq:ok[synthesis_backed,partial]" in summary
+
+
 def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()

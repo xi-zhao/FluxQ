@@ -41,6 +41,8 @@ def test_qrun_backend_list_json_reports_known_backends(monkeypatch) -> None:
                     "simulate_locally": True,
                     "transpile_validation": True,
                     "structural_benchmark": True,
+                    "benchmark_target_aware": True,
+                    "benchmark_synthesis_backed": False,
                     "classiq_synthesis": False,
                     "remote_submit": False,
                 },
@@ -65,6 +67,8 @@ def test_qrun_backend_list_json_reports_known_backends(monkeypatch) -> None:
                     "simulate_locally": False,
                     "transpile_validation": False,
                     "structural_benchmark": True,
+                    "benchmark_target_aware": False,
+                    "benchmark_synthesis_backed": True,
                     "classiq_synthesis": True,
                     "remote_submit": False,
                 },
@@ -80,5 +84,9 @@ def test_qrun_backend_list_json_reports_known_backends(monkeypatch) -> None:
     assert payload["backends"]["qiskit-local"]["available"] is True
     assert payload["backends"]["qiskit-local"]["provider"] == "qiskit"
     assert payload["backends"]["qiskit-local"]["capabilities"]["simulate_locally"] is True
+    assert payload["backends"]["qiskit-local"]["capabilities"]["benchmark_target_aware"] is True
+    assert payload["backends"]["qiskit-local"]["capabilities"]["benchmark_synthesis_backed"] is False
     assert payload["backends"]["classiq"]["available"] is False
     assert payload["backends"]["classiq"]["reason"] == "No module named 'classiq'"
+    assert payload["backends"]["classiq"]["capabilities"]["benchmark_target_aware"] is False
+    assert payload["backends"]["classiq"]["capabilities"]["benchmark_synthesis_backed"] is True

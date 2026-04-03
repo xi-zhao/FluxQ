@@ -33,6 +33,7 @@ class ClassiqBackendReport(BaseModel):
 def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBackendReport:
     """Emit Classiq Python and synthesize it when the SDK is available."""
     code_path = workspace.root / "artifacts" / "classiq" / "main.py"
+    target_assumptions = _target_assumptions(qspec)
 
     if "classiq" not in qspec.backend_preferences:
         return ClassiqBackendReport(
@@ -46,7 +47,7 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
             status="backend_unavailable",
             reason=emit_result.reason,
             code_path=emit_result.path,
-            details=dict(emit_result.details),
+            details={**dict(emit_result.details), "target_assumptions": target_assumptions},
         )
 
     try:
@@ -56,7 +57,10 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
             status="dependency_missing",
             reason="classiq_not_installed",
             code_path=emit_result.path,
-            details={"import_error": str(exc)},
+            details={
+                "import_error": str(exc),
+                "target_assumptions": target_assumptions,
+            },
         )
 
     try:
@@ -81,7 +85,16 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
             status="error",
             reason="classiq_synthesis_failed",
             code_path=emit_result.path,
-            details={"error": str(exc)},
+            details={
+                "error": str(exc),
+                "target_assumptions": target_assumptions,
+            },
+        )
+
+    warnings = list(getattr(program, "synthesis_warnings", []) or [])
+    if target_assumptions["unsupported_constraints"]:
+        warnings.append(
+            "Unsupported target constraints were ignored by the Classiq backend."
         )
 
     return ClassiqBackendReport(
@@ -90,8 +103,8 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
         results_path=results_path,
         program_id=getattr(program, "program_id", None),
         synthesis_metrics=synthesis_metrics,
-        warnings=list(getattr(program, "synthesis_warnings", []) or []),
-        details=synthesis_details,
+        warnings=warnings,
+        details={**synthesis_details, "target_assumptions": target_assumptions},
     )
 
 
@@ -225,3 +238,31 @@ def _coerce_int(value: Any) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _target_assumptions(qspec: QSpec) -> dict[str, Any]:
+    applied_constraints: dict[str, Any] = {}
+    if qspec.constraints.max_width is not None:
+        applied_constraints["max_width"] = qspec.constraints.max_width
+
+    applied_preferences: dict[str, Any] = {
+        "optimization_level": qspec.constraints.optimization_level,
+    }
+    if qspec.constraints.backend_provider is not None:
+        applied_preferences["backend_service_provider"] = qspec.constraints.backend_provider
+    if qspec.constraints.backend_name is not None:
+        applied_preferences["backend_name"] = qspec.constraints.backend_name
+
+    unsupported_constraints: list[str] = []
+    if qspec.constraints.max_depth is not None:
+        unsupported_constraints.append("max_depth")
+    if qspec.constraints.basis_gates:
+        unsupported_constraints.append("basis_gates")
+    if qspec.constraints.connectivity_map:
+        unsupported_constraints.append("connectivity_map")
+
+    return {
+        "applied_constraints": applied_constraints,
+        "applied_preferences": applied_preferences,
+        "unsupported_constraints": unsupported_constraints,
+    }

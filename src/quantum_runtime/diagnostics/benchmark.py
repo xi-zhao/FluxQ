@@ -55,20 +55,29 @@ def run_structural_benchmark(
             notes = ["Local Qiskit structural benchmark"]
             if transpile_report.status == "skipped":
                 notes.append("Transpile metrics were skipped because no target constraints were provided.")
+            if transpile_report.status == "error":
+                notes.append("Target validation failed, so target-aware benchmark parity is unavailable.")
             entries[normalized] = BackendBenchmark(
                 backend=normalized,
-                status="ok",
+                status="error" if transpile_report.status == "error" else "ok",
                 width=resources.width,
                 depth=resources.depth,
                 transpiled_depth=transpile_report.transpiled_depth,
                 two_qubit_gates=resources.two_qubit_gates,
                 transpiled_two_qubit_gates=transpile_report.transpiled_two_qubit_gates,
                 measure_count=resources.measure_count,
+                reason="target_validation_failed" if transpile_report.status == "error" else None,
                 notes=notes,
                 details={
                     "resource_source": "qiskit_local",
+                    "benchmark_mode": transpile_report.benchmark_mode,
+                    "comparable": transpile_report.comparable,
+                    "comparability_reason": _qiskit_comparability_reason(transpile_report),
                     "transpile_status": transpile_report.status,
                     "transpile_performed": transpile_report.status != "skipped",
+                    "target_assumptions": transpile_report.target_assumptions,
+                    "fallback_reason": transpile_report.fallback_reason,
+                    "error": transpile_report.error,
                     "parameter_count": resources.parameter_count,
                     "parameter_names": resources.parameter_names,
                     "semantic_hash": subject["semantic_hash"],
@@ -84,6 +93,7 @@ def run_structural_benchmark(
                 if synthesis_metrics:
                     benchmark = _benchmark_from_synthesis_metrics(
                         backend=normalized,
+                        classiq_report=classiq_report,
                         synthesis_metrics=synthesis_metrics,
                         baseline_resources=resources,
                         subject=subject,
@@ -101,12 +111,20 @@ def run_structural_benchmark(
                         notes=[
                             "Classiq benchmark used fallback QSpec baseline resources because synthesis metrics were unavailable",
                         ],
-                        details={
-                            "resource_source": "qspec_baseline",
-                            "parameter_count": resources.parameter_count,
-                            "parameter_names": resources.parameter_names,
-                            "semantic_hash": subject["semantic_hash"],
-                        },
+                        details=_augment_contract(
+                            {
+                                "resource_source": "qspec_baseline",
+                                "target_assumptions": _classiq_target_assumptions(classiq_report),
+                                "parameter_count": resources.parameter_count,
+                                "parameter_names": resources.parameter_names,
+                                "semantic_hash": subject["semantic_hash"],
+                            },
+                            benchmark_mode="structural_only",
+                            comparable=False,
+                            fallback_reason="missing_synthesis_metrics",
+                            target_parity="unavailable",
+                            comparability_reason="missing_synthesis_metrics",
+                        ),
                     )
                 entries[normalized] = benchmark
             else:
@@ -115,7 +133,14 @@ def run_structural_benchmark(
                     status=classiq_report.status,
                     reason=classiq_report.reason,
                     notes=["Dependency or backend availability issue blocked Classiq benchmarking"],
-                    details=dict(classiq_report.details),
+                    details=_augment_contract(
+                        dict(classiq_report.details),
+                        benchmark_mode="unavailable",
+                        comparable=False,
+                        fallback_reason=classiq_report.reason,
+                        target_parity="unavailable",
+                        comparability_reason=classiq_report.reason or "backend_unavailable",
+                    ),
                 )
             continue
 
@@ -124,6 +149,14 @@ def run_structural_benchmark(
             status="backend_unavailable",
             reason="unknown_backend",
             notes=["Backend is not recognized by this runtime build"],
+            details=_augment_contract(
+                {},
+                benchmark_mode="unavailable",
+                comparable=False,
+                fallback_reason="unknown_backend",
+                target_parity="unavailable",
+                comparability_reason="unknown_backend",
+            ),
         )
 
     return BenchmarkReport(
@@ -159,6 +192,7 @@ def _synthesis_metrics_from_report(classiq_report: object) -> dict[str, int]:
 def _benchmark_from_synthesis_metrics(
     *,
     backend: str,
+    classiq_report: object,
     synthesis_metrics: dict[str, int],
     baseline_resources: Any,
     subject: dict[str, Any],
@@ -181,6 +215,7 @@ def _benchmark_from_synthesis_metrics(
     if fallback_used:
         notes.append("Missing synthesis fields fell back to QSpec baseline resources.")
 
+    target_assumptions = _classiq_target_assumptions(classiq_report)
     return BackendBenchmark(
         backend=backend,
         status="ok",
@@ -191,13 +226,21 @@ def _benchmark_from_synthesis_metrics(
         transpiled_two_qubit_gates=two_qubit_gates,
         measure_count=measure_count,
         notes=notes,
-        details={
-            "resource_source": "classiq_synthesis",
-            "synthesis_metrics": synthesis_metrics,
-            "parameter_count": baseline_resources.parameter_count,
-            "parameter_names": baseline_resources.parameter_names,
-            "semantic_hash": subject["semantic_hash"],
-        },
+        details=_augment_contract(
+            {
+                "resource_source": "classiq_synthesis",
+                "synthesis_metrics": synthesis_metrics,
+                "target_assumptions": target_assumptions,
+                "parameter_count": baseline_resources.parameter_count,
+                "parameter_names": baseline_resources.parameter_names,
+                "semantic_hash": subject["semantic_hash"],
+            },
+            benchmark_mode="synthesis_backed",
+            comparable=False,
+            fallback_reason="partial_synthesis_metrics" if fallback_used else None,
+            target_parity=_classiq_target_parity(target_assumptions),
+            comparability_reason=_classiq_comparability_reason(target_assumptions),
+        ),
     )
 
 
@@ -208,3 +251,70 @@ def _normalize_metrics(metrics: dict[str, int]) -> dict[str, int]:
         if isinstance(value, int):
             normalized[key] = value
     return normalized
+
+
+def _classiq_target_assumptions(classiq_report: object) -> dict[str, object]:
+    details = getattr(classiq_report, "details", None)
+    if not isinstance(details, dict):
+        return {
+            "applied_constraints": {},
+            "applied_preferences": {},
+            "unsupported_constraints": [],
+        }
+    assumptions = details.get("target_assumptions")
+    if isinstance(assumptions, dict):
+        return assumptions
+    return {
+        "applied_constraints": {},
+        "applied_preferences": {},
+        "unsupported_constraints": [],
+    }
+
+
+def _augment_contract(
+    details: dict[str, object],
+    *,
+    benchmark_mode: str,
+    comparable: bool,
+    fallback_reason: str | None,
+    target_parity: str | None = None,
+    comparability_reason: str | None = None,
+) -> dict[str, object]:
+    contract: dict[str, object] = {
+        **details,
+        "benchmark_mode": benchmark_mode,
+        "comparable": comparable,
+        "fallback_reason": fallback_reason,
+    }
+    if target_parity is not None:
+        contract["target_parity"] = target_parity
+    if comparability_reason is not None:
+        contract["comparability_reason"] = comparability_reason
+    return contract
+
+
+def _qiskit_comparability_reason(transpile_report: object) -> str:
+    comparable = getattr(transpile_report, "comparable", False)
+    fallback_reason = getattr(transpile_report, "fallback_reason", None)
+    if comparable:
+        return "target_aware_transpile"
+    if isinstance(fallback_reason, str) and fallback_reason:
+        return fallback_reason
+    return "structural_only"
+
+
+def _classiq_target_parity(target_assumptions: dict[str, object]) -> str:
+    unsupported_constraints = target_assumptions.get("unsupported_constraints")
+    applied_constraints = target_assumptions.get("applied_constraints")
+    if isinstance(unsupported_constraints, list) and unsupported_constraints:
+        return "partial"
+    if isinstance(applied_constraints, dict) and applied_constraints:
+        return "partial"
+    return "unavailable"
+
+
+def _classiq_comparability_reason(target_assumptions: dict[str, object]) -> str:
+    target_parity = _classiq_target_parity(target_assumptions)
+    if target_parity == "partial":
+        return "partial_target_parity"
+    return "no_target_parity"

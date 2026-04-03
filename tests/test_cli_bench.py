@@ -246,7 +246,12 @@ def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: P
     assert result.exit_code == 7, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
+    assert payload["backends"]["qiskit-local"]["details"]["benchmark_mode"] == "structural_only"
+    assert payload["backends"]["qiskit-local"]["details"]["comparable"] is False
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+    assert payload["backends"]["classiq"]["details"]["benchmark_mode"] == "unavailable"
+    assert payload["backends"]["classiq"]["details"]["comparable"] is False
+    assert payload["backends"]["classiq"]["details"]["fallback_reason"] == "classiq_not_installed"
     assert payload["subject"]["pattern"] == "ghz"
     assert payload["subject"]["parameter_count"] == 0
 

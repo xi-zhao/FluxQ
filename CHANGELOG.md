@@ -10,6 +10,8 @@ All notable changes to this project will be documented in this file.
 - add `qrun compare --baseline` so CI and agents can compare the current workspace against a saved approved baseline
 - surface baseline state in `qrun inspect --json` and degrade cleanly when the saved baseline can no longer be resolved
 - enforce stored report/QSpec identity when replaying saved baselines, including copied-report canonicalization back to stable history paths when hashes match
+- label benchmark entries as `structural_only`, `target_aware`, or `synthesis_backed`
+- separate target-aware transpile provenance from Classiq synthesis-backed provenance so FluxQ does not overclaim cross-backend equivalence
 
 ## 0.2.0
 

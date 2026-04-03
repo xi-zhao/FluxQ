@@ -52,10 +52,15 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
                 "simulate_locally": True,
                 "transpile_validation": True,
                 "structural_benchmark": True,
+                "benchmark_target_aware": True,
+                "benchmark_synthesis_backed": False,
                 "classiq_synthesis": False,
                 "remote_submit": False,
             },
-            notes=["Local Qiskit backend"],
+            notes=[
+                "Local Qiskit backend",
+                "Benchmark entries can be structural_only or target_aware depending on supplied target constraints.",
+            ],
         ),
         "classiq": BackendCapabilityDescriptor(
             backend="classiq",
@@ -67,10 +72,15 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
                 "simulate_locally": False,
                 "transpile_validation": False,
                 "structural_benchmark": True,
+                "benchmark_target_aware": False,
+                "benchmark_synthesis_backed": True,
                 "classiq_synthesis": True,
                 "remote_submit": False,
             },
-            notes=["Optional Classiq synthesis backend"],
+            notes=[
+                "Optional Classiq synthesis backend",
+                "Synthesis-backed benchmark entries may expose only partial target parity; inspect target_assumptions before comparing them to target-aware Qiskit results.",
+            ],
         ),
     }
 

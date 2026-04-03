@@ -50,6 +50,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "report-backed imports now enforce replay integrity for QSpec identity" in readme
     assert "qrun compare --forbid-replay-integrity-regressions --json" in readme
     assert "Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2`" in readme
+    assert "`structural_only`, `target_aware`, and `synthesis_backed`" in readme
+    assert "FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as directly equivalent by default" in readme
     assert "Apache-2.0" in readme
     assert "docs/releases/v0.2.0.md" in readme
     assert "CONTRIBUTING.md" in readme
@@ -74,6 +76,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "add replay-trust deltas and `--forbid-replay-integrity-regressions` to `qrun compare`" in changelog_text
     assert "add workspace baseline persistence with `qrun baseline set/show/clear`" in changelog_text
     assert "add `qrun compare --baseline`" in changelog_text
+    assert "label benchmark entries as `structural_only`, `target_aware`, or `synthesis_backed`" in changelog_text
+    assert "separate target-aware transpile provenance from Classiq synthesis-backed provenance" in changelog_text
 
     assert release_notes.exists()
     release_notes_text = release_notes.read_text()

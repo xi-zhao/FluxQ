@@ -94,6 +94,12 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 - `qrun compare --forbid-replay-integrity-regressions --json` lets CI fail when the right-hand replay input is less trustworthy than the baseline
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
 
+## Benchmark Honesty
+
+FluxQ labels benchmark entries as `structural_only`, `target_aware`, and `synthesis_backed`.
+
+FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as directly equivalent by default. `qrun bench --json` exposes `benchmark_mode`, `comparable`, `comparability_reason`, `target_parity`, `target_assumptions`, and `fallback_reason` so hosts can decide when a comparison is trustworthy.
+
 ## Workspace Layout
 
 `qrun init --workspace .quantum` creates:

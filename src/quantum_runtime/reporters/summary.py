@@ -23,7 +23,7 @@ def summarize_report(report: dict[str, object]) -> str:
     artifact_names = ",".join(sorted(str(name) for name in artifacts.keys())[:4]) if isinstance(artifacts, dict) else "none"
     backend_summary = (
         ",".join(
-            f"{name}:{details.get('status', 'unknown')}"
+            _format_backend_summary_entry(name, details)
             for name, details in sorted(backend_reports.items())
             if isinstance(details, dict)
         )[:240]
@@ -47,3 +47,18 @@ def summarize_report(report: dict[str, object]) -> str:
         f"errors={errors}; first_error={first_error}; next={next_step}."
     )
     return summary[:1200]
+
+
+def _format_backend_summary_entry(name: str, details: dict[str, object]) -> str:
+    status = str(details.get("status", "unknown"))
+    nested_details = details.get("details")
+    if not isinstance(nested_details, dict):
+        return f"{name}:{status}"
+
+    benchmark_mode = nested_details.get("benchmark_mode")
+    target_parity = nested_details.get("target_parity")
+    if isinstance(benchmark_mode, str) and isinstance(target_parity, str):
+        return f"{name}:{status}[{benchmark_mode},{target_parity}]"
+    if isinstance(benchmark_mode, str):
+        return f"{name}:{status}[{benchmark_mode}]"
+    return f"{name}:{status}"
