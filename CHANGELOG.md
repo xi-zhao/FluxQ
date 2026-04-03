@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- polish the public README with clearer install, first-run, and trust-surface sections
+
 ## 0.2.0
 
 `0.2.0` is the first public release baseline for FluxQ: an agent-facing quantum workflow runtime rather than a narrow codegen demo.
