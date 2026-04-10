@@ -46,9 +46,12 @@ def export_artifact(*, workspace_root: Path, output_format: str) -> ExportResult
     resolution: ImportResolution | None = None
     try:
         resolution = resolve_import_reference(ImportReference(workspace_root=handle.root))
-    except ImportSourceError:
+    except ImportSourceError as exc:
         # Keep export usable for manually prepared workspaces that have a current QSpec
-        # but do not yet have a matching active report/import surface.
+        # but have not emitted an active report yet. Integrity and provenance mismatches
+        # still fail closed instead of silently dropping source metadata.
+        if exc.code != "current_report_missing":
+            raise
         resolution = None
     return _export_from_qspec(
         handle=handle,

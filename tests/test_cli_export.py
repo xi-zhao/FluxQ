@@ -326,6 +326,45 @@ def test_qrun_export_json_reports_source_for_current_workspace_input(tmp_path: P
     assert payload["source_artifact_snapshot_root"] == str(workspace / "artifacts" / "history" / "rev_000001")
 
 
+def test_qrun_export_json_returns_exit_code_3_for_tampered_current_workspace_input(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    mutated_qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    (workspace / "specs" / "current.json").write_text(mutated_qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(workspace),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "report_qspec_hash_mismatch"
+
+
 def test_qrun_export_json_writes_requested_classiq_artifact(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")

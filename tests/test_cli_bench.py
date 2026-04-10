@@ -320,3 +320,58 @@ def test_qrun_bench_json_returns_exit_code_3_for_invalid_report_input(tmp_path: 
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "report_qspec_path_missing"
+
+
+def test_qrun_bench_json_defaults_to_qiskit_local_for_qiskit_only_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert set(payload["backends"]) == {"qiskit-local"}
+
+
+def test_qrun_bench_json_defaults_include_requested_classiq_backend(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 7, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["backends"]["qiskit-local"]["status"] == "ok"
+    assert payload["backends"]["classiq"]["status"] == "dependency_missing"

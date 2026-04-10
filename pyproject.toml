@@ -1,6 +1,6 @@
 [project]
 name = "quantum-runtime"
-version = "0.2.3"
+version = "0.2.4"
 description = "Workspace-native quantum workflow runtime for coding agents and CI"
 readme = "README.md"
 license = "Apache-2.0"
@@ -21,6 +21,9 @@ dependencies = [
   "pydantic>=2.8",
   "typer>=0.12",
   "pyyaml>=6.0",
+  "qiskit",
+  "qiskit-aer",
+  "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]

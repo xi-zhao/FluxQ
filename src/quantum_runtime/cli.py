@@ -99,6 +99,32 @@ def _resolve_runtime_input(
     return resolution
 
 
+def _default_benchmark_backends(qspec: QSpec) -> list[str]:
+    resolved = ["qiskit-local"]
+    requested = [str(name) for name in qspec.backend_preferences if name]
+
+    backend_provider = qspec.constraints.backend_provider
+    if backend_provider == "classiq":
+        requested.append("classiq")
+    if backend_provider == "qiskit":
+        requested.append("qiskit-local")
+
+    backend_name = qspec.constraints.backend_name
+    if backend_name in {"classiq", "qiskit-local"}:
+        requested.append(backend_name)
+
+    for backend in requested:
+        if backend not in resolved:
+            resolved.append(backend)
+    return resolved
+
+
+def _benchmark_backends(qspec: QSpec, requested_backends: str | None) -> list[str]:
+    if requested_backends is None:
+        return _default_benchmark_backends(qspec)
+    return [item.strip() for item in requested_backends.split(",") if item.strip()]
+
+
 @app.command("init")
 def init_command(
     workspace: Path = typer.Option(
@@ -273,10 +299,10 @@ def bench_command(
         resolve_path=False,
         help="Workspace directory that contains specs/current.json.",
     ),
-    backends: str = typer.Option(
-        "qiskit-local,classiq",
+    backends: str | None = typer.Option(
+        None,
         "--backends",
-        help="Comma-separated backend list for structural benchmarking.",
+        help="Comma-separated backend list for structural benchmarking. Defaults to qiskit-local plus backends requested by the active QSpec.",
     ),
     report_file: Path | None = typer.Option(
         None,
@@ -328,7 +354,7 @@ def bench_command(
     benchmark = run_structural_benchmark(
         qspec,
         handle,
-        [item.strip() for item in backends.split(",") if item.strip()],
+        _benchmark_backends(qspec, backends),
     )
 
     if json_output:

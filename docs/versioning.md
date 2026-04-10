@@ -4,14 +4,15 @@ See also: `docs/plans/2026-04-02-product-roadmap.md` for the current product-lev
 
 ## Runtime versions
 
-Released line: `0.2.3`
+Released line: `0.2.4`
 
 - `0.1.x`
   Stabilize CLI JSON output, workspace layout, and baseline QSpec fields.
 
 - `0.2.x`
   The released line now covers baseline compare, target-aware benchmark honesty, and bounded local parameter evaluation.
-  Next `0.2.x` work should deepen decision policies, tighten release-surface clarity, and keep optional-backend behavior explicit.
+  `0.2.4` tightens the public install contract, makes default benchmark scope follow the active QSpec, and fails export provenance mismatches closed.
+  Next `0.2.x` work should deepen decision policies and keep optional-backend behavior explicit.
 
 - `0.3.x`
   Consider optional remote hardware submission and richer backend benchmarking.

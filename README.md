@@ -12,7 +12,7 @@ Instead of treating quantum generation as one-off code emission, FluxQ gives you
 
 Package: `quantum-runtime`  
 CLI: `qrun`  
-Current release: `0.2.3`
+Current release: `0.2.4`
 
 ## Why FluxQ
 
@@ -33,15 +33,17 @@ Current release: `0.2.3`
 For CLI use from the public GitHub release:
 
 ```bash
-uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.3
+uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.4
 ```
+
+This public install includes the local `qiskit-local` runtime stack. `classiq` remains optional.
 
 For local development and contributor workflows:
 
 ```bash
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install -e '.[dev,qiskit]'
+uv pip install -e '.[dev]'
 ```
 
 FluxQ currently targets Python `3.11`.
@@ -97,7 +99,7 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 
 ## Decision Loop
 
-FluxQ `0.2.3` is organized around a simple decision loop for agent and CI workflows:
+FluxQ `0.2.4` is organized around a simple decision loop for agent and CI workflows:
 
 1. execute a workload into a revisioned workspace
 2. save an approved baseline
@@ -113,11 +115,13 @@ FluxQ labels benchmark entries as `structural_only`, `target_aware`, and `synthe
 
 FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as directly equivalent by default. `qrun bench --json` exposes `benchmark_mode`, `comparable`, `comparability_reason`, `target_parity`, `target_assumptions`, and `fallback_reason` so hosts can decide when a comparison is trustworthy.
 
+When `--backends` is omitted, `qrun bench` defaults to `qiskit-local` plus any optional backend the active QSpec explicitly requests.
+
 `qrun doctor --json` now treats missing optional backends as advisories unless the active workspace actually depends on them, so hosts can distinguish environment drift from a truly blocking runtime dependency.
 
 ## Parameterized Local Evaluation
 
-FluxQ `0.2.3` adds a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
+FluxQ `0.2.4` includes a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
 
 - `parameter_workflow.mode` is `binding` or `sweep`
 - observables are explicit weighted `X/Y/Z` Pauli-string terms
@@ -126,7 +130,7 @@ FluxQ `0.2.3` adds a small parameter workflow contract for `qaoa_ansatz` and `ha
 - exported Qiskit/QASM/Classiq source and diagrams follow the representative evaluated point for the run
 - `best_point` currently supports one objective observable, not multi-objective optimization
 - this is bounded local evaluation rather than a general optimizer workflow
-- `0.2.3` is not an optimizer, gradient engine, or remote execution story
+- `0.2.4` is not an optimizer, gradient engine, or remote execution story
 
 Example:
 
@@ -189,8 +193,8 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 FluxQ is released under `Apache-2.0`.
 
 - Repository: `https://github.com/xi-zhao/FluxQ`
-- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.3`
-- Release notes source: `docs/releases/v0.2.3.md`
+- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.4`
+- Release notes source: `docs/releases/v0.2.4.md`
 - License: `LICENSE`
 - Contributing guide: `CONTRIBUTING.md`
 - Security policy: `SECURITY.md`

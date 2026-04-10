@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.4
+
+`0.2.4` is a patch release that tightens FluxQ's public install and trust contract without changing the core decision-loop surface introduced in `0.2.3`.
+
+- move the local `qiskit-local` runtime stack into the base install so the public `qrun` entrypoint is runnable without extra dependency flags
+- make default `qrun bench` scope follow the active QSpec instead of always appending `classiq`
+- fail `qrun export --json` closed on current-workspace replay/provenance mismatches instead of silently dropping source metadata
+
 ## 0.2.3
 
 `0.2.3` is the decision-grade release for FluxQ's current local runtime surface: baseline-backed compare, trust-honest benchmarking, bounded parameterized expectation workflows, and clearer dependency diagnostics for agent and CI loops.

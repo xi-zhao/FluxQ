@@ -939,11 +939,14 @@ wheels = [
 
 [[package]]
 name = "quantum-runtime"
-version = "0.2.3"
+version = "0.2.4"
 source = { editable = "." }
 dependencies = [
+    { name = "matplotlib" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "qiskit" },
+    { name = "qiskit-aer" },
     { name = "typer" },
 ]
 
@@ -967,12 +970,15 @@ qiskit = [
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.2" },
     { name = "classiq", marker = "extra == 'classiq'" },
+    { name = "matplotlib", specifier = ">=3.8" },
     { name = "matplotlib", marker = "extra == 'qiskit'", specifier = ">=3.8" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "qiskit" },
     { name = "qiskit", marker = "extra == 'qiskit'" },
+    { name = "qiskit-aer" },
     { name = "qiskit-aer", marker = "extra == 'qiskit'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
     { name = "typer", specifier = ">=0.12" },

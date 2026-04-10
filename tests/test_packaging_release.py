@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 
@@ -11,7 +12,7 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     ci_workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
     gitignore = (PROJECT_ROOT / ".gitignore").read_text()
 
-    assert 'version = "0.2.3"' in pyproject
+    assert 'version = "0.2.4"' in pyproject
     assert 'license = "Apache-2.0"' in pyproject
     assert 'license-files = ["LICENSE"]' in pyproject
     assert 'description = "Workspace-native quantum workflow runtime for coding agents and CI"' in pyproject
@@ -25,3 +26,13 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     assert "python -m build" in ci_workflow
     assert "dist/" in gitignore
     assert "build/" in gitignore
+
+
+def test_release_packaging_includes_qiskit_runtime_dependencies_in_base_install() -> None:
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+
+    dependencies = pyproject["project"]["dependencies"]
+
+    assert "qiskit" in dependencies
+    assert "qiskit-aer" in dependencies
+    assert "matplotlib>=3.8" in dependencies
