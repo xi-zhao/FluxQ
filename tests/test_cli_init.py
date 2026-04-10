@@ -87,4 +87,4 @@ def test_version_command_prints_semver() -> None:
     result = run_cli("version")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "0.2.0"
+    assert result.stdout.strip() == "0.2.3"

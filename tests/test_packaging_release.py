@@ -11,7 +11,7 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     ci_workflow = (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
     gitignore = (PROJECT_ROOT / ".gitignore").read_text()
 
-    assert 'version = "0.2.0"' in pyproject
+    assert 'version = "0.2.3"' in pyproject
     assert 'license = "Apache-2.0"' in pyproject
     assert 'license-files = ["LICENSE"]' in pyproject
     assert 'description = "Workspace-native quantum workflow runtime for coding agents and CI"' in pyproject

@@ -4,16 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.3
+
+`0.2.3` is the decision-grade release for FluxQ's current local runtime surface: baseline-backed compare, trust-honest benchmarking, bounded parameterized expectation workflows, and clearer dependency diagnostics for agent and CI loops.
+
 - polish the public README with clearer install, first-run, and trust-surface sections
-- add curated `v0.2.0` release notes and stronger public release discoverability
+- add curated `v0.2.3` release notes and stronger public release discoverability
 - add workspace baseline persistence with `qrun baseline set/show/clear`
 - add `qrun compare --baseline` so CI and agents can compare the current workspace against a saved approved baseline
 - surface baseline state in `qrun inspect --json` and degrade cleanly when the saved baseline can no longer be resolved
 - enforce stored report/QSpec identity when replaying saved baselines, including copied-report canonicalization back to stable history paths when hashes match
+- emit replay provenance fields from `qrun export --json` so hosts can trace `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
+- surface `detached_report_inputs` in `qrun compare --json` so hosts can detect copied-report replay explicitly
+- surface `replay_integrity` in `qrun inspect --json`
+- add replay-trust deltas and `--forbid-replay-integrity-regressions` to `qrun compare`
 - label benchmark entries as `structural_only`, `target_aware`, or `synthesis_backed`
 - separate target-aware transpile provenance from Classiq synthesis-backed provenance so FluxQ does not overclaim cross-backend equivalence
-- add upcoming `0.2.3` parameterized local expectation workflows for `qaoa_ansatz` and `hardware_efficient_ansatz`
+- treat missing optional backends as advisories unless the active workspace requests them
+- add parameterized local expectation workflows for `qaoa_ansatz` and `hardware_efficient_ansatz`
 - report explicit parameter workflow metadata, weighted `X/Y/Z` Pauli-sum observable specs, exact local expectation values, representative-bound exports, and sampled best sweep points without claiming optimization or backend parity
+- bound parameterized expectation workflows to local evaluation instead of presenting them as a general optimizer runtime
 
 ## 0.2.0
 

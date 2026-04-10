@@ -12,7 +12,7 @@ Instead of treating quantum generation as one-off code emission, FluxQ gives you
 
 Package: `quantum-runtime`  
 CLI: `qrun`  
-Current release: `0.2.0`
+Current release: `0.2.3`
 
 ## Why FluxQ
 
@@ -33,7 +33,7 @@ Current release: `0.2.0`
 For CLI use from the public GitHub release:
 
 ```bash
-uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.0
+uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.3
 ```
 
 For local development and contributor workflows:
@@ -56,6 +56,7 @@ qrun inspect --workspace .quantum --json
 qrun compare --workspace .quantum --baseline --json
 qrun export --workspace .quantum --format qasm3 --json
 qrun bench --workspace .quantum --json
+qrun doctor --workspace .quantum --json --fix
 ```
 
 After one GHZ run, FluxQ writes:
@@ -94,15 +95,29 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 - `qrun compare --forbid-replay-integrity-regressions --json` lets CI fail when the right-hand replay input is less trustworthy than the baseline
 - Detached copied reports still replay, but `qrun compare --json` degrades with exit code `2` so CI and hosts can treat replay trust as weaker than in-workspace history inputs
 
+## Decision Loop
+
+FluxQ `0.2.3` is organized around a simple decision loop for agent and CI workflows:
+
+1. execute a workload into a revisioned workspace
+2. save an approved baseline
+3. compare the current workspace against that baseline
+4. export or benchmark with explicit provenance and comparability signals
+5. run `doctor` before continuing so dependency assumptions are explicit
+
+This keeps the first supported path grounded in `baseline -> compare -> export/bench -> doctor` rather than a bag of unrelated commands.
+
 ## Benchmark Honesty
 
 FluxQ labels benchmark entries as `structural_only`, `target_aware`, and `synthesis_backed`.
 
 FluxQ does not present Qiskit transpile metrics and Classiq synthesis metrics as directly equivalent by default. `qrun bench --json` exposes `benchmark_mode`, `comparable`, `comparability_reason`, `target_parity`, `target_assumptions`, and `fallback_reason` so hosts can decide when a comparison is trustworthy.
 
-## Upcoming In 0.2.3: Parameterized Local Evaluation
+`qrun doctor --json` now treats missing optional backends as advisories unless the active workspace actually depends on them, so hosts can distinguish environment drift from a truly blocking runtime dependency.
 
-FluxQ is adding a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
+## Parameterized Local Evaluation
+
+FluxQ `0.2.3` adds a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
 
 - `parameter_workflow.mode` is `binding` or `sweep`
 - observables are explicit weighted `X/Y/Z` Pauli-string terms
@@ -110,6 +125,7 @@ FluxQ is adding a small parameter workflow contract for `qaoa_ansatz` and `hardw
 - local expectation values are evaluated from the pre-measure state with `exact_statevector` on `qiskit-local`
 - exported Qiskit/QASM/Classiq source and diagrams follow the representative evaluated point for the run
 - `best_point` currently supports one objective observable, not multi-objective optimization
+- this is bounded local evaluation rather than a general optimizer workflow
 - `0.2.3` is not an optimizer, gradient engine, or remote execution story
 
 Example:
@@ -173,8 +189,8 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 FluxQ is released under `Apache-2.0`.
 
 - Repository: `https://github.com/xi-zhao/FluxQ`
-- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.0`
-- Release notes source: `docs/releases/v0.2.0.md`
+- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.3`
+- Release notes source: `docs/releases/v0.2.3.md`
 - License: `LICENSE`
 - Contributing guide: `CONTRIBUTING.md`
 - Security policy: `SECURITY.md`
