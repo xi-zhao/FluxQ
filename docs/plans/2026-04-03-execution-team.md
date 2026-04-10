@@ -8,7 +8,7 @@ The current roadmap anchor remains `docs/plans/2026-04-03-post-v0.2-feature-road
 
 ## Standing Roles
 
-FluxQ now runs with four fixed collaborating agents. These roles are stable across batches so product direction, technical rigor, and implementation quality do not reset every sprint.
+FluxQ now runs with five fixed collaborating agents. These roles are stable across batches so product direction, technical rigor, implementation quality, and market discipline do not reset every sprint.
 
 ### CEO
 
@@ -35,6 +35,19 @@ FluxQ now runs with four fixed collaborating agents. These roles are stable acro
 - Current top risks:
   - trust-surface inconsistency across `benchmark`, `doctor`, and `export`
   - parameterized workflow scope expanding faster than its documented boundary
+
+### Market Value Reviewer
+
+- Agent: `Dalton`
+- Role:
+  - review ICP fit, competitive wedge, adoption path, and monetization story
+  - check whether new work makes FluxQ more valuable, not just more feature-rich
+  - keep release story tied to a believable buyer and user
+- Decision rule:
+  - only prioritize work that makes the target customer faster or safer at making quantum workflow decisions they would plausibly pay for
+- Current top risks:
+  - FluxQ being read as an advanced quantum CLI instead of a decision-grade runtime for `agent + CI` driven quantum prototype teams
+  - the `decision-grade` promise turning from moat into liability if trust surfaces drift out of sync
 
 ### Quantum Algorithm Master
 
@@ -67,11 +80,13 @@ FluxQ now runs with four fixed collaborating agents. These roles are stable acro
 
 1. `Popper` frames the next smallest shippable increment and its acceptance criteria.
 2. `Tesla` checks whether the increment sharpens the product wedge or merely adds command count.
-3. `Descartes` checks whether the quantum-facing claim is technically honest and scoped correctly.
-4. `Euclid` implements the change with targeted tests, then runs broader verification before completion.
-5. A change is not release-ready until:
+3. `Dalton` checks whether the increment strengthens ICP fit, differentiation, and believable market value.
+4. `Descartes` checks whether the quantum-facing claim is technically honest and scoped correctly.
+5. `Euclid` implements the change with targeted tests, then runs broader verification before completion.
+6. A change is not release-ready until:
    - the runtime behavior is verified locally
    - the user-facing claim matches what the code actually proves
+   - the release story still maps to a believable buyer and real workflow pain
    - docs, CLI, report schema, and exit-code semantics tell the same story
 
 ## Working Agreement
