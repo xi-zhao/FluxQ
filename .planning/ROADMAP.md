@@ -74,7 +74,12 @@ Plans:
   1. Agent or CI can compare a revision against baseline state and fail on selected drift classes using FluxQ output and exit behavior alone.
   2. Agent or CI can use benchmark results as policy evidence, including compare-to-baseline flows, without custom wrapper logic.
   3. Agent or CI can run doctor in CI-oriented mode and receive explicit blocking versus advisory outcomes in machine-readable form.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Harden compare and benchmark evidence persistence, and add the shared Phase 4 policy-envelope primitives
+- [ ] 04-02-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate
+- [ ] 04-03-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
 
 ### Phase 5: Verified Delivery Bundles
 **Goal**: Trusted runtime revisions can move between environments as portable bundles without losing provenance.
