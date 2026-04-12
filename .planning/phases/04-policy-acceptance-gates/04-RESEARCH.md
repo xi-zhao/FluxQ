@@ -296,24 +296,27 @@ Pydantic documents `model_dump_json()` as the direct JSON-string serialization p
 | A1 | Phase 4 should add a shared runtime `policy.py`-style module instead of scattering benchmark and doctor gating logic across `cli.py`. [ASSUMED] | Architecture Patterns | The planner could over-centralize or under-centralize the implementation and create cross-command drift. |
 | A2 | Policy rejection should keep using exit code `2` instead of introducing new policy-specific exit codes. [ASSUMED] | Summary, Standard Stack, Architecture Patterns | Existing CI/agent consumers may need remapping if the product actually wants a richer shell-level contract. |
 | A3 | Benchmark policy should require baseline subject parity and backend comparability before applying numeric thresholds. [ASSUMED] | Phase Requirements, Architecture Patterns, Common Pitfalls | The planner could design benchmark gates that are too strict or too permissive for intended product semantics. |
-| A4 | `QSpec.runtime.policy_hints` should remain advisory/default input rather than a mandatory single source of truth for all Phase 4 policies. [ASSUMED] | Open Questions | The planner could miss an intended product decision about policy configuration precedence. |
+| A4 | CLI policy flags should remain authoritative in Phase 4, while `QSpec.runtime.policy_hints` stays advisory metadata rather than an implicit policy activator. [RESOLVED] | Resolved Phase 4 Decisions | Phase 4 plans would mis-state policy activation precedence if this decision drifted. |
 
-## Open Questions
+## Resolved Phase 4 Decisions
 
-1. **Should Phase 4 auto-consume `QSpec.runtime.policy_hints`, or keep CLI flags as the only policy input?**
-   - What we know: `QSpec.runtime.policy_hints` already exists with `fail_on`, `compare_expectation`, and `allow_report_drift`, but compare CLI currently ignores it and takes policy only from flags. [VERIFIED: src/quantum_runtime/qspec/model.py][VERIFIED: src/quantum_runtime/intent/planner.py][VERIFIED: src/quantum_runtime/cli.py]
-   - What's unclear: Whether product intent is “policy hints seed defaults” or “policy hints become the canonical stored policy.” [ASSUMED]
-   - Recommendation: Plan Phase 4 assuming CLI flags remain authoritative and `policy_hints` can optionally seed defaults in a backward-compatible follow-up step. [ASSUMED]
+1. **Policy input precedence for Phase 4 is RESOLVED.**
+   - Decision: CLI flags remain the authoritative policy input for compare, benchmark, and doctor in Phase 4. `QSpec.runtime.policy_hints` remains advisory stored metadata and is not auto-consumed by the CLI in this phase. [RESOLVED]
+   - Evidence: `QSpec.runtime.policy_hints` already exists with `fail_on`, `compare_expectation`, and `allow_report_drift`, but compare CLI currently constructs policy only from explicit flags. [VERIFIED: src/quantum_runtime/qspec/model.py][VERIFIED: src/quantum_runtime/intent/planner.py][VERIFIED: src/quantum_runtime/cli.py]
+   - Rationale: This preserves the current non-breaking CLI contract, avoids implicit policy activation from ingress data, and keeps policy ownership at the FluxQ command boundary. [ASSUMED]
+   - Plan impact: Plan `04-01` keeps compare fail-on-drift behavior explicitly flag-driven, Plan `04-02` activates benchmark gating only when benchmark policy flags are passed, and Plan `04-03` keeps doctor CI gating explicit behind `--ci`. [RESOLVED]
 
-2. **Should benchmark baseline gating consume persisted benchmark history or recompute benchmark evidence on demand?**
-   - What we know: Current benchmark history persistence is revision-mislabeled for imported revision inputs, so persisted history is not yet safe enough to be treated as canonical policy evidence in every case. [VERIFIED: src/quantum_runtime/diagnostics/benchmark.py][VERIFIED: local reproduction]
-   - What's unclear: Whether product wants benchmark policy to read only stored evidence or to recompute a fresh “current vs baseline” pair inside one command. [ASSUMED]
-   - Recommendation: Fix persistence first, then prefer stored evidence for auditability; recompute only as an explicit mode, not hidden behavior. [ASSUMED]
+2. **Baseline benchmark evidence strategy is RESOLVED.**
+   - Decision: Phase 4 benchmark baseline gating consumes persisted benchmark history keyed to the baseline revision after Plan `04-01` fixes revision provenance. If the saved baseline benchmark artifact is missing, the command fails closed with a structured `baseline_benchmark_missing` error instead of silently recomputing evidence. [RESOLVED]
+   - Evidence: Current benchmark history persistence is revision-mislabeled for imported revision inputs, so persisted history must be fixed before it can be trusted as canonical policy evidence. [VERIFIED: src/quantum_runtime/diagnostics/benchmark.py][VERIFIED: local reproduction]
+   - Rationale: Stored evidence is the auditable, replayable source of truth that matches FluxQ's control-plane goals; hidden recomputation would weaken reproducibility and make CI decisions less inspectable. [ASSUMED]
+   - Plan impact: Plan `04-01` fixes `source_revision` and history naming, and Plan `04-02` loads `benchmarks/history/<baseline_revision>.json` directly and rejects missing or incomparable evidence before threshold math. [RESOLVED]
 
-3. **Should compare persistence be backfilled to include `schema_version`, and is that an additive migration or a compatibility hazard?**
-   - What we know: CLI compare JSON is schema-versioned through `ensure_schema_payload()`, but persisted compare artifacts are not. [VERIFIED: src/quantum_runtime/runtime/contracts.py][VERIFIED: src/quantum_runtime/runtime/compare.py][VERIFIED: local reproduction]
-   - What's unclear: Whether any downstream consumer is diffing raw compare artifact JSON shape today. [ASSUMED]
-   - Recommendation: Treat the fix as an additive schema hardening step, preserve all existing compare keys, and add a regression test before changing persisted compare payloads. [ASSUMED]
+3. **Compare artifact schema migration is RESOLVED.**
+   - Decision: Add `schema_version` to newly persisted compare artifacts through `ensure_schema_payload()` as a forward-only additive hardening step. Do not rewrite historical compare files in place, and do not remove or rename existing compare keys. [RESOLVED]
+   - Evidence: CLI compare JSON is already schema-versioned through `ensure_schema_payload()`, but persisted compare artifacts are not. [VERIFIED: src/quantum_runtime/runtime/contracts.py][VERIFIED: src/quantum_runtime/runtime/compare.py][VERIFIED: local reproduction]
+   - Rationale: This preserves compatibility for existing readers while bringing new persisted artifacts into the stable schema contract that FluxQ already exposes on stdout. [ASSUMED]
+   - Plan impact: Plan `04-01` adds regression coverage for persisted compare `schema_version` and hardens new writes only; no migration task is added for older history files. [RESOLVED]
 
 ## Environment Availability
 

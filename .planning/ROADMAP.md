@@ -77,7 +77,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Harden compare and benchmark evidence persistence, and add the shared Phase 4 policy-envelope primitives
+- [ ] 04-01-PLAN.md — Lock compare fail-on-drift behavior, harden compare and benchmark evidence persistence, and add the shared Phase 4 policy-envelope primitives
 - [ ] 04-02-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate
 - [ ] 04-03-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
 

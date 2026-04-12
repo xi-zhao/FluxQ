@@ -38,9 +38,9 @@ created: 2026-04-13
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-POLC-01 | TBD | TBD | POLC-01 | T-04-01 / — | Compare baseline/current policy decisions fail on selected drift classes through FluxQ-owned JSON + exit behavior. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_runtime_compare.py tests/test_cli_compare.py tests/test_cli_runtime_gap.py -q --maxfail=1` | ✅ | ⬜ pending |
-| 04-POLC-02 | TBD | TBD | POLC-02 | T-04-02 / — | Benchmark evidence is policy-evaluable only when subject identity and comparability checks pass. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_cli_bench.py -q --maxfail=1` | ✅ | ⬜ pending |
-| 04-POLC-03 | TBD | TBD | POLC-03 | T-04-03 / — | Doctor CI mode emits explicit blocking vs advisory output with stable machine-readable gate metadata. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_cli_doctor.py -q --maxfail=1` | ✅ | ⬜ pending |
+| 04-POLC-01 | 04-01 | 1 | POLC-01 | T-04-01-01 / — | Compare baseline/current policy decisions fail on selected drift classes through FluxQ-owned JSON + exit behavior. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_runtime_compare.py tests/test_cli_compare.py tests/test_cli_runtime_gap.py -q --maxfail=1` | ✅ | ⬜ pending |
+| 04-POLC-02 | 04-02 | 2 | POLC-02 | T-04-02-01 / — | Benchmark evidence is policy-evaluable only when subject identity and comparability checks pass. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_cli_bench.py -q --maxfail=1` | ✅ | ⬜ pending |
+| 04-POLC-03 | 04-03 | 3 | POLC-03 | T-04-03-01 / — | Doctor CI mode emits explicit blocking vs advisory output with stable machine-readable gate metadata. | CLI + runtime | `./.venv/bin/python -m pytest tests/test_cli_doctor.py -q --maxfail=1` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
