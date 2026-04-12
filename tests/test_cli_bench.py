@@ -5,11 +5,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from quantum_runtime.diagnostics.benchmark import BackendBenchmark, BenchmarkReport
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
-from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import WorkspaceManager, acquire_workspace_lock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,33 +33,12 @@ def _binding_only_qaoa_qspec():
 
 def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
     qspec = plan_to_qspec(intent)
-    qspec.backend_preferences.append("classiq")
     current_qspec = handle.root / "specs" / "current.json"
     current_qspec.write_text(qspec.model_dump_json(indent=2))
-
-    monkeypatch.setattr(
-        "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
-            status="degraded",
-            backends={
-                "qiskit-local": BackendBenchmark(
-                    backend="qiskit-local",
-                    status="ok",
-                    width=4,
-                    depth=5,
-                    transpiled_depth=5,
-                    two_qubit_gates=3,
-                    transpiled_two_qubit_gates=3,
-                    measure_count=4,
-                )
-            },
-        ),
-    )
 
     result = RUNNER.invoke(
         app,
@@ -69,20 +47,25 @@ def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
             "--workspace",
             str(handle.root),
             "--backends",
-            "qiskit-local,classiq",
+            "qiskit-local",
             "--json",
         ],
     )
 
-    assert result.exit_code == 2, result.stdout
+    assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
-    assert payload["status"] == "degraded"
+    assert payload["status"] == "ok"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["backends"]["qiskit-local"]["depth"] == 5
+    history_path = handle.root / "benchmarks" / "history" / "rev_000000.json"
+    latest_path = handle.root / "benchmarks" / "latest.json"
+    assert latest_path.exists()
+    assert not history_path.exists()
+    assert json.loads(latest_path.read_text())["schema_version"] == "0.3.0"
 
 
 def test_qrun_bench_json_accepts_report_file_input(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     source_workspace = tmp_path / ".quantum-source"
     target_workspace = tmp_path / ".quantum-target"
@@ -99,25 +82,6 @@ def test_qrun_bench_json_accepts_report_file_input(
         ],
     )
     assert initial_result.exit_code == 0, initial_result.stdout
-
-    monkeypatch.setattr(
-        "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
-            status="ok",
-            backends={
-                "qiskit-local": BackendBenchmark(
-                    backend="qiskit-local",
-                    status="ok",
-                    width=4,
-                    depth=5,
-                    transpiled_depth=5,
-                    two_qubit_gates=3,
-                    transpiled_two_qubit_gates=3,
-                    measure_count=4,
-                )
-            },
-        ),
-    )
 
     result = RUNNER.invoke(
         app,
@@ -136,7 +100,11 @@ def test_qrun_bench_json_accepts_report_file_input(
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 3
+    latest_path = target_workspace / "benchmarks" / "latest.json"
+    assert latest_path.exists()
+    assert not (target_workspace / "benchmarks" / "history").exists()
 
 
 def test_qrun_bench_json_returns_exit_code_3_for_tampered_report_qspec_fallback(
@@ -183,7 +151,6 @@ def test_qrun_bench_json_returns_exit_code_3_for_tampered_report_qspec_fallback(
 
 def test_qrun_bench_json_accepts_history_revision_input(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -199,25 +166,6 @@ def test_qrun_bench_json_accepts_history_revision_input(
         ],
     )
     assert initial_result.exit_code == 0, initial_result.stdout
-
-    monkeypatch.setattr(
-        "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
-            status="ok",
-            backends={
-                "qiskit-local": BackendBenchmark(
-                    backend="qiskit-local",
-                    status="ok",
-                    width=4,
-                    depth=5,
-                    transpiled_depth=5,
-                    two_qubit_gates=3,
-                    transpiled_two_qubit_gates=3,
-                    measure_count=4,
-                )
-            },
-        ),
-    )
 
     result = RUNNER.invoke(
         app,
@@ -237,6 +185,7 @@ def test_qrun_bench_json_accepts_history_revision_input(
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert payload["backends"]["qiskit-local"]["depth"] == 5
+    assert (workspace / "benchmarks" / "history" / "rev_000001.json").exists()
 
 
 def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: Path) -> None:
@@ -368,6 +317,8 @@ def test_qrun_bench_json_defaults_to_qiskit_local_for_qiskit_only_workspace(tmp_
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert set(payload["backends"]) == {"qiskit-local"}
+    assert payload["schema_version"] == "0.3.0"
+    assert (workspace / "benchmarks" / "latest.json").exists()
 
 
 def test_qrun_bench_json_accepts_binding_only_parameter_workflow_qspec(tmp_path: Path) -> None:
@@ -390,8 +341,10 @@ def test_qrun_bench_json_accepts_binding_only_parameter_workflow_qspec(tmp_path:
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["backends"]["qiskit-local"]["depth"] > 0
     assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 16
+    assert not (handle.root / "benchmarks" / "history").exists()
 
 
 def test_qrun_bench_json_defaults_include_requested_classiq_backend(tmp_path: Path) -> None:
@@ -415,3 +368,70 @@ def test_qrun_bench_json_defaults_include_requested_classiq_backend(tmp_path: Pa
     payload = json.loads(result.stdout)
     assert payload["backends"]["qiskit-local"]["status"] == "ok"
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+    assert payload["schema_version"] == "0.3.0"
+
+
+def test_qrun_bench_json_reports_workspace_conflict_when_benchmark_persistence_is_locked(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    with acquire_workspace_lock(workspace, command="pytest bench lock holder"):
+        result = RUNNER.invoke(
+            app,
+            [
+                "bench",
+                "--workspace",
+                str(workspace),
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+
+
+def test_qrun_bench_json_reports_workspace_recovery_required_for_pending_benchmark_temp(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    pending = workspace / "benchmarks" / "latest.json.tmp"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert str(pending) in payload["details"]["pending_files"]

@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.workspace import acquire_workspace_lock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -807,6 +808,61 @@ def test_qrun_compare_json_uses_saved_workspace_baseline(tmp_path: Path) -> None
     assert "expect:same-subject" in payload["verdict"]["passed_checks"]
 
 
+def test_qrun_compare_json_persists_compare_artifacts(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--left-revision",
+            "rev_000001",
+            "--right-revision",
+            "rev_000002",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    latest_compare = workspace / "compare" / "latest.json"
+    history_compare = workspace / "compare" / "history" / "rev_000001__rev_000002.json"
+    assert latest_compare.exists()
+    assert history_compare.exists()
+    persisted = json.loads(history_compare.read_text())
+    assert persisted["status"] == payload["status"]
+    assert persisted["left"]["revision"] == "rev_000001"
+    assert persisted["right"]["revision"] == "rev_000002"
+
+
 def test_qrun_compare_json_baseline_mode_requires_saved_baseline(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -896,3 +952,106 @@ def test_qrun_compare_json_rejects_tampered_baseline_record_inputs(tmp_path: Pat
     assert payload["reason"] == "run_manifest_integrity_invalid"
     assert payload["error_code"] == "run_manifest_integrity_invalid"
     assert "remediation" in payload
+
+
+def test_qrun_compare_json_reports_workspace_conflict_when_compare_persistence_is_locked(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    with acquire_workspace_lock(workspace, command="pytest compare lock holder"):
+        result = RUNNER.invoke(
+            app,
+            [
+                "compare",
+                "--workspace",
+                str(workspace),
+                "--left-revision",
+                "rev_000001",
+                "--right-revision",
+                "rev_000002",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+    assert payload["error_code"] == "workspace_conflict"
+
+
+def test_qrun_compare_json_reports_workspace_recovery_required_for_pending_compare_temp(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    pending = workspace / "compare" / "latest.json.tmp"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--left-revision",
+            "rev_000001",
+            "--right-revision",
+            "rev_000002",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert str(pending) in payload["details"]["pending_files"]

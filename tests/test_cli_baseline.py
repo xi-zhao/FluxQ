@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
+from quantum_runtime.workspace import acquire_workspace_lock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -128,3 +129,77 @@ def test_qrun_baseline_set_canonicalizes_copied_report_inputs(tmp_path: Path) ->
     assert payload["workspace_root"] == str(source_workspace)
     assert payload["report_path"] == str(source_workspace / "reports" / "history" / "rev_000001.json")
     assert payload["qspec_path"] == str(source_workspace / "specs" / "history" / "rev_000001.json")
+
+
+def test_qrun_baseline_set_reports_workspace_conflict_when_baseline_persistence_is_locked(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    with acquire_workspace_lock(workspace, command="pytest baseline lock holder"):
+        result = RUNNER.invoke(
+            app,
+            [
+                "baseline",
+                "set",
+                "--workspace",
+                str(workspace),
+                "--revision",
+                "rev_000001",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+
+
+def test_qrun_baseline_set_reports_workspace_recovery_required_for_pending_baseline_temp(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    pending = workspace / "baselines" / "current.json.tmp"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert str(pending) in payload["details"]["pending_files"]

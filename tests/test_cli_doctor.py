@@ -9,7 +9,7 @@ from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.runtime.backend_registry import BackendCapabilityDescriptor, BackendDependency
-from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import WorkspaceManager, acquire_workspace_lock
 
 
 RUNNER = CliRunner()
@@ -91,6 +91,7 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["workspace_ok"] is True
     assert payload["fix_applied"] is True
     assert payload["workspace"]["required_active_artifacts"] is False
@@ -104,6 +105,7 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert payload["dependencies"]["classiq"]["module_dependencies"][0]["module"] == "classiq"
     assert payload["issues"] == []
     assert payload["advisories"] == ["classiq unavailable: No module named 'classiq'"]
+    assert not (workspace / "doctor").exists()
 
 
 def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests_it(
@@ -177,9 +179,12 @@ def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests
     assert result.exit_code == 7, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["workspace_ok"] is True
     assert payload["issues"] == ["classiq unavailable: No module named 'classiq'"]
     assert payload["advisories"] == []
+    assert (workspace / "doctor" / "latest.json").exists()
+    assert (workspace / "doctor" / "history" / "rev_000001.json").exists()
 
 
 def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
@@ -218,7 +223,9 @@ def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
     assert result.exit_code == 3, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
+    assert payload["schema_version"] == "0.3.0"
     assert payload["workspace_ok"] is False
+    assert not (workspace / "doctor").exists()
 
 
 def test_qrun_doctor_json_flags_missing_active_report_after_execution(
@@ -275,3 +282,61 @@ def test_qrun_doctor_json_flags_missing_active_report_after_execution(
     assert payload["workspace"]["active_spec"]["exists"] is True
     assert payload["workspace"]["active_report"]["exists"] is False
     assert "active_report_missing" in payload["issues"]
+    assert (workspace / "doctor" / "latest.json").exists()
+    assert (workspace / "doctor" / "history" / "rev_000001.json").exists()
+
+
+def test_qrun_doctor_json_reports_workspace_conflict_when_doctor_persistence_is_locked(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(Path(__file__).resolve().parents[1] / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    with acquire_workspace_lock(workspace, command="pytest doctor lock holder"):
+        result = RUNNER.invoke(
+            app,
+            ["doctor", "--workspace", str(workspace), "--json"],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+
+
+def test_qrun_doctor_json_reports_workspace_recovery_required_for_pending_doctor_temp(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(Path(__file__).resolve().parents[1] / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    pending = workspace / "doctor" / "latest.json.tmp"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json"],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert str(pending) in payload["details"]["pending_files"]

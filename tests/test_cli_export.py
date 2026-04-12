@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
-from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import WorkspaceManager, acquire_workspace_lock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -574,3 +574,73 @@ def test_qrun_export_json_returns_exit_code_3_for_invalid_report_input(tmp_path:
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "report_qspec_path_missing"
+
+
+def test_qrun_export_json_reports_workspace_conflict_when_export_alias_promotion_is_locked(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    with acquire_workspace_lock(workspace, command="pytest export lock holder"):
+        result = RUNNER.invoke(
+            app,
+            [
+                "export",
+                "--workspace",
+                str(workspace),
+                "--format",
+                "qasm3",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+
+
+def test_qrun_export_json_reports_workspace_recovery_required_for_pending_export_alias_temp(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    pending = workspace / "artifacts" / "qasm" / "main.qasm.tmp"
+    pending.parent.mkdir(parents=True, exist_ok=True)
+    pending.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(workspace),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert str(pending) in payload["details"]["pending_files"]
