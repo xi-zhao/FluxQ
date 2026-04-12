@@ -58,6 +58,7 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
         "report_provenance.workspace_root",
         "inferred_from_report_path",
     }
+    assert resolution.replay_integrity["trust_level"] == "trusted"
     assert resolution.provenance["artifacts"]["paths"]["report"] == str(
         workspace / "reports" / "history" / "rev_000001.json"
     )
@@ -355,6 +356,7 @@ def test_resolve_report_file_rejects_trusted_artifact_digest_drift(tmp_path: Pat
         resolve_report_file(report_file)
 
     assert excinfo.value.code == "artifact_outputs_mismatched"
+    assert excinfo.value.details["trust_level"] == "trusted"
     assert excinfo.value.details["mismatched_artifacts"] == ["qiskit_code"]
     assert excinfo.value.details["missing_artifacts"] == []
 
@@ -372,6 +374,7 @@ def test_resolve_report_file_marks_missing_digest_reports_as_legacy_compatible(t
     resolution = resolve_report_file(report_file)
 
     assert resolution.replay_integrity["status"] == "legacy"
+    assert resolution.replay_integrity["trust_level"] == "legacy"
     assert resolution.replay_integrity["artifact_digests_present"] is False
     assert resolution.report_summary["replay_integrity_status"] == "legacy"
     assert resolution.report_summary["replay_integrity_warnings"] == [

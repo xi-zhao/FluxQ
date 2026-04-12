@@ -594,13 +594,16 @@ def _evaluate_replay_integrity(
         )
 
     stored_digests = replay_block.get("artifact_output_digests") if isinstance(replay_block, dict) else None
-    artifact_output_digests = _string_mapping(stored_digests)
+    artifact_output_digests = {
+        name: expected_digest
+        for name, expected_digest in _string_mapping(stored_digests).items()
+        if expected_digest is not None
+    }
+    trust_level: Literal["trusted", "legacy"] = "trusted" if artifact_output_digests else "legacy"
     verified_artifacts: list[str] = []
     missing_artifacts: list[str] = []
     mismatched_artifacts: list[str] = []
     for name, expected_digest in sorted(artifact_output_digests.items()):
-        if expected_digest is None:
-            continue
         raw_path = resolved_artifacts.get(name)
         if raw_path is None:
             missing_artifacts.append(name)
@@ -615,29 +618,85 @@ def _evaluate_replay_integrity(
             continue
         verified_artifacts.append(name)
 
-    warnings: list[str] = []
-    if not artifact_output_digests:
-        warnings.append("artifact_output_digests_missing")
     if missing_artifacts:
-        warnings.append("artifact_outputs_missing")
+        raise ImportSourceError(
+            "artifact_outputs_missing",
+            source=str(report_path),
+            details=_replay_integrity_payload(
+                status="ok",
+                trust_level=trust_level,
+                qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+                qspec_semantic_hash_matches=(
+                    expected_semantic_hash is None
+                    or actual_semantic_hash is None
+                    or actual_semantic_hash == expected_semantic_hash
+                ),
+                artifact_digests_present=bool(artifact_output_digests),
+                verified_artifacts=verified_artifacts,
+                missing_artifacts=missing_artifacts,
+                mismatched_artifacts=mismatched_artifacts,
+                warnings=["artifact_outputs_missing"],
+            ),
+        )
     if mismatched_artifacts:
-        warnings.append("artifact_outputs_mismatched")
+        raise ImportSourceError(
+            "artifact_outputs_mismatched",
+            source=str(report_path),
+            details=_replay_integrity_payload(
+                status="ok",
+                trust_level=trust_level,
+                qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+                qspec_semantic_hash_matches=(
+                    expected_semantic_hash is None
+                    or actual_semantic_hash is None
+                    or actual_semantic_hash == expected_semantic_hash
+                ),
+                artifact_digests_present=bool(artifact_output_digests),
+                verified_artifacts=verified_artifacts,
+                missing_artifacts=missing_artifacts,
+                mismatched_artifacts=mismatched_artifacts,
+                warnings=["artifact_outputs_mismatched"],
+            ),
+        )
 
-    status: Literal["ok", "legacy", "degraded"]
-    if warnings:
-        status = "legacy" if warnings == ["artifact_output_digests_missing"] else "degraded"
-    else:
-        status = "ok"
+    status: Literal["ok", "legacy"] = "legacy" if trust_level == "legacy" else "ok"
+    warnings = ["artifact_output_digests_missing"] if trust_level == "legacy" else []
 
-    return {
-        "status": status,
-        "qspec_hash_matches": expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
-        "qspec_semantic_hash_matches": (
+    return _replay_integrity_payload(
+        status=status,
+        trust_level=trust_level,
+        qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+        qspec_semantic_hash_matches=(
             expected_semantic_hash is None
             or actual_semantic_hash is None
             or actual_semantic_hash == expected_semantic_hash
         ),
-        "artifact_digests_present": bool(artifact_output_digests),
+        artifact_digests_present=bool(artifact_output_digests),
+        verified_artifacts=verified_artifacts,
+        missing_artifacts=missing_artifacts,
+        mismatched_artifacts=mismatched_artifacts,
+        warnings=warnings,
+    )
+
+
+def _replay_integrity_payload(
+    *,
+    status: str,
+    trust_level: str,
+    qspec_hash_matches: bool,
+    qspec_semantic_hash_matches: bool,
+    artifact_digests_present: bool,
+    verified_artifacts: list[str],
+    missing_artifacts: list[str],
+    mismatched_artifacts: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "trust_level": trust_level,
+        "qspec_hash_matches": qspec_hash_matches,
+        "qspec_semantic_hash_matches": qspec_semantic_hash_matches,
+        "artifact_digests_present": artifact_digests_present,
         "verified_artifacts": verified_artifacts,
         "missing_artifacts": missing_artifacts,
         "mismatched_artifacts": mismatched_artifacts,
