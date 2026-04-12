@@ -58,7 +58,12 @@ Plans:
   1. When concurrent writers target the same workspace, FluxQ serializes or rejects conflicting mutations instead of producing mixed `current` and `history` artifacts.
   2. If a write is interrupted mid-run, the workspace remains readable and the last valid revision stays intact.
   3. Agent or CI logs receive a clear machine-readable conflict or recovery signal when a write cannot be committed safely.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Add the workspace lease and atomic alias-write primitives that preserve the current/history contract
+- [ ] 03-02-PLAN.md — Define stable machine-readable CLI conflict and recovery signals for shared-workspace failures
+- [ ] 03-03-PLAN.md — Wire runtime execution, report promotion, and event appends through the workspace safety contract
 
 ### Phase 4: Policy Acceptance Gates
 **Goal**: Agents and CI can accept or reject runtime revisions directly from FluxQ policy surfaces.
@@ -96,7 +101,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
-| 3. Concurrent Workspace Safety | 0/TBD | Not started | - |
+| 3. Concurrent Workspace Safety | 0/3 | Planned | - |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |
 | 5. Verified Delivery Bundles | 0/TBD | Not started | - |
 | 6. Runtime Adoption Surface | 0/TBD | Not started | - |
