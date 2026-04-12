@@ -74,12 +74,13 @@ Plans:
   1. Agent or CI can compare a revision against baseline state and fail on selected drift classes using FluxQ output and exit behavior alone.
   2. Agent or CI can use benchmark results as policy evidence, including compare-to-baseline flows, without custom wrapper logic.
   3. Agent or CI can run doctor in CI-oriented mode and receive explicit blocking versus advisory outcomes in machine-readable form.
-**Plans**: 3 plans
+**Plans**: 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Lock compare fail-on-drift behavior, harden compare and benchmark evidence persistence, and add the shared Phase 4 policy-envelope primitives
-- [ ] 04-02-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate
-- [ ] 04-03-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
+- [ ] 04-01-PLAN.md — Repair the local Phase 4 validation path so Ruff, MyPy, and the policy-gate pytest suite are executable from this workspace
+- [ ] 04-02-PLAN.md — Lock baseline/current compare fail-on behavior and schema-versioned compare persistence for POLC-01
+- [ ] 04-03-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate with provenance-safe history persistence
+- [ ] 04-04-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
 
 ### Phase 5: Verified Delivery Bundles
 **Goal**: Trusted runtime revisions can move between environments as portable bundles without losing provenance.
@@ -108,6 +109,6 @@ Plans:
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
-| 4. Policy Acceptance Gates | 0/TBD | Not started | - |
+| 4. Policy Acceptance Gates | 0/4 | Not started | - |
 | 5. Verified Delivery Bundles | 0/TBD | Not started | - |
 | 6. Runtime Adoption Surface | 0/TBD | Not started | - |
