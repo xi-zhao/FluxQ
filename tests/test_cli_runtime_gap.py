@@ -165,6 +165,7 @@ def test_qrun_compare_json_fail_on_subject_drift_returns_failed_gate(tmp_path: P
     payload = json.loads(result.stdout)
     assert payload["verdict"]["status"] == "fail"
     assert payload["verdict"]["failed_checks"] == ["subject_drift"]
+    assert payload["policy"]["fail_on"] == ["subject_drift"]
     assert payload["gate"]["ready"] is False
     assert payload["gate"]["severity"] == "error"
 

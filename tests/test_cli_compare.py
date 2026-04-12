@@ -808,6 +808,73 @@ def test_qrun_compare_json_uses_saved_workspace_baseline(tmp_path: Path) -> None
     assert "expect:same-subject" in payload["verdict"]["passed_checks"]
 
 
+def test_qrun_compare_json_baseline_fail_on_subject_drift_returns_failed_gate(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--fail-on",
+            "subject_drift",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "different_subject"
+    assert payload["baseline"]["side"] == "left"
+    assert payload["baseline"]["revision"] == "rev_000001"
+    assert payload["verdict"]["status"] == "fail"
+    assert payload["verdict"]["failed_checks"] == ["subject_drift"]
+    assert payload["gate"]["ready"] is False
+    assert payload["policy"]["fail_on"] == ["subject_drift"]
+
+
 def test_qrun_compare_json_persists_compare_artifacts(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -857,7 +924,10 @@ def test_qrun_compare_json_persists_compare_artifacts(tmp_path: Path) -> None:
     history_compare = workspace / "compare" / "history" / "rev_000001__rev_000002.json"
     assert latest_compare.exists()
     assert history_compare.exists()
+    latest_payload = json.loads(latest_compare.read_text())
     persisted = json.loads(history_compare.read_text())
+    assert latest_payload["schema_version"] == "0.3.0"
+    assert persisted["schema_version"] == "0.3.0"
     assert persisted["status"] == payload["status"]
     assert persisted["left"]["revision"] == "rev_000001"
     assert persisted["right"]["revision"] == "rev_000002"
