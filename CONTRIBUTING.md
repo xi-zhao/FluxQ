@@ -19,7 +19,21 @@ uv run --python 3.11 --extra dev mypy src
 uv run --python 3.11 --extra dev --extra qiskit pytest -q
 ```
 
-If you want a single command that bootstraps `.venv` and runs the same local gate, use:
+For the Phase 4 local workspace gate, use this exact repo-local sequence:
+
+```bash
+./.venv/bin/ruff check src tests
+./.venv/bin/python -m mypy src
+./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1
+```
+
+Use this one-shot command to run the same repo-local gate after `.venv` is already installed:
+
+```bash
+./scripts/dev-bootstrap.sh verify
+```
+
+If you want one command that bootstraps `.venv` first and then runs the local gate, use:
 
 ```bash
 ./scripts/dev-bootstrap.sh all
