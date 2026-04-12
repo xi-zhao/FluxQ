@@ -123,7 +123,11 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
     workspace_json = paths.workspace_json
 
     manifest = _load_manifest(workspace_json)
-    report_path = workspace_root / manifest.active_report
+    report_path, report_resolution_source = _resolve_workspace_current_report_path(
+        workspace_root=workspace_root,
+        manifest=manifest,
+    )
+    prefer_history = manifest.current_revision != "rev_000000"
 
     report_payload = _load_json_file(
         report_path,
@@ -139,7 +143,12 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         provenance=report_payload.get("provenance"),
         source=str(report_path),
     )
-    qspec_path = (workspace_root / manifest.active_spec).resolve()
+    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
+        report_path=report_path,
+        report_payload=report_payload,
+        workspace_root=workspace_root,
+        prefer_history=prefer_history,
+    )
     qspec = _load_qspec_file(
         qspec_path,
         missing_code="current_qspec_missing",
@@ -158,7 +167,11 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         qspec_path=qspec_path,
         report_payload=report_payload,
         qspec=qspec,
-        provenance={"workspace_source": "manifest"},
+        provenance={
+            "workspace_source": "manifest",
+            "report_resolution_source": report_resolution_source,
+            "qspec_resolution_source": qspec_resolution_source,
+        },
     )
 
 
@@ -482,6 +495,19 @@ def _load_run_manifest_if_present(
             source=source,
             details={"error": str(exc)},
         ) from exc
+
+
+def _resolve_workspace_current_report_path(
+    *,
+    workspace_root: Path,
+    manifest: WorkspaceManifest,
+) -> tuple[Path, str]:
+    active_report_path = (workspace_root / manifest.active_report).resolve()
+    if manifest.current_revision != "rev_000000":
+        history_report_path = workspace_root / "reports" / "history" / f"{manifest.current_revision}.json"
+        if history_report_path.exists():
+            return history_report_path.resolve(), "workspace_history"
+    return active_report_path, "workspace_manifest_alias"
 
 
 def _relocate_report_payload_for_workspace(

@@ -934,9 +934,3 @@ def _remove_artifact_output_digests(report_path: Path) -> None:
     replay_integrity.pop("artifact_output_set_hash", None)
     replay_integrity.pop("artifact_set_hash", None)
     report_path.write_text(json.dumps(payload, indent=2))
-
-
-def _remove_schema_version(report_path: Path) -> None:
-    payload = json.loads(report_path.read_text())
-    payload.pop("schema_version", None)
-    report_path.write_text(json.dumps(payload, indent=2))

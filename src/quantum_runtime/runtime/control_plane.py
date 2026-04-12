@@ -8,19 +8,14 @@ from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, ValidationError
 
-from quantum_runtime.errors import ManualQspecRequiredError
-from quantum_runtime.intent.parser import parse_intent_file, parse_intent_text
-from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.qspec import (
     QSpec,
-    QSpecValidationError,
-    normalize_qspec,
     summarize_qspec_semantics,
-    validate_qspec,
 )
 from quantum_runtime.runtime.compare import compare_import_resolutions
 from quantum_runtime.runtime.contracts import SCHEMA_VERSION, SchemaPayload
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
+from quantum_runtime.runtime.resolve import IntentResolution, ResolveResult, resolve_runtime_input
 from quantum_runtime.runtime.observability import (
     decision_block,
     next_actions_for_reason_codes,
@@ -109,20 +104,34 @@ def build_execution_plan(
     *,
     workspace_root: Path,
     intent_file: Path | None = None,
+    intent_json_file: Path | None = None,
     qspec_file: Path | None = None,
     report_file: Path | None = None,
     revision: str | None = None,
     intent_text: str | None = None,
 ) -> PlanResult:
     """Build a dry-run execution plan without mutating workspace state."""
-    qspec, input_data, requested_exports = _planning_input(
+    resolved = resolve_runtime_input(
         workspace_root=workspace_root,
         intent_file=intent_file,
+        intent_json_file=intent_json_file,
         qspec_file=qspec_file,
         report_file=report_file,
         revision=revision,
         intent_text=intent_text,
     )
+    return build_execution_plan_from_resolved(workspace_root=workspace_root, resolved=resolved)
+
+
+def build_execution_plan_from_resolved(
+    *,
+    workspace_root: Path,
+    resolved: Any,
+) -> PlanResult:
+    """Build a dry-run execution plan from an already normalized input."""
+    qspec = resolved.qspec
+    input_data = resolved.input_data
+    requested_exports = resolved.requested_exports
 
     semantics = _plan_qspec_summary(qspec)
     selected_backends = _default_benchmark_backends(qspec)
@@ -150,6 +159,42 @@ def build_execution_plan(
         },
         blockers=blockers,
         advisories=advisories,
+    )
+
+
+def resolve_runtime_object(
+    *,
+    workspace_root: Path,
+    intent_file: Path | None = None,
+    intent_json_file: Path | None = None,
+    qspec_file: Path | None = None,
+    report_file: Path | None = None,
+    revision: str | None = None,
+    intent_text: str | None = None,
+) -> ResolveResult:
+    """Resolve one ingress input into canonical intent, qspec, and plan payloads."""
+    resolved = resolve_runtime_input(
+        workspace_root=workspace_root,
+        intent_file=intent_file,
+        intent_json_file=intent_json_file,
+        qspec_file=qspec_file,
+        report_file=report_file,
+        revision=revision,
+        intent_text=intent_text,
+    )
+    plan = build_execution_plan_from_resolved(workspace_root=workspace_root, resolved=resolved)
+    semantics = summarize_qspec_semantics(resolved.qspec)
+    return ResolveResult(
+        status=plan.status,
+        workspace=str(workspace_root.resolve()),
+        input=resolved.input_data,
+        intent=resolved.intent_resolution.model_dump(mode="json"),
+        qspec=_plan_qspec_summary(resolved.qspec) | {
+            "semantic_hash": semantics["semantic_hash"],
+            "workload_id": semantics["workload_id"],
+            "algorithm_family": semantics["algorithm_family"],
+        },
+        plan=plan.model_dump(mode="json"),
     )
 
 
@@ -371,11 +416,13 @@ def show_run(*, workspace_root: Path, revision: str | None = None) -> ShowResult
 def schema_contract(name: str) -> SchemaResult:
     """Return a JSON Schema envelope for one public runtime contract."""
     registry = {
+        "intent": IntentResolution,
         "qspec": QSpec,
         "report": RunReportArtifact,
         "manifest": RunManifestArtifact,
         "compare": __import__("quantum_runtime.runtime.compare", fromlist=["CompareResult"]).CompareResult,
         "plan": PlanResult,
+        "resolve": ResolveResult,
         "status": StatusResult,
     }
     if name not in registry:
@@ -393,108 +440,6 @@ def schema_contract(name: str) -> SchemaResult:
         },
     )
     return SchemaResult(name=name, schema_document=schema)
-
-
-def _planning_input(
-    *,
-    workspace_root: Path,
-    intent_file: Path | None,
-    qspec_file: Path | None,
-    report_file: Path | None,
-    revision: str | None,
-    intent_text: str | None,
-) -> tuple[QSpec, dict[str, str], list[str]]:
-    inputs_provided = sum(
-        value is not None
-        for value in (intent_file, qspec_file, report_file, revision, intent_text)
-    )
-    if inputs_provided != 1:
-        raise ValueError("expected_exactly_one_input")
-
-    if intent_file is not None:
-        try:
-            intent = parse_intent_file(intent_file)
-            qspec = _validated_qspec(plan_to_qspec(intent))
-        except ManualQspecRequiredError as exc:
-            raise ImportSourceError(
-                "manual_qspec_required",
-                source=str(intent_file),
-                details={"error": str(exc)},
-            ) from exc
-        except (QSpecValidationError, ValidationError, ValueError) as exc:
-            raise ImportSourceError(
-                "invalid_intent",
-                source=str(intent_file),
-                details={"error": str(exc)},
-            ) from exc
-        return qspec, {"mode": "intent", "path": str(intent_file)}, list(intent.exports)
-    if intent_text is not None:
-        try:
-            intent = parse_intent_text(intent_text)
-            qspec = _validated_qspec(plan_to_qspec(intent))
-        except ManualQspecRequiredError as exc:
-            raise ImportSourceError(
-                "manual_qspec_required",
-                source="<inline>",
-                details={"error": str(exc)},
-            ) from exc
-        except (QSpecValidationError, ValidationError, ValueError) as exc:
-            raise ImportSourceError(
-                "invalid_intent",
-                source="<inline>",
-                details={"error": str(exc)},
-            ) from exc
-        return qspec, {"mode": "intent_text", "path": "<inline>"}, list(intent.exports)
-    if qspec_file is not None:
-        try:
-            qspec = _validated_qspec(QSpec.model_validate_json(qspec_file.read_text()))
-        except (QSpecValidationError, ValidationError, ValueError) as exc:
-            raise ImportSourceError(
-                "invalid_qspec",
-                source=str(qspec_file),
-                details={"error": str(exc)},
-            ) from exc
-        return qspec, {"mode": "qspec", "path": str(qspec_file)}, _default_exports(workspace_root)
-
-    resolution = resolve_import_reference(
-        ImportReference(
-            workspace_root=workspace_root,
-            report_file=report_file,
-            revision=revision,
-        )
-    )
-    report_payload = resolution.load_report()
-    artifacts = report_payload.get("artifacts") if isinstance(report_payload, dict) else {}
-    requested_exports: list[str] = []
-    if isinstance(artifacts, dict):
-        if isinstance(artifacts.get("qiskit_code"), str):
-            requested_exports.append("qiskit")
-        if isinstance(artifacts.get("qasm3"), str):
-            requested_exports.append("qasm3")
-        if isinstance(artifacts.get("classiq_code"), str):
-            requested_exports.append("classiq-python")
-    if not requested_exports:
-        requested_exports = _default_exports(workspace_root)
-    try:
-        qspec = _validated_qspec(resolution.load_qspec())
-    except (QSpecValidationError, ValidationError, ValueError) as exc:
-        raise ImportSourceError(
-            "invalid_qspec",
-            source=str(resolution.qspec_path),
-            details={"error": str(exc)},
-        ) from exc
-    return qspec, {"mode": "report", "path": str(resolution.report_path)}, requested_exports
-
-
-def _default_exports(workspace_root: Path) -> list[str]:
-    paths = WorkspacePaths(root=workspace_root)
-    if not paths.workspace_json.exists():
-        return ["qiskit", "qasm3"]
-    try:
-        return WorkspaceManifest.load(paths.workspace_json).default_exports
-    except Exception:
-        return ["qiskit", "qasm3"]
-
 
 def _default_benchmark_backends(qspec: QSpec) -> list[str]:
     resolved = ["qiskit-local"]
@@ -546,17 +491,15 @@ def _artifacts_expected(requested_exports: list[str]) -> list[str]:
     return artifacts
 
 
-def _validated_qspec(qspec: QSpec) -> QSpec:
-    """Canonicalize and semantically validate a QSpec before planning."""
-    return validate_qspec(normalize_qspec(qspec))
-
-
 def _plan_qspec_summary(qspec: QSpec) -> dict[str, Any]:
     semantics = summarize_qspec_semantics(qspec)
     return {
         "pattern": semantics["pattern"],
+        "workload_id": semantics["workload_id"],
+        "algorithm_family": semantics["algorithm_family"],
         "workload_hash": semantics["workload_hash"],
         "execution_hash": semantics["execution_hash"],
+        "semantic_hash": semantics["semantic_hash"],
         "parameter_workflow_mode": semantics["parameter_workflow_mode"],
         "parameter_workflow": semantics["parameter_workflow"],
         "width": semantics["width"],
@@ -694,8 +637,16 @@ def _strict_run_manifest_payload(
 
 
 def _is_legacy_report_payload(report_payload: dict[str, Any]) -> bool:
-    raw_schema_version = report_payload.get("schema_version")
-    return not isinstance(raw_schema_version, str)
+    replay_integrity = report_payload.get("replay_integrity")
+    if not isinstance(replay_integrity, dict):
+        return True
+    artifact_output_digests = replay_integrity.get("artifact_output_digests")
+    if not isinstance(artifact_output_digests, dict):
+        return True
+    return not any(
+        isinstance(expected_digest, str) and expected_digest.strip()
+        for expected_digest in artifact_output_digests.values()
+    )
 
 
 def _canonical_history_path(

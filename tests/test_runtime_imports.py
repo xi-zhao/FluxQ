@@ -31,8 +31,8 @@ def test_resolve_workspace_current_returns_structured_provenance(tmp_path: Path)
 
     assert resolution.source_kind == "workspace_current"
     assert resolution.revision == "rev_000001"
-    assert resolution.report_path == workspace / "reports" / "latest.json"
-    assert resolution.qspec_path == workspace / "specs" / "current.json"
+    assert resolution.report_path == workspace / "reports" / "history" / "rev_000001.json"
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
     assert resolution.qspec_summary["goal"].lower().startswith("generate a 4-qubit ghz")
     assert resolution.report_summary["status"] == "ok"
     assert resolution.provenance["workspace_source"] == "manifest"
