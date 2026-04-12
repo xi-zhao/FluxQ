@@ -102,7 +102,6 @@ def test_concurrent_exec_yields_one_winner_one_workspace_conflict_without_mixed_
         goal="Create a Bell pair and measure both qubits.",
     )
     original_run_local_simulation = executor_module.run_local_simulation
-    original_write_diagrams = executor_module.write_diagrams
     first_simulation_started = threading.Event()
     release_first_simulation = threading.Event()
     call_count = 0
