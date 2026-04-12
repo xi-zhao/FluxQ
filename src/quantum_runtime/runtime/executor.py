@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -16,21 +15,32 @@ from quantum_runtime.diagnostics import (
     validate_target_constraints,
     write_diagrams,
 )
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.lowering import (
     write_classiq_program,
     write_qasm3_program,
     write_qiskit_program,
 )
+from quantum_runtime.qspec import QSpec, normalize_qspec, validate_qspec
 from quantum_runtime.qspec.parameter_workflow import (
     representative_bindings as qspec_representative_bindings,
 )
 from quantum_runtime.reporters import summarize_report, write_report
-from quantum_runtime.qspec import QSpec, normalize_qspec, validate_qspec
 from quantum_runtime.runtime.control_plane import build_execution_plan_from_resolved
+from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
 from quantum_runtime.runtime.resolve import ResolvedRuntimeInput, resolve_runtime_input
 from quantum_runtime.runtime.run_manifest import write_run_manifest
-from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
-from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import (
+    TraceEvent,
+    WorkspaceLockConflict,
+    WorkspaceManager,
+    acquire_workspace_lock,
+    atomic_copy_file,
+    atomic_write_text,
+    pending_atomic_write_files,
+)
+from quantum_runtime.workspace.manifest import WorkspaceManifest
+from quantum_runtime.workspace.trace import append_trace_log, write_trace_snapshot
 
 
 EventSink = Callable[[str, dict[str, Any], str | None, str], None]
@@ -61,198 +71,132 @@ class ExecResult(BaseModel):
 
 def execute_intent(*, workspace_root: Path, intent_file: Path, event_sink: EventSink | None = None) -> ExecResult:
     """Execute the deterministic generation pipeline for an intent file."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
     resolved = resolve_runtime_input(workspace_root=workspace_root, intent_file=intent_file)
-    revision = handle.reserve_revision()
-    if event_sink is not None:
-        event_sink("run_started", {"mode": "intent", "path": str(intent_file)}, revision, "ok")
-    handle.trace.append(
-        "exec_started",
-        {"intent_file": str(intent_file)},
-        revision=revision,
-    )
-    latest_intent_path = handle.root / "intents" / "latest.md"
-    latest_intent_path.write_text(intent_file.read_text())
-    (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_file.read_text())
-    _persist_runtime_objects(handle=handle, revision=revision, resolved=resolved)
-    if event_sink is not None:
-        event_sink("input_resolved", {"mode": "intent", "path": str(intent_file)}, revision, "ok")
-        event_sink(
-            "qspec_prepared",
-            {
-                "program_id": resolved.qspec.program_id,
-                "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
-            },
-            revision,
-            "ok",
-        )
-        event_sink("intent_written", {"path": str(handle.paths.intent_history_json(revision))}, revision, "ok")
-        event_sink("plan_written", {"path": str(handle.paths.plan_history_json(revision))}, revision, "ok")
-
-    return _execute_resolved(
-        handle=handle,
-        revision=revision,
+    return _execute_runtime_input(
+        workspace_root=workspace_root,
         resolved=resolved,
+        run_payload={"mode": "intent", "path": str(intent_file)},
+        trace_payload={"intent_file": str(intent_file)},
+        intent_markdown=intent_file.read_text(),
         event_sink=event_sink,
     )
 
 
 def execute_intent_text(*, workspace_root: Path, intent_text: str, event_sink: EventSink | None = None) -> ExecResult:
     """Execute the deterministic generation pipeline for inline intent text."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
     resolved = resolve_runtime_input(workspace_root=workspace_root, intent_text=intent_text)
-    revision = handle.reserve_revision()
-    if event_sink is not None:
-        event_sink("run_started", {"mode": "intent_text", "path": "<inline>"}, revision, "ok")
-    handle.trace.append(
-        "exec_started",
-        {"intent_text": intent_text},
-        revision=revision,
-    )
-    latest_intent_path = handle.root / "intents" / "latest.md"
-    latest_intent_path.write_text(intent_text)
-    (handle.root / "intents" / "history" / f"{revision}.md").write_text(intent_text)
-    _persist_runtime_objects(handle=handle, revision=revision, resolved=resolved)
-    if event_sink is not None:
-        event_sink("input_resolved", {"mode": "intent_text", "path": "<inline>"}, revision, "ok")
-        event_sink(
-            "qspec_prepared",
-            {
-                "program_id": resolved.qspec.program_id,
-                "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
-            },
-            revision,
-            "ok",
-        )
-        event_sink("intent_written", {"path": str(handle.paths.intent_history_json(revision))}, revision, "ok")
-        event_sink("plan_written", {"path": str(handle.paths.plan_history_json(revision))}, revision, "ok")
-
-    return _execute_resolved(
-        handle=handle,
-        revision=revision,
+    return _execute_runtime_input(
+        workspace_root=workspace_root,
         resolved=resolved,
+        run_payload={"mode": "intent_text", "path": "<inline>"},
+        trace_payload={"intent_text": intent_text},
+        intent_markdown=intent_text,
         event_sink=event_sink,
     )
 
 
 def execute_intent_json(*, workspace_root: Path, intent_json_file: Path, event_sink: EventSink | None = None) -> ExecResult:
     """Execute the deterministic generation pipeline for a structured JSON intent file."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
     resolved = resolve_runtime_input(workspace_root=workspace_root, intent_json_file=intent_json_file)
-    revision = handle.reserve_revision()
-    if event_sink is not None:
-        event_sink("run_started", {"mode": "intent_json", "path": str(intent_json_file)}, revision, "ok")
-    handle.trace.append(
-        "exec_started",
-        {"intent_json_file": str(intent_json_file)},
-        revision=revision,
-    )
-    _persist_runtime_objects(handle=handle, revision=revision, resolved=resolved)
-    if event_sink is not None:
-        event_sink("input_resolved", {"mode": "intent_json", "path": str(intent_json_file)}, revision, "ok")
-        event_sink(
-            "qspec_prepared",
-            {
-                "program_id": resolved.qspec.program_id,
-                "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
-            },
-            revision,
-            "ok",
-        )
-        event_sink("intent_written", {"path": str(handle.paths.intent_history_json(revision))}, revision, "ok")
-        event_sink("plan_written", {"path": str(handle.paths.plan_history_json(revision))}, revision, "ok")
-    return _execute_resolved(
-        handle=handle,
-        revision=revision,
+    return _execute_runtime_input(
+        workspace_root=workspace_root,
         resolved=resolved,
+        run_payload={"mode": "intent_json", "path": str(intent_json_file)},
+        trace_payload={"intent_json_file": str(intent_json_file)},
         event_sink=event_sink,
     )
 
 
 def execute_qspec(*, workspace_root: Path, qspec_file: Path, event_sink: EventSink | None = None) -> ExecResult:
     """Execute the deterministic generation pipeline for a serialized QSpec file."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
     resolved = resolve_runtime_input(workspace_root=workspace_root, qspec_file=qspec_file)
-    revision = handle.reserve_revision()
-    if event_sink is not None:
-        event_sink("run_started", {"mode": "qspec", "path": str(qspec_file)}, revision, "ok")
-    handle.trace.append(
-        "exec_started",
-        {"qspec_file": str(qspec_file)},
-        revision=revision,
-    )
-    _persist_runtime_objects(handle=handle, revision=revision, resolved=resolved)
-    if event_sink is not None:
-        event_sink("input_resolved", {"mode": "qspec", "path": str(qspec_file)}, revision, "ok")
-        event_sink(
-            "qspec_prepared",
-            {
-                "program_id": resolved.qspec.program_id,
-                "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
-            },
-            revision,
-            "ok",
-        )
-        event_sink("intent_written", {"path": str(handle.paths.intent_history_json(revision))}, revision, "ok")
-        event_sink("plan_written", {"path": str(handle.paths.plan_history_json(revision))}, revision, "ok")
-    return _execute_resolved(
-        handle=handle,
-        revision=revision,
+    return _execute_runtime_input(
+        workspace_root=workspace_root,
         resolved=resolved,
+        run_payload={"mode": "qspec", "path": str(qspec_file)},
+        trace_payload={"qspec_file": str(qspec_file)},
         event_sink=event_sink,
     )
 
 
 def execute_report(*, workspace_root: Path, report_file: Path, event_sink: EventSink | None = None) -> ExecResult:
     """Execute the deterministic generation pipeline using a previously written report."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
     resolved = resolve_runtime_input(workspace_root=workspace_root, report_file=report_file)
-    revision = handle.reserve_revision()
-    if event_sink is not None:
-        event_sink("run_started", {"mode": "report", "path": str(report_file)}, revision, "ok")
-    handle.trace.append(
-        "exec_started",
-        {"report_file": str(report_file)},
-        revision=revision,
-    )
-    _persist_runtime_objects(handle=handle, revision=revision, resolved=resolved)
-    if event_sink is not None:
-        event_sink("input_resolved", {"mode": "report", "path": str(report_file)}, revision, "ok")
-        event_sink(
-            "qspec_prepared",
-            {
-                "program_id": resolved.qspec.program_id,
-                "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
-            },
-            revision,
-            "ok",
-        )
-        event_sink("intent_written", {"path": str(handle.paths.intent_history_json(revision))}, revision, "ok")
-        event_sink("plan_written", {"path": str(handle.paths.plan_history_json(revision))}, revision, "ok")
-    return _execute_resolved(
-        handle=handle,
-        revision=revision,
+    return _execute_runtime_input(
+        workspace_root=workspace_root,
         resolved=resolved,
+        run_payload={"mode": "report", "path": str(report_file)},
+        trace_payload={"report_file": str(report_file)},
         event_sink=event_sink,
     )
 
 
-def _execute_resolved(
+def _execute_runtime_input(
     *,
-    handle: Any,
-    revision: str,
+    workspace_root: Path,
     resolved: ResolvedRuntimeInput,
+    run_payload: dict[str, str],
+    trace_payload: dict[str, str],
+    intent_markdown: str | None = None,
     event_sink: EventSink | None = None,
 ) -> ExecResult:
-    return _execute_qspec(
-        handle=handle,
-        revision=revision,
-        qspec=resolved.qspec,
-        requested_exports=set(resolved.requested_exports),
-        input_data=resolved.input_data,
-        shots=int(resolved.intent_model.shots),
-        event_sink=event_sink,
-    )
+    try:
+        handle = WorkspaceManager.load_or_init(workspace_root)
+    except WorkspaceLockConflict as exc:
+        raise _workspace_conflict_error(workspace_root=workspace_root, conflict=exc) from exc
+
+    plan_payload = build_execution_plan_from_resolved(
+        workspace_root=handle.root,
+        resolved=resolved,
+    ).model_dump_json(indent=2)
+    intent_payload = resolved.intent_resolution.model_dump_json(indent=2)
+
+    try:
+        with acquire_workspace_lock(handle.root, command=f"qrun exec {run_payload['mode']}"):
+            manifest = WorkspaceManifest.load(handle.paths.workspace_json)
+            handle.manifest = manifest
+            _guard_exec_commit_paths(
+                handle=handle,
+                last_valid_revision=_last_valid_revision(manifest.current_revision),
+            )
+            previous_revision = manifest.current_revision
+            revision = handle.reserve_revision(assume_locked=True)
+
+            if event_sink is not None:
+                event_sink("run_started", run_payload, revision, "ok")
+                event_sink("input_resolved", run_payload, revision, "ok")
+                event_sink(
+                    "qspec_prepared",
+                    {
+                        "program_id": resolved.qspec.program_id,
+                        "pattern": resolved.qspec.body[0].pattern if resolved.qspec.body else "unknown",
+                    },
+                    revision,
+                    "ok",
+                )
+
+            staged_events = [
+                _serialize_exec_event("exec_started", trace_payload, revision=revision),
+            ]
+            try:
+                return _execute_qspec(
+                    handle=handle,
+                    revision=revision,
+                    qspec=resolved.qspec,
+                    requested_exports=set(resolved.requested_exports),
+                    input_data=resolved.input_data,
+                    shots=int(resolved.intent_model.shots),
+                    intent_payload=intent_payload,
+                    plan_payload=plan_payload,
+                    intent_markdown=intent_markdown,
+                    staged_events=staged_events,
+                    event_sink=event_sink,
+                )
+            except Exception:
+                _restore_workspace_revision(handle=handle, revision=previous_revision)
+                raise
+    except WorkspaceLockConflict as exc:
+        raise _workspace_conflict_error(workspace_root=handle.root, conflict=exc) from exc
 
 
 def _execute_qspec(
@@ -263,27 +207,46 @@ def _execute_qspec(
     requested_exports: set[str],
     input_data: dict[str, str],
     shots: int,
+    intent_payload: str,
+    plan_payload: str,
+    intent_markdown: str | None,
+    staged_events: list[str],
     event_sink: EventSink | None = None,
 ) -> ExecResult:
-    """Persist QSpec, emit artifacts, run diagnostics, and write reports."""
+    """Persist QSpec, emit artifacts, run diagnostics, and promote one revision coherently."""
 
-    qspec_path = handle.root / "specs" / "current.json"
     qspec_history_path = handle.root / "specs" / "history" / f"{revision}.json"
-    qspec_text = qspec.model_dump_json(indent=2)
-    qspec_path.write_text(qspec_text)
-    qspec_history_path.write_text(qspec_text)
+    atomic_write_text(qspec_history_path, qspec.model_dump_json(indent=2))
+
+    intent_history_path = handle.paths.intent_history_json(revision)
+    plan_history_path = handle.paths.plan_history_json(revision)
+    atomic_write_text(intent_history_path, intent_payload)
+    atomic_write_text(plan_history_path, plan_payload)
+
+    intent_markdown_history_path: Path | None = None
+    if intent_markdown is not None:
+        intent_markdown_history_path = handle.root / "intents" / "history" / f"{revision}.md"
+        atomic_write_text(intent_markdown_history_path, intent_markdown)
+
     if event_sink is not None:
+        event_sink("intent_written", {"path": str(intent_history_path)}, revision, "ok")
+        event_sink("plan_written", {"path": str(plan_history_path)}, revision, "ok")
         event_sink("artifact_written", {"kind": "qspec", "path": str(qspec_history_path)}, revision, "ok")
 
-    artifacts: dict[str, str] = {
-        "qspec": str(qspec_history_path),
-    }
+    artifacts: dict[str, str] = {"qspec": str(qspec_history_path)}
     warnings: list[str] = []
     errors: list[str] = []
     backend_reports: dict[str, Any] = {}
+
     simulation = run_local_simulation(qspec, shots=shots)
     if event_sink is not None:
-        event_sink("diagnostic_completed", {"kind": "simulation", "status": simulation.status}, revision, simulation.status)
+        event_sink(
+            "diagnostic_completed",
+            {"kind": "simulation", "status": simulation.status},
+            revision,
+            simulation.status,
+        )
+
     representative_bindings = (
         dict(simulation.representative_bindings)
         if simulation.status == "ok"
@@ -291,63 +254,64 @@ def _execute_qspec(
     )
     if not representative_bindings:
         representative_bindings = None
+
     export_context = {
         "point_label": simulation.representative_point_label,
         "parameter_mode": simulation.parameter_mode,
         "bindings": dict(representative_bindings or {}),
     }
+    history_root = handle.root / "artifacts" / "history" / revision
+
     if "qiskit" in requested_exports:
         qiskit_path = write_qiskit_program(
             qspec,
-            handle.root / "artifacts" / "qiskit" / "main.py",
+            history_root / "qiskit" / "main.py",
             parameter_bindings=representative_bindings,
         )
-        artifacts["qiskit_code"] = str(
-            _snapshot_artifact(
-                qiskit_path,
-                handle.root / "artifacts" / "history" / revision / "qiskit" / "main.py",
-            )
-        )
+        artifacts["qiskit_code"] = str(qiskit_path)
         if event_sink is not None:
             event_sink("artifact_written", {"kind": "qiskit_code", "path": artifacts["qiskit_code"]}, revision, "ok")
+
     if "qasm3" in requested_exports:
         qasm_path = write_qasm3_program(
             qspec,
-            handle.root / "artifacts" / "qasm" / "main.qasm",
+            history_root / "qasm" / "main.qasm",
             parameter_bindings=representative_bindings,
         )
-        artifacts["qasm3"] = str(
-            _snapshot_artifact(
-                qasm_path,
-                handle.root / "artifacts" / "history" / revision / "qasm" / "main.qasm",
-            )
-        )
+        artifacts["qasm3"] = str(qasm_path)
         if event_sink is not None:
             event_sink("artifact_written", {"kind": "qasm3", "path": artifacts["qasm3"]}, revision, "ok")
+
     if "classiq-python" in requested_exports:
         classiq_emit = write_classiq_program(
             qspec,
-            handle.root / "artifacts" / "classiq" / "main.py",
+            history_root / "classiq" / "main.py",
             parameter_bindings=representative_bindings,
         )
         if classiq_emit.status == "ok" and classiq_emit.path is not None:
-            artifacts["classiq_code"] = str(
-                _snapshot_artifact(
-                    classiq_emit.path,
-                    handle.root / "artifacts" / "history" / revision / "classiq" / "main.py",
-                )
-            )
+            artifacts["classiq_code"] = str(classiq_emit.path)
             if event_sink is not None:
-                event_sink("artifact_written", {"kind": "classiq_code", "path": artifacts["classiq_code"]}, revision, "ok")
+                event_sink(
+                    "artifact_written",
+                    {"kind": "classiq_code", "path": artifacts["classiq_code"]},
+                    revision,
+                    "ok",
+                )
         elif classiq_emit.reason is not None:
             warnings.append(classiq_emit.reason)
 
-    diagrams = write_diagrams(qspec, handle, parameter_bindings=representative_bindings)
+    diagrams = write_diagrams(
+        qspec,
+        handle,
+        parameter_bindings=representative_bindings,
+        output_dir=history_root / "figures",
+    )
     resources = estimate_resources(qspec, parameter_bindings=representative_bindings)
     transpile = validate_target_constraints(qspec, parameter_bindings=representative_bindings)
     if event_sink is not None:
         event_sink("diagnostic_completed", {"kind": "resources", "status": "ok"}, revision, "ok")
         event_sink("diagnostic_completed", {"kind": "transpile", "status": transpile.status}, revision, transpile.status)
+
     diagnostics = {
         "simulation": simulation.model_dump(mode="json"),
         "exports": export_context,
@@ -358,20 +322,19 @@ def _execute_qspec(
         },
         "transpile": transpile.model_dump(mode="json"),
     }
-    artifacts["diagram_txt"] = str(
-        _snapshot_artifact(
-            diagrams.text_path,
-            handle.root / "artifacts" / "history" / revision / "figures" / "circuit.txt",
-        )
+    diagram_text_history = _ensure_history_artifact(
+        source_path=diagrams.text_path,
+        history_path=history_root / "figures" / "circuit.txt",
     )
-    artifacts["diagram_png"] = str(
-        _snapshot_artifact(
-            diagrams.png_path,
-            handle.root / "artifacts" / "history" / revision / "figures" / "circuit.png",
-        )
+    diagram_png_history = _ensure_history_artifact(
+        source_path=diagrams.png_path,
+        history_path=history_root / "figures" / "circuit.png",
     )
+    artifacts["diagram_txt"] = str(diagram_text_history)
+    artifacts["diagram_png"] = str(diagram_png_history)
     diagnostics["diagram"]["text_path"] = artifacts["diagram_txt"]
     diagnostics["diagram"]["png_path"] = artifacts["diagram_png"]
+
     if event_sink is not None:
         event_sink("artifact_written", {"kind": "diagram_txt", "path": artifacts["diagram_txt"]}, revision, "ok")
         event_sink("artifact_written", {"kind": "diagram_png", "path": artifacts["diagram_png"]}, revision, "ok")
@@ -382,18 +345,15 @@ def _execute_qspec(
             qspec,
             handle,
             parameter_bindings=representative_bindings,
+            output_dir=history_root / "classiq",
         )
         classiq_backend_payload = classiq_backend_report.model_dump(mode="json")
         if classiq_backend_report.code_path is not None and classiq_backend_report.code_path.exists():
-            classiq_code_snapshot = handle.root / "artifacts" / "history" / revision / "classiq" / "main.py"
-            classiq_code_path = _snapshot_artifact(classiq_backend_report.code_path, classiq_code_snapshot)
-            artifacts.setdefault("classiq_code", str(classiq_code_path))
-            classiq_backend_payload["code_path"] = str(classiq_code_path)
+            artifacts.setdefault("classiq_code", str(classiq_backend_report.code_path))
+            classiq_backend_payload["code_path"] = str(classiq_backend_report.code_path)
         if classiq_backend_report.results_path is not None and classiq_backend_report.results_path.exists():
-            classiq_results_snapshot = handle.root / "artifacts" / "history" / revision / "classiq" / "synthesis.json"
-            classiq_results_path = _snapshot_artifact(classiq_backend_report.results_path, classiq_results_snapshot)
-            artifacts["classiq_results"] = str(classiq_results_path)
-            classiq_backend_payload["results_path"] = str(classiq_results_path)
+            artifacts["classiq_results"] = str(classiq_backend_report.results_path)
+            classiq_backend_payload["results_path"] = str(classiq_backend_report.results_path)
         backend_reports["classiq"] = classiq_backend_payload
         if classiq_backend_report.status == "dependency_missing":
             warnings.append(classiq_backend_report.reason or "classiq_dependency_missing")
@@ -418,44 +378,68 @@ def _execute_qspec(
         backend_reports=backend_reports,
         warnings=warnings,
         errors=errors,
+        promote_latest=False,
     )
-    report_path = handle.root / "reports" / "latest.json"
     report_history_path = handle.root / "reports" / "history" / f"{revision}.json"
     artifacts["report"] = str(report_history_path)
     report["artifacts"]["report"] = str(report_history_path)
-    serialized_report = json.dumps(report, indent=2, ensure_ascii=True)
-    report_path.write_text(serialized_report)
-    report_history_path.write_text(serialized_report)
     if event_sink is not None:
-        event_sink("report_written", {"path": str(report_history_path), "status": report["status"]}, revision, str(report["status"]))
+        event_sink(
+            "report_written",
+            {"path": str(report_history_path), "status": report["status"]},
+            revision,
+            str(report["status"]),
+        )
 
-    handle.trace.append(
-        "exec_completed",
-        {"status": str(report["status"]), "report": str(report_history_path)},
-        revision=revision,
+    staged_events.append(
+        _serialize_exec_event(
+            "exec_completed",
+            {"status": str(report["status"]), "report": str(report_history_path)},
+            revision=revision,
+            status=str(report["status"]),
+        )
     )
-    event_history_path, trace_history_path = _write_revision_event_snapshots(
-        handle=handle,
-        revision=revision,
-    )
-    write_run_manifest(
-        workspace_root=handle.root,
-        revision=revision,
-        report_payload=report,
-        qspec=qspec,
-        qspec_path=qspec_history_path,
-        report_path=report_history_path,
-        intent_path=handle.paths.intent_history_json(revision),
-        plan_path=handle.paths.plan_history_json(revision),
-        event_history_path=event_history_path,
-        trace_history_path=trace_history_path,
-    )
-    manifest_history_path = handle.paths.manifest_history_json(revision)
-    artifacts["manifest"] = str(manifest_history_path)
-    if event_sink is not None:
-        event_sink("manifest_written", {"path": str(manifest_history_path)}, revision, "ok")
+    staged_event_log = _write_staged_events(handle=handle, revision=revision, events=staged_events)
+    try:
+        event_history_path, trace_history_path = _write_revision_event_snapshots(
+            handle=handle,
+            revision=revision,
+            staged_event_log=staged_event_log,
+        )
+        write_run_manifest(
+            workspace_root=handle.root,
+            revision=revision,
+            report_payload=report,
+            qspec=qspec,
+            qspec_path=qspec_history_path,
+            report_path=report_history_path,
+            intent_path=intent_history_path,
+            plan_path=plan_history_path,
+            event_history_path=event_history_path,
+            trace_history_path=trace_history_path,
+            promote_latest=False,
+        )
+        manifest_history_path = handle.paths.manifest_history_json(revision)
+        artifacts["manifest"] = str(manifest_history_path)
+        if event_sink is not None:
+            event_sink("manifest_written", {"path": str(manifest_history_path)}, revision, "ok")
+
+        append_trace_log(source_path=staged_event_log, destination_path=handle.paths.events_jsonl)
+        append_trace_log(source_path=staged_event_log, destination_path=handle.paths.trace_events)
+        _promote_exec_aliases(
+            handle=handle,
+            qspec_history_path=qspec_history_path,
+            intent_markdown_history_path=intent_markdown_history_path,
+            intent_history_path=intent_history_path,
+            plan_history_path=plan_history_path,
+            report_history_path=report_history_path,
+            manifest_history_path=manifest_history_path,
+            artifacts=artifacts,
+        )
+    finally:
+        staged_event_log.unlink(missing_ok=True)
+
     summary = summarize_report(report)
-
     result = ExecResult(
         status=str(report["status"]),
         workspace=str(handle.root),
@@ -476,62 +460,138 @@ def _execute_qspec(
     return result
 
 
-def _snapshot_artifact(source_path: Path, snapshot_path: Path) -> Path:
-    """Copy a mutable current artifact into a revision-stable snapshot path."""
-    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_path, snapshot_path)
-    return snapshot_path
-
-
 def _prepare_qspec(qspec: QSpec) -> QSpec:
     """Canonicalize and validate a QSpec before any workspace side effects."""
     prepared = normalize_qspec(qspec)
     return validate_qspec(prepared)
 
 
-def _persist_runtime_objects(*, handle: Any, revision: str, resolved: ResolvedRuntimeInput) -> None:
-    intent_history_path = handle.paths.intent_history_json(revision)
-    plan_history_path = handle.paths.plan_history_json(revision)
-    intent_payload = resolved.intent_resolution.model_dump_json(indent=2)
-    intent_history_path.write_text(intent_payload)
-    handle.paths.intents_latest_json.write_text(intent_payload)
-
-    plan = build_execution_plan_from_resolved(workspace_root=handle.root, resolved=resolved)
-    plan_payload = plan.model_dump_json(indent=2)
-    plan_history_path.write_text(plan_payload)
-    handle.paths.plans_latest_json.write_text(plan_payload)
+def _ensure_history_artifact(*, source_path: Path, history_path: Path) -> Path:
+    if source_path.resolve() == history_path.resolve():
+        return history_path
+    atomic_copy_file(source_path, history_path)
+    return history_path
 
 
-def _write_revision_event_snapshots(*, handle: Any, revision: str) -> tuple[Path, Path]:
+def _serialize_exec_event(
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    revision: str,
+    status: str = "ok",
+    error_code: str | None = None,
+) -> str:
+    event = TraceEvent(
+        event_type=event_type,
+        phase="execute",
+        status=status,
+        revision=revision,
+        error_code=error_code,
+        payload=payload,
+    )
+    return json.dumps(event.model_dump(mode="json"), ensure_ascii=True) + "\n"
+
+
+def _write_staged_events(*, handle: Any, revision: str, events: list[str]) -> Path:
+    staged_event_log = handle.root / "cache" / f"{revision}.events.staged"
+    atomic_write_text(staged_event_log, "".join(events))
+    return staged_event_log
+
+
+def _write_revision_event_snapshots(*, handle: Any, revision: str, staged_event_log: Path) -> tuple[Path, Path]:
     event_history_path = handle.paths.event_history_jsonl(revision)
     trace_history_path = handle.paths.trace_history_ndjson(revision)
-    _snapshot_revision_events(
-        source_path=handle.paths.events_jsonl,
-        snapshot_path=event_history_path,
-        revision=revision,
-    )
-    _snapshot_revision_events(
-        source_path=handle.paths.trace_events,
-        snapshot_path=trace_history_path,
-        revision=revision,
-    )
+    write_trace_snapshot(source_path=staged_event_log, snapshot_path=event_history_path)
+    write_trace_snapshot(source_path=staged_event_log, snapshot_path=trace_history_path)
     return event_history_path, trace_history_path
 
 
-def _snapshot_revision_events(*, source_path: Path, snapshot_path: Path, revision: str) -> None:
-    lines: list[str] = []
-    for raw_line in source_path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line:
+def _promote_exec_aliases(
+    *,
+    handle: Any,
+    qspec_history_path: Path,
+    intent_markdown_history_path: Path | None,
+    intent_history_path: Path,
+    plan_history_path: Path,
+    report_history_path: Path,
+    manifest_history_path: Path,
+    artifacts: dict[str, str],
+) -> None:
+    alias_pairs: list[tuple[Path, Path]] = []
+    if intent_markdown_history_path is not None:
+        alias_pairs.append((intent_markdown_history_path, handle.root / "intents" / "latest.md"))
+
+    alias_pairs.extend(
+        [
+            (intent_history_path, handle.paths.intents_latest_json),
+            (plan_history_path, handle.paths.plans_latest_json),
+            (qspec_history_path, handle.root / "specs" / "current.json"),
+        ]
+    )
+
+    artifact_aliases = {
+        "qiskit_code": handle.root / "artifacts" / "qiskit" / "main.py",
+        "qasm3": handle.root / "artifacts" / "qasm" / "main.qasm",
+        "classiq_code": handle.root / "artifacts" / "classiq" / "main.py",
+        "classiq_results": handle.root / "artifacts" / "classiq" / "synthesis.json",
+        "diagram_txt": handle.root / "figures" / "circuit.txt",
+        "diagram_png": handle.root / "figures" / "circuit.png",
+    }
+    for artifact_name, alias_path in artifact_aliases.items():
+        raw_source = artifacts.get(artifact_name)
+        if raw_source is None:
             continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict) and payload.get("revision") == revision:
-            lines.append(f"{line}\n")
-    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_path.write_text("".join(lines))
+        alias_pairs.append((Path(raw_source), alias_path))
+
+    alias_pairs.extend(
+        [
+            (report_history_path, handle.root / "reports" / "latest.json"),
+            (manifest_history_path, handle.paths.manifests_latest_json),
+        ]
+    )
+
+    for source_path, alias_path in alias_pairs:
+        atomic_copy_file(source_path, alias_path)
+
+
+def _guard_exec_commit_paths(*, handle: Any, last_valid_revision: str | None) -> None:
+    pending_files = sorted(
+        {
+            candidate
+            for path in (
+                handle.root / "reports" / "latest.json",
+                handle.paths.manifests_latest_json,
+            )
+            for candidate in pending_atomic_write_files(path)
+        }
+    )
+    if not pending_files:
+        return
+    raise WorkspaceRecoveryRequiredError(
+        workspace=handle.root,
+        pending_files=pending_files,
+        last_valid_revision=last_valid_revision,
+    )
+
+
+def _workspace_conflict_error(*, workspace_root: Path, conflict: WorkspaceLockConflict) -> WorkspaceConflictError:
+    return WorkspaceConflictError(
+        workspace=workspace_root.resolve(),
+        lock_path=Path(conflict.lock_path),
+        holder=conflict.holder.model_dump(mode="json"),
+    )
+
+
+def _last_valid_revision(revision: str | None) -> str | None:
+    if revision in {None, "", "rev_000000"}:
+        return None
+    return revision
+
+
+def _restore_workspace_revision(*, handle: Any, revision: str) -> None:
+    manifest = WorkspaceManifest.load(handle.paths.workspace_json)
+    manifest.current_revision = revision
+    manifest.save(handle.paths.workspace_json)
 
 
 def load_qspec_from_report(report_file: Path) -> QSpec:

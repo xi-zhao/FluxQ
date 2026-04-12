@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shutil
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,41 @@ def atomic_write_text(path: Path, content: str) -> None:
         os.fsync(handle.fileno())
 
     os.replace(temp_path, path)
+
+
+def atomic_copy_file(source_path: Path, destination_path: Path) -> None:
+    """Copy a file via a same-directory temp file and atomic replace."""
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        dir=destination_path.parent,
+        prefix=f".{destination_path.name}.tmp-",
+        delete=False,
+    ) as handle:
+        temp_path = Path(handle.name)
+        with source_path.open("rb") as source_handle:
+            shutil.copyfileobj(source_handle, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    os.replace(temp_path, destination_path)
+
+
+def pending_atomic_write_files(path: Path) -> list[Path]:
+    """Return interrupted-write temp files for a target path."""
+    patterns = (
+        f"{path.name}.tmp",
+        f"{path.name}.tmp*",
+        f".{path.name}.tmp-*",
+    )
+    pending_files = {
+        candidate.resolve()
+        for pattern in patterns
+        for candidate in path.parent.glob(pattern)
+        if candidate.is_file()
+    }
+    return sorted(pending_files)
 
 
 class WorkspaceManifest(BaseModel):

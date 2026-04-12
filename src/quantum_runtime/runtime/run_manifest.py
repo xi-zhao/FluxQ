@@ -10,8 +10,9 @@ from typing import Any
 from pydantic import Field, ValidationError
 
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.errors import WorkspaceRecoveryRequiredError
 from quantum_runtime.runtime.contracts import SchemaPayload
-from quantum_runtime.workspace import WorkspacePaths
+from quantum_runtime.workspace import WorkspacePaths, atomic_write_text, pending_atomic_write_files
 
 
 class RunManifestArtifact(SchemaPayload):
@@ -69,6 +70,7 @@ def write_run_manifest(
     plan_path: Path | None = None,
     event_history_path: Path | None = None,
     trace_history_path: Path | None = None,
+    promote_latest: bool = True,
 ) -> dict[str, Any]:
     """Persist the immutable manifest artifact for one revision."""
     payload = build_run_manifest(
@@ -87,9 +89,35 @@ def write_run_manifest(
     history_path = paths.manifest_history_json(revision)
     latest_path = paths.manifests_latest_json
     serialized = payload.model_dump_json(indent=2)
-    history_path.write_text(serialized)
-    latest_path.write_text(serialized)
+    _guard_manifest_latest_path(
+        workspace_root=workspace_root,
+        latest_path=latest_path,
+        last_valid_revision=None,
+    )
+    atomic_write_text(history_path, serialized)
+    if promote_latest:
+        atomic_write_text(latest_path, serialized)
     return payload.model_dump(mode="json")
+
+
+def _guard_manifest_latest_path(
+    *,
+    workspace_root: Path,
+    latest_path: Path,
+    last_valid_revision: str | None,
+) -> None:
+    pending_files = _pending_atomic_write_files(latest_path)
+    if not pending_files:
+        return
+    raise WorkspaceRecoveryRequiredError(
+        workspace=workspace_root.resolve(),
+        pending_files=pending_files,
+        last_valid_revision=last_valid_revision,
+    )
+
+
+def _pending_atomic_write_files(path: Path) -> list[Path]:
+    return pending_atomic_write_files(path)
 
 
 def load_run_manifest(

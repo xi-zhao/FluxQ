@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from quantum_runtime.artifact_provenance import canonicalize_artifact_provenance
+from quantum_runtime.errors import WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.workspace import atomic_write_text, pending_atomic_write_files
 from quantum_runtime.workspace.manager import WorkspaceHandle
 
 
@@ -24,6 +26,7 @@ def write_report(
     backend_reports: dict[str, Any],
     warnings: list[str],
     errors: list[str],
+    promote_latest: bool = True,
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
     from quantum_runtime.runtime.run_manifest import RunReportArtifact
@@ -85,9 +88,26 @@ def write_report(
     )
 
     serialized = payload.model_dump_json(indent=2)
-    latest_path.write_text(serialized)
-    history_path.write_text(serialized)
+    _guard_report_latest_path(workspace=workspace, latest_path=latest_path)
+    atomic_write_text(history_path, serialized)
+    if promote_latest:
+        atomic_write_text(latest_path, serialized)
     return payload.model_dump(mode="json")
+
+
+def _guard_report_latest_path(*, workspace: WorkspaceHandle, latest_path: Path) -> None:
+    pending_files = _pending_atomic_write_files(latest_path)
+    if not pending_files:
+        return
+    raise WorkspaceRecoveryRequiredError(
+        workspace=workspace.root,
+        pending_files=pending_files,
+        last_valid_revision=None,
+    )
+
+
+def _pending_atomic_write_files(path: Path) -> list[Path]:
+    return pending_atomic_write_files(path)
 
 
 def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> None:

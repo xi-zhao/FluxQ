@@ -39,12 +39,17 @@ class WorkspaceHandle:
     manifest: WorkspaceManifest
     trace: TraceWriter
 
-    def reserve_revision(self) -> str:
+    def reserve_revision(self, *, assume_locked: bool = False) -> str:
         """Advance the workspace revision and persist the manifest."""
-        with acquire_workspace_lock(self.paths.root):
+        if assume_locked:
             manifest = WorkspaceManifest.load(self.paths.workspace_json)
             revision = manifest.bump_revision()
             manifest.save(self.paths.workspace_json)
+        else:
+            with acquire_workspace_lock(self.paths.root):
+                manifest = WorkspaceManifest.load(self.paths.workspace_json)
+                revision = manifest.bump_revision()
+                manifest.save(self.paths.workspace_json)
 
         self.manifest = manifest
         return revision
