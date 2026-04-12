@@ -11,7 +11,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - Decimal phases (2.1, 2.2): Urgent insertions after planning
 
 - [x] **Phase 1: Canonical Ingress Resolution** - Normalize supported intent inputs into one side-effect-free runtime object surface.
-- [ ] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
+- [x] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
 - [ ] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
 - [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
 - [ ] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
@@ -45,8 +45,10 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Persist self-describing revision artifacts and revision-scoped event snapshots
-- [ ] 02-02-PLAN.md — Fail closed on trusted replay/import drift while preserving legacy and baseline compatibility
+- [x] 02-01-PLAN.md — Persist self-describing revision artifacts and revision-scoped event snapshots
+- [x] 02-02-PLAN.md — Fail closed on trusted replay/import drift while preserving legacy and baseline compatibility
+- [x] 02-03-PLAN.md — Bind additive manifest trust blocks to canonical revision history and close the revision-artifact regression gap
+- [x] 02-04-PLAN.md — Pin current-workspace replay to immutable history and align legacy fallback with replay-integrity evidence
 
 ### Phase 3: Concurrent Workspace Safety
 **Goal**: Multiple agents or CI jobs can target one workspace without corrupting runtime state.
@@ -93,7 +95,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
-| 2. Trusted Revision Artifacts | 0/2 | Not started | - |
+| 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
 | 3. Concurrent Workspace Safety | 0/TBD | Not started | - |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |
 | 5. Verified Delivery Bundles | 0/TBD | Not started | - |

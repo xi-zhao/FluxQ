@@ -74,9 +74,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGR-01 | Phase 1 | Complete |
 | INGR-02 | Phase 1 | Complete |
 | INGR-03 | Phase 1 | Complete |
-| RUNT-01 | Phase 2 | Pending |
+| RUNT-01 | Phase 2 | Complete |
 | RUNT-02 | Phase 3 | Pending |
-| RUNT-03 | Phase 2 | Pending |
+| RUNT-03 | Phase 2 | Complete |
 | POLC-01 | Phase 4 | Pending |
 | POLC-02 | Phase 4 | Pending |
 | POLC-03 | Phase 4 | Pending |
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after Phase 1 completion*
+*Last updated: 2026-04-12 after Phase 2 completion*
