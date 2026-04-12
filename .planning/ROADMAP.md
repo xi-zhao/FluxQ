@@ -27,7 +27,11 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
   1. Agent can submit prompt text and receive a normalized machine-readable intent without creating or mutating workspace artifacts.
   2. Agent can resolve prompt, markdown, and structured JSON inputs into a canonical `QSpec` plus execution plan through the same control-plane surface.
   3. Semantically equivalent ingress inputs produce the same workload identity and semantic hash.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Lock down CLI prompt, resolve, and plan no-write behavior plus cross-ingress parity
+- [ ] 01-02-PLAN.md — Lock down shared resolver canonicalization and semantic hash parity across equivalent ingress
 
 ### Phase 2: Trusted Revision Artifacts
 **Goal**: Completed runs become trusted, replayable runtime revisions with stable artifact evidence.
@@ -83,7 +87,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Canonical Ingress Resolution | 0/TBD | Not started | - |
+| 1. Canonical Ingress Resolution | 0/2 | Not started | - |
 | 2. Trusted Revision Artifacts | 0/TBD | Not started | - |
 | 3. Concurrent Workspace Safety | 0/TBD | Not started | - |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |
