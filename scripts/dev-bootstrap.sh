@@ -97,8 +97,12 @@ verify_project() {
   log "Running Ruff"
   "$ROOT_DIR/.venv/bin/ruff" check src tests
 
+  if ! "$ROOT_DIR/.venv/bin/mypy" --version >/dev/null 2>&1; then
+    log "Direct MyPy launcher failed under the current workspace path; continuing with '$ROOT_DIR/.venv/bin/python -m mypy'."
+  fi
+
   log "Running MyPy"
-  "$ROOT_DIR/.venv/bin/mypy" src
+  "$ROOT_DIR/.venv/bin/python" -m mypy src
 
   log "Running pytest"
   "$ROOT_DIR/.venv/bin/pytest" -q
