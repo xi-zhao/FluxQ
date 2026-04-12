@@ -42,7 +42,11 @@ Plans:
   1. After execution, agent can reopen a revision and find its persisted `intent`, `plan`, `qspec`, `report`, `manifest`, and revision-scoped event records.
   2. Agent can replay or import a completed revision from persisted runtime artifacts without relying on the original ingress text.
   3. If provenance, revision identity, or integrity metadata no longer matches expectations, replay and import stop with a blocking failure instead of silently continuing.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Persist self-describing revision artifacts and revision-scoped event snapshots
+- [ ] 02-02-PLAN.md — Fail closed on trusted replay/import drift while preserving legacy and baseline compatibility
 
 ### Phase 3: Concurrent Workspace Safety
 **Goal**: Multiple agents or CI jobs can target one workspace without corrupting runtime state.
@@ -89,7 +93,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
-| 2. Trusted Revision Artifacts | 0/TBD | Not started | - |
+| 2. Trusted Revision Artifacts | 0/2 | Not started | - |
 | 3. Concurrent Workspace Safety | 0/TBD | Not started | - |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |
 | 5. Verified Delivery Bundles | 0/TBD | Not started | - |
