@@ -257,6 +257,48 @@ def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
 
 
+def test_qrun_exec_json_rejects_trusted_report_with_artifact_digest_drift(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    report_path = source_workspace / "reports" / "latest.json"
+    history_qiskit = source_workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    current_qiskit = source_workspace / "artifacts" / "qiskit" / "main.py"
+    history_qiskit.unlink()
+    current_qiskit.write_text(current_qiskit.read_text() + "\n# tampered replay alias\n")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--report-file",
+            str(report_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "artifact_outputs_mismatched"
+    assert payload["error_code"] == "artifact_outputs_mismatched"
+
+
 def test_qrun_exec_history_report_pins_revision_qspec_after_later_runs(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -324,6 +366,46 @@ def test_qrun_exec_json_accepts_history_revision_input(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert Path(payload["artifacts"]["qspec"]).exists()
     assert Path(payload["artifacts"]["qasm3"]).exists()
+
+
+def test_qrun_exec_json_rejects_trusted_revision_with_artifact_digest_drift(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    history_qiskit = workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
+    current_qiskit = workspace / "artifacts" / "qiskit" / "main.py"
+    history_qiskit.unlink()
+    current_qiskit.unlink()
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "artifact_outputs_missing"
+    assert payload["error_code"] == "artifact_outputs_missing"
 
 
 def test_qrun_exec_json_accepts_relative_report_qspec_path(tmp_path: Path) -> None:

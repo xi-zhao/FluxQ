@@ -342,7 +342,7 @@ def test_resolve_report_file_rejects_mutated_current_qspec_semantic_fallback(tmp
     assert excinfo.value.code == "report_qspec_semantic_hash_mismatch"
 
 
-def test_resolve_report_file_marks_artifact_digest_drift_when_snapshot_missing(tmp_path: Path) -> None:
+def test_resolve_report_file_rejects_trusted_artifact_digest_drift(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path)
     report_file = workspace / "reports" / "latest.json"
     history_qiskit = workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
@@ -351,12 +351,32 @@ def test_resolve_report_file_marks_artifact_digest_drift_when_snapshot_missing(t
     history_qiskit.unlink()
     current_qiskit.write_text(current_qiskit.read_text() + "\n# tampered replay alias\n")
 
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(report_file)
+
+    assert excinfo.value.code == "artifact_outputs_mismatched"
+    assert excinfo.value.details["mismatched_artifacts"] == ["qiskit_code"]
+    assert excinfo.value.details["missing_artifacts"] == []
+
+
+def test_resolve_report_file_marks_missing_digest_reports_as_legacy_compatible(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    report_file = workspace / "reports" / "latest.json"
+    history_report = workspace / "reports" / "history" / "rev_000001.json"
+
+    _remove_artifact_output_digests(report_file)
+    _remove_artifact_output_digests(history_report)
+    (workspace / "manifests" / "latest.json").unlink()
+    (workspace / "manifests" / "history" / "rev_000001.json").unlink()
+
     resolution = resolve_report_file(report_file)
 
-    assert resolution.provenance["replay_integrity"]["status"] == "degraded"
-    assert resolution.provenance["replay_integrity"]["artifact_digests_present"] is True
-    assert resolution.provenance["replay_integrity"]["mismatched_artifacts"] == ["qiskit_code"]
-    assert resolution.provenance["replay_integrity"]["missing_artifacts"] == []
+    assert resolution.replay_integrity["status"] == "legacy"
+    assert resolution.replay_integrity["artifact_digests_present"] is False
+    assert resolution.report_summary["replay_integrity_status"] == "legacy"
+    assert resolution.report_summary["replay_integrity_warnings"] == [
+        "artifact_output_digests_missing"
+    ]
 
 
 def test_resolve_report_file_accepts_workspace_prefixed_legacy_relative_paths(
@@ -417,6 +437,17 @@ def _seed_workspace(tmp_path: Path) -> Path:
     result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
     assert result.status == "ok"
     return workspace
+
+
+def _remove_artifact_output_digests(report_path: Path) -> None:
+    payload = json.loads(report_path.read_text())
+    replay_integrity = payload.get("replay_integrity")
+    assert isinstance(replay_integrity, dict)
+    replay_integrity.pop("artifact_output_digests", None)
+    replay_integrity.pop("artifact_output_missing", None)
+    replay_integrity.pop("artifact_output_set_hash", None)
+    replay_integrity.pop("artifact_set_hash", None)
+    report_path.write_text(json.dumps(payload, indent=2))
 
 
 def _sha256_file(path: Path) -> str:

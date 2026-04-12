@@ -687,6 +687,45 @@ def test_qrun_show_json_synthesizes_legacy_manifest_when_manifest_files_are_abse
     assert payload["manifest"]["report"]["path"] == str(history_report_path)
 
 
+def test_qrun_show_json_exposes_legacy_replay_integrity_without_failing(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    latest_report_path = workspace / "reports" / "latest.json"
+    history_report_path = workspace / "reports" / "history" / "rev_000001.json"
+    _remove_artifact_output_digests(latest_report_path)
+    _remove_artifact_output_digests(history_report_path)
+    _remove_schema_version(latest_report_path)
+    _remove_schema_version(history_report_path)
+    (workspace / "manifests" / "latest.json").unlink()
+    (workspace / "manifests" / "history" / "rev_000001.json").unlink()
+
+    result = RUNNER.invoke(
+        app,
+        ["show", "--workspace", str(workspace), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["report_summary"]["replay_integrity_status"] == "legacy"
+    assert payload["report_summary"]["replay_integrity_warnings"] == [
+        "artifact_output_digests_missing"
+    ]
+
+
 def test_qrun_status_json_reports_stale_or_tampered_manifest_integrity(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -851,3 +890,20 @@ def test_existing_machine_outputs_include_schema_version(tmp_path: Path) -> None
     )
     assert backend_list_result.exit_code == 0, backend_list_result.stdout
     assert json.loads(backend_list_result.stdout)["schema_version"] == "0.3.0"
+
+
+def _remove_artifact_output_digests(report_path: Path) -> None:
+    payload = json.loads(report_path.read_text())
+    replay_integrity = payload.get("replay_integrity")
+    assert isinstance(replay_integrity, dict)
+    replay_integrity.pop("artifact_output_digests", None)
+    replay_integrity.pop("artifact_output_missing", None)
+    replay_integrity.pop("artifact_output_set_hash", None)
+    replay_integrity.pop("artifact_set_hash", None)
+    report_path.write_text(json.dumps(payload, indent=2))
+
+
+def _remove_schema_version(report_path: Path) -> None:
+    payload = json.loads(report_path.read_text())
+    payload.pop("schema_version", None)
+    report_path.write_text(json.dumps(payload, indent=2))
