@@ -39,7 +39,7 @@ class ErrorPayload(SchemaPayload):
     reason: str
     error_code: str
     remediation: str = DEFAULT_REMEDIATION
-    details: dict[str, Any] = Field(default_factory=dict)
+    details: Any = Field(default_factory=dict)
 
 
 class WorkspaceConflictDetails(BaseModel):

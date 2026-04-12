@@ -219,16 +219,16 @@ def workspace_status(*, workspace_root: Path) -> StatusResult:
     active_qspec_path = paths.root / manifest.active_spec if manifest is not None else paths.root / "specs" / "current.json"
     active_report_path = paths.root / manifest.active_report if manifest is not None else paths.root / "reports" / "latest.json"
     active_manifest_path = paths.manifests_latest_json
-    current_manifest_history_path = (
-        paths.manifest_history_json(current_revision)
-        if current_revision not in (None, "rev_000000")
-        else None
-    )
+    current_manifest_history_path = None
+    if current_revision not in (None, "rev_000000"):
+        assert current_revision is not None
+        current_manifest_history_path = paths.manifest_history_json(current_revision)
     qspec_health = _qspec_file_status(active_qspec_path)
     report_health = _report_file_status(active_report_path)
 
     latest_run_status = report_health.get("run_status")
     if initialized and current_revision not in (None, "rev_000000"):
+        assert current_revision is not None
         expected_qspec_history_path = paths.root / "specs" / "history" / f"{current_revision}.json"
         expected_report_history_path = paths.root / "reports" / "history" / f"{current_revision}.json"
         if qspec_health["status"] == "missing":
@@ -316,7 +316,7 @@ def workspace_status(*, workspace_root: Path) -> StatusResult:
             "manifest": {
                 "path": str(active_manifest_path),
                 "exists": active_manifest_path.exists(),
-                "status": health["artifacts"]["manifest"]["status"],
+                "status": _active_manifest_status_from_codes(issues=issues, errors=errors),
             },
         },
         latest_run_status=latest_run_status,
@@ -439,7 +439,7 @@ def schema_contract(name: str) -> SchemaResult:
             "type": "string",
         },
     )
-    return SchemaResult(name=name, schema_document=schema)
+    return SchemaResult(name=name, schema=schema)
 
 def _default_benchmark_backends(qspec: QSpec) -> list[str]:
     resolved = ["qiskit-local"]

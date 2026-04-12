@@ -247,8 +247,10 @@ def _compare_artifact_for_revision(*, paths: WorkspacePaths, revision: str) -> P
         return None
     if not isinstance(payload, dict):
         return None
-    left = payload.get("left") if isinstance(payload.get("left"), dict) else {}
-    right = payload.get("right") if isinstance(payload.get("right"), dict) else {}
+    raw_left = payload.get("left")
+    raw_right = payload.get("right")
+    left: dict[str, Any] = raw_left if isinstance(raw_left, dict) else {}
+    right: dict[str, Any] = raw_right if isinstance(raw_right, dict) else {}
     if revision not in {str(left.get("revision", "")), str(right.get("revision", ""))}:
         return None
     return latest

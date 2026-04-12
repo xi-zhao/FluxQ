@@ -264,7 +264,8 @@ def build_run_manifest(
     """Build an immutable run manifest from report + qspec truth."""
     paths = WorkspacePaths(root=workspace_root)
     semantics = summarize_qspec_semantics(qspec)
-    report_block = report_payload.get("qspec") if isinstance(report_payload, dict) else {}
+    raw_qspec_block = report_payload.get("qspec")
+    report_block: dict[str, Any] = raw_qspec_block if isinstance(raw_qspec_block, dict) else {}
     artifact_paths = report_payload.get("artifacts") if isinstance(report_payload, dict) else {}
     provenance = report_payload.get("provenance") if isinstance(report_payload, dict) else {}
     diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
