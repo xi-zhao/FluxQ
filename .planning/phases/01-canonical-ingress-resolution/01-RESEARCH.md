@@ -1,329 +1,86 @@
 # Phase 1: Canonical Ingress Resolution - Research
 
-**Researched:** 2026-04-12  
-**Domain:** Canonical ingress parsing, normalization, and semantic identity for FluxQ runtime inputs  
-**Confidence:** HIGH
-
-<user_constraints>
-## User Constraints (from CONTEXT.md)
-
-### Locked Decisions
-- No phase-specific `*-CONTEXT.md` file exists for Phase 1. [VERIFIED: `.planning/phases/01-canonical-ingress-resolution` directory scan 2026-04-12]
-
-### Claude's Discretion
-- Research within the repo-wide constraints from `AGENTS.md`; no extra discuss-phase constraints were found. [VERIFIED: AGENTS.md; `.planning/phases/01-canonical-ingress-resolution` directory scan 2026-04-12]
-
-### Deferred Ideas (OUT OF SCOPE)
-- None recorded for Phase 1 because no phase context file exists. [VERIFIED: `.planning/phases/01-canonical-ingress-resolution` directory scan 2026-04-12]
-</user_constraints>
+**Researched:** 2026-04-12
+**Confidence:** HIGH on current implementation shape; MEDIUM on Phase 1 closure because some equivalence and no-side-effect guarantees are implied by code but not directly covered by the current tests. `[VERIFIED: src/quantum_runtime/cli.py:217-442]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:71-171]` `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
 
 <phase_requirements>
 ## Phase Requirements
 
-| ID | Description | Research Support |
-|----|-------------|------------------|
-| `INGR-01` | Agent can submit prompt text and receive a normalized machine-readable intent without mutating workspace state. [VERIFIED: `.planning/REQUIREMENTS.md`] | Keep `prompt` on `intent_resolution_from_prompt()`, keep `resolve`/`plan` pure, and add explicit no-mutation tests for prompt/resolve/plan. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/cli.py`; local CLI probe 2026-04-12] |
-| `INGR-02` | Agent can resolve prompt, markdown intent, and structured JSON intent into a canonical `QSpec` plus execution plan. [VERIFIED: `.planning/REQUIREMENTS.md`] | Reuse `resolve_runtime_input()` for all executable ingress types and `build_execution_plan_from_resolved()` for dry-run planning; add prompt-path parity tests. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/control_plane.py`; `tests/test_cli_runtime_gap.py`] |
-| `INGR-03` | Semantically equivalent ingress inputs resolve to the same workload identity and semantic hash. [VERIFIED: `.planning/REQUIREMENTS.md`] | Treat normalized `QSpec` semantics as the identity surface, not raw prompt text; add an equivalence matrix that locks both positive and negative cases. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; `tests/test_cli_runtime_gap.py`; local CLI probe 2026-04-12] |
+| ID | Requirement | Current Evidence | Gap / Risk |
+|---|---|---|---|
+| INGR-01 | Agent can submit prompt text and receive a normalized machine-readable intent without mutating workspace state. `[VERIFIED: .planning/REQUIREMENTS.md:10-15]` | `qrun prompt` exists, returns `IntentResolution`, and the command path only parses and echoes the payload. `[VERIFIED: src/quantum_runtime/cli.py:217-238]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:174-180]` | The provided tests validate payload shape for `qrun prompt`, but they do not explicitly assert that no workspace artifacts are created. `[VERIFIED: tests/test_cli_runtime_gap.py:16-33]` |
+| INGR-02 | Agent can resolve prompt, markdown intent, and structured JSON intent into a canonical `QSpec` plus execution plan. `[VERIFIED: .planning/REQUIREMENTS.md:10-15]` | `qrun resolve` and `qrun plan` both call the shared resolver, and the shared resolver accepts `intent_text`, `intent_file`, and `intent_json_file` and lowers plannable inputs through `plan_to_qspec()`. `[VERIFIED: src/quantum_runtime/cli.py:240-442]` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:103-198]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:71-112]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:184-212]` | The provided tests prove markdown and structured JSON parity on `resolve`, but they do not cover `resolve --intent-text` parity against equivalent file-based inputs. `[VERIFIED: tests/test_cli_runtime_gap.py:36-78]` |
+| INGR-03 | Semantically equivalent ingress inputs resolve to the same workload identity and semantic hash. `[VERIFIED: .planning/REQUIREMENTS.md:10-15]` | `summarize_qspec_semantics()` defines stable `workload_id`, `workload_hash`, `execution_hash`, and `semantic_hash`, and one test already proves identical `semantic_hash` for markdown and structured JSON inputs representing the same intent. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:13-143]` `[VERIFIED: tests/test_cli_runtime_gap.py:36-78]` | `semantic_hash` is execution-oriented, not workload-only, so changes to defaults or runtime metadata can invalidate parity even when the circuit subject is unchanged. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:21-56]` `[VERIFIED: src/quantum_runtime/intent/parser.py:26-37]` `[VERIFIED: src/quantum_runtime/intent/planner.py:210-241]` |
 </phase_requirements>
-
-## Project Constraints (from AGENTS.md)
-
-- Use Python 3.11, `uv`, and local CLI packaging. [VERIFIED: AGENTS.md]
-- Keep `QSpec` as the compatible canonical truth layer; do not plan a breaking IR rewrite. [VERIFIED: AGENTS.md]
-- Preserve Qiskit-first local execution and OpenQASM 3 as the exchange layer. [VERIFIED: AGENTS.md]
-- Keep machine-readable output schema-versioned, stable, and agent-friendly. [VERIFIED: AGENTS.md]
-- Prioritize local runtime maturity, replay trust, policy gating, and delivery bundles before broader remote-submit scope. [VERIFIED: AGENTS.md]
 
 ## Summary
 
-Phase 1 should be planned as boundary-hardening around an existing ingress pipeline, not as a net-new subsystem. The repo already has a side-effect-free pre-exec path: `prompt` normalizes prompt text into `IntentResolution`, `resolve` turns one ingress selector into a canonical `QSpec` plus plan, and `plan` reuses the same resolved object to emit a dry-run execution plan. [VERIFIED: `src/quantum_runtime/cli.py`; `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/control_plane.py`]
+Phase 1 already has most of its control-plane spine in place: the product docs say FluxQ should treat prompt text as ingress, keep `QSpec` as the canonical truth layer, and normalize ingress before side effects; the architecture notes in `AGENTS.md` say every ingress path should go through `src/quantum_runtime/runtime/resolve.py` into `ResolvedRuntimeInput`. `[VERIFIED: .planning/PROJECT.md:5-7]` `[VERIFIED: .planning/PROJECT.md:56-60]` `[VERIFIED: AGENTS.md:138-145]` `[VERIFIED: AGENTS.md:183-188]`
 
-The first mutating boundary is still `exec`, which initializes a workspace, reserves a revision, writes `intent` and `plan` runtime objects, and only then proceeds into artifact generation and diagnostics. Targeted CLI probes and existing tests show that `prompt`, `resolve`, and `plan` leave the workspace absent, while ingress-related tests in `tests/test_intent_parser.py`, `tests/test_planner.py`, `tests/test_qspec_validation.py`, `tests/test_cli_control_plane.py`, and `tests/test_cli_runtime_gap.py` are currently green. [VERIFIED: `src/quantum_runtime/runtime/executor.py`; `tests/test_cli_control_plane.py`; `tests/test_cli_runtime_gap.py`; targeted pytest run 2026-04-12; local CLI probe 2026-04-12]
+The current code already matches that shape for the main Phase 1 path: `qrun prompt` returns normalized intent only, while `qrun resolve` and `qrun plan` route supported inputs through the same resolver, produce canonical `QSpec` semantics plus a dry-run execution plan, and do so without any visible write calls in the provided files. `[VERIFIED: src/quantum_runtime/cli.py:217-238]` `[VERIFIED: src/quantum_runtime/cli.py:240-442]` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:103-198]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:71-171]`
 
-The main planning risk is INGR-03 semantics. `workload_id` and `workload_hash` are derived from workload-shape fields, while `semantic_hash` aliases the broader execution hash that also includes normalized constraints and backend/export metadata. In a local probe, markdown and structured JSON produced the same `semantic_hash`, while a prompt produced the same hash only when the markdown omitted extra front matter constraints. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12]
+The remaining work is mostly guarantee-hardening, not architectural invention: the current tests prove prompt intent normalization and markdown-vs-structured-JSON semantic-hash parity, but they do not yet lock down prompt-text parity against equivalent markdown/JSON or explicitly assert that side-effect-free commands leave no workspace artifacts behind. `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
 
-**Primary recommendation:** Plan Phase 1 around the existing `resolve_runtime_input()` -> validated `QSpec` -> `build_execution_plan_from_resolved()` pipeline, and spend the new work on explicit equivalence rules and tests rather than on new ingress architecture. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/control_plane.py`]
+## 1. What Ingress Surfaces Already Exist Now?
 
-## Standard Stack
+- The repo-level product docs already list supported runtime inputs as markdown intents, prompt text, structured JSON intents, `QSpec`, and replayable report inputs. `[VERIFIED: .planning/PROJECT.md:17-20]`
+- `qrun prompt <text>` is a dedicated side-effect-free ingress surface that returns only normalized intent. `[VERIFIED: src/quantum_runtime/cli.py:217-238]`
+- `qrun resolve` accepts `--intent-file`, `--intent-json-file`, `--qspec-file`, `--report-file`, `--revision`, and `--intent-text/--prompt-text`. `[VERIFIED: src/quantum_runtime/cli.py:240-340]`
+- `qrun plan` accepts the same six ingress selectors as `qrun resolve`. `[VERIFIED: src/quantum_runtime/cli.py:343-442]`
+- `qrun exec` also accepts the same six ingress selectors, but it is the mutating execution surface and belongs to the later runtime-artifact story rather than the side-effect-free Phase 1 contract. `[VERIFIED: src/quantum_runtime/cli.py:912-1056]` `[VERIFIED: .planning/ROADMAP.md:22-39]`
+- Internally, the shared resolver models six `source_kind` values: `prompt_text`, `intent_file`, `intent_json_file`, `qspec_file`, `report_file`, and `report_revision`. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:29-36]`
 
-### Core
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| `quantum_runtime.runtime.resolve` | repo `0.3.1` [VERIFIED: `pyproject.toml`] | Produce a single `ResolvedRuntimeInput` from one ingress selector. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`] | `resolve`, `plan`, and `exec` already depend on this boundary, so Phase 1 should extend it instead of creating command-specific resolver branches. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/runtime/executor.py`] |
-| `quantum_runtime.qspec` | repo `0.3.1` [VERIFIED: `pyproject.toml`] | Normalize, validate, and semantically summarize the canonical runtime object. [VERIFIED: `src/quantum_runtime/qspec/model.py`; `src/quantum_runtime/qspec/validation.py`; `src/quantum_runtime/qspec/semantics.py`] | Project constraints already lock `QSpec` as the truth layer, and identity/provenance logic downstream depends on it. [VERIFIED: AGENTS.md; `src/quantum_runtime/qspec/model.py`; `src/quantum_runtime/runtime/compare.py`] |
-| `pydantic` | `2.12.5` in repo [VERIFIED: `uv.lock`; local import probe 2026-04-12] | Typed machine-readable contracts for `IntentModel`, `ResolvedRuntimeInput`, `QSpec`, and control-plane payloads. [VERIFIED: `src/quantum_runtime/intent/structured.py`; `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/contracts.py`] | The repo already uses Pydantic for every ingress and runtime boundary, which keeps parsing and serialization consistent. [VERIFIED: codebase grep 2026-04-12; CITED: https://docs.pydantic.dev/latest/why/] |
-| `typer` | `0.24.1` in repo [VERIFIED: `uv.lock`; local import probe 2026-04-12] | Stable CLI command and option surface for `prompt`, `resolve`, `plan`, and `exec`. [VERIFIED: `src/quantum_runtime/cli.py`] | Phase 1 is about preserving one control-plane surface, and the existing CLI already models that surface cleanly through Typer commands and options. [VERIFIED: `src/quantum_runtime/cli.py`; CITED: https://typer.tiangolo.com/tutorial/commands/; CITED: https://typer.tiangolo.com/tutorial/options/] |
+## 2. What Normalization Path Already Exists Now?
 
-### Supporting
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `PyYAML` | `6.0.3` in repo [VERIFIED: `uv.lock`; local import probe 2026-04-12] | Parse YAML front matter in markdown intent files through `yaml.safe_load()`. [VERIFIED: `src/quantum_runtime/intent/markdown.py`] | Use only at the markdown ingress boundary; do not duplicate YAML parsing elsewhere. [VERIFIED: `src/quantum_runtime/intent/parser.py`; `src/quantum_runtime/intent/markdown.py`] |
-| `pytest` | `9.0.2` in repo [VERIFIED: `uv.lock`; `.venv` pytest version 2026-04-12] | Regression coverage for parser, planner, CLI, and semantic equivalence. [VERIFIED: `pyproject.toml`; `tests/`] | Use parametrized equivalence matrices and CLI integration tests for Phase 1. [VERIFIED: `tests/test_planner.py`; `tests/test_cli_runtime_gap.py`; CITED: https://docs.pytest.org/en/stable/how-to/parametrize.html] |
-| `qiskit` + `qiskit-aer` | `2.3.1` / `0.17.2` in repo [VERIFIED: `uv.lock`; local import probe 2026-04-12] | Downstream `qiskit-local` capability detection that appears in dry-run plans. [VERIFIED: `src/quantum_runtime/runtime/backend_registry.py`; `src/quantum_runtime/runtime/control_plane.py`] | Keep them as downstream execution dependencies; Phase 1 should not add new Qiskit-specific ingress behavior. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; AGENTS.md] |
+1. Prompt or markdown text is parsed into `IntentModel` by `parse_intent_text()`, which extracts front matter and sections, derives `goal`, and defaults `exports` to `["qiskit", "qasm3"]`, `backend_preferences` to `["qiskit-local"]`, and `shots` to `1024`. `[VERIFIED: src/quantum_runtime/intent/parser.py:17-37]`
+2. Structured JSON intent is parsed into the same `IntentModel` contract through `IntentModel.model_validate()`. `[VERIFIED: src/quantum_runtime/intent/parser.py:40-50]`
+3. `resolve_runtime_input()` enforces exactly one ingress source and dispatches all supported surfaces through one shared entrypoint. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:71-87]`
+4. Plannable ingress inputs (`intent_file`, `intent_json_file`, `prompt_text`) flow through `_resolved_from_intent()`, which calls `plan_to_qspec()` and then `_validated_qspec()`. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:89-112]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:184-212]`
+5. `_validated_qspec()` normalizes and validates every `QSpec` before it leaves the resolver. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:259-267]`
+6. `qspec_file` ingress bypasses the planner but still goes through `_validated_qspec()`, then synthesizes an `IntentModel` back from the canonical `QSpec`. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:113-141]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:233-249]`
+7. `report_file` and `revision` ingress rehydrate a `QSpec` through import resolution, validate it, and synthesize intent plus requested exports from the imported report artifacts. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:143-171]` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:285-296]`
+8. `resolve_runtime_object()` wraps the normalized input with semantic `QSpec` summary and a dry-run plan, while `build_execution_plan_from_resolved()` adds backend, artifact, and baseline-readiness context. `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:126-198]`
 
-### Alternatives Considered
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| Per-command ingress parsing in `cli.py` | One shared resolver boundary in `resolve_runtime_input()` | The shared resolver already eliminates drift between `resolve`, `plan`, and `exec`; moving logic back into the CLI would duplicate validation and identity handling. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/cli.py`; `src/quantum_runtime/runtime/control_plane.py`] |
-| `IntentModel` as the downstream truth layer | `QSpec` as the canonical runtime object | `IntentModel` is intentionally sparse and ingress-shaped, while `QSpec` carries normalized registers, constraints, parameters, observables, runtime metadata, and semantic hashes. [VERIFIED: `src/quantum_runtime/intent/structured.py`; `src/quantum_runtime/qspec/model.py`; AGENTS.md] |
-| Raw prompt or markdown text hashing | `summarize_qspec_semantics()` over normalized `QSpec` | Text hashing would treat formatting and source-form differences as identity changes; the current semantic summary separates workload identity from broader execution identity. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12] |
+## 3. What Semantic / Hash Contracts Already Exist Now?
 
-Use the repo’s existing bootstrap path; no new dependency installation is required for Phase 1. [VERIFIED: `scripts/dev-bootstrap.sh`; `.github/workflows/ci.yml`]
+- `summarize_qspec_semantics()` defines the host-facing semantic summary for a canonical `QSpec`, including pattern, width, layers, parameters, observables, constraints, backend preferences, problem, parameter space, objective, export requirements, policy hints, provenance, `workload_id`, and `algorithm_family`. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:13-57]`
+- `workload_hash` is the SHA-256 hash of the workload payload, which includes workload identity plus structural and objective semantics. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:54-55]` `[VERIFIED: src/quantum_runtime/qspec/semantics.py:102-118]` `[VERIFIED: src/quantum_runtime/qspec/semantics.py:129-132]`
+- `execution_hash` is the SHA-256 hash of the full semantic summary except the hash fields themselves, and `semantic_hash` is currently an alias of `execution_hash`. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:54-56]` `[VERIFIED: src/quantum_runtime/qspec/semantics.py:121-132]`
+- `workload_id` comes from `qspec.runtime.workload_id` when present; otherwise it falls back to `pattern:widthq[:layersl]`. The planner emits the same string format when it builds runtime metadata. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:135-143]` `[VERIFIED: src/quantum_runtime/intent/planner.py:210-248]`
+- The control-plane summary returned by `resolve` and `plan` exposes `pattern`, `workload_id`, `algorithm_family`, `workload_hash`, `execution_hash`, `semantic_hash`, parameter-workflow fields, width, layers, and counts, so consumers already have a stable planning-oriented identity block. `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:494-508]`
+- One regression test already proves that equivalent markdown and structured JSON ingress for the same QAOA sweep resolve to the same `semantic_hash`. `[VERIFIED: tests/test_cli_runtime_gap.py:36-78]`
+- Planner tests also lock down canonical `QSpec` shape for GHZ, QAOA MaxCut, and hardware-efficient ansatz, including parameter workflows and observable semantics. `[VERIFIED: tests/test_planner.py:16-145]`
 
-```bash
-./scripts/dev-bootstrap.sh install
-```
+## 4. What Is Still Missing Or Risky For Phase 1 Completion?
 
-Repo pins relevant to Phase 1 are `pydantic 2.12.5`, `typer 0.24.1`, `qiskit 2.3.1`, `qiskit-aer 0.17.2`, `PyYAML 6.0.3`, `pytest 9.0.2`, `ruff 0.15.8`, and `mypy 1.20.0`. [VERIFIED: `uv.lock`]
+- The provided tests do not yet prove parity for `resolve --intent-text` against equivalent markdown or structured JSON inputs, even though the code routes them through the same shared resolver. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:89-112]` `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
+- The provided tests do not explicitly assert that `qrun prompt`, `qrun resolve`, or `qrun plan` leave the workspace untouched. The code path in the allowed files is read-only, but the regression contract is not yet pinned by a test. `[VERIFIED: src/quantum_runtime/cli.py:217-442]` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:103-198]` `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
+- The planner is intentionally narrow today: it recognizes GHZ, Bell, QFT, hardware-efficient ansatz, and MaxCut QAOA, and unsupported goals raise `manual_qspec_required`. That is a valid current boundary, but it means Phase 1 should not be planned as “arbitrary natural language to QSpec.” `[VERIFIED: src/quantum_runtime/intent/planner.py:79-93]` `[VERIFIED: tests/test_planner.py:148-186]`
+- `build_execution_plan_from_resolved()` mixes ingress normalization with backend-capability and baseline-readiness findings, so `plan` or `resolve` can become `degraded` for reasons unrelated to parsing or semantic equivalence. That is useful, but the planner should avoid treating every degraded result as a Phase 1 ingress failure. `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:136-162]`
+- `semantic_hash` is sensitive to execution-oriented metadata because it aliases `execution_hash`, and `execution_hash` includes the full semantic summary. Changing parser defaults, runtime metadata, export requirements, policy hints, or provenance will change the hash contract. `[VERIFIED: src/quantum_runtime/qspec/semantics.py:21-56]` `[VERIFIED: src/quantum_runtime/intent/parser.py:26-37]` `[VERIFIED: src/quantum_runtime/intent/planner.py:210-241]`
+- Workspace defaults can influence requested exports for `qspec_file` and report/revision ingress through `_default_exports()` and report artifact inspection. That is outside the explicit Phase 1 success criteria, but it is a real coupling in the shared resolver. `[VERIFIED: src/quantum_runtime/runtime/resolve.py:270-296]` `[VERIFIED: .planning/ROADMAP.md:22-30]`
 
-## Architecture Patterns
+## 5. What Plan Constraints Should The Planner Honor To Avoid Regressions?
 
-### Recommended Project Structure
-```text
-src/quantum_runtime/
-├── intent/          # prompt, markdown, and structured JSON parsing into IntentModel
-├── runtime/         # canonical resolve/plan surfaces and machine-readable contracts
-├── qspec/           # canonical IR, normalization, validation, semantic hashing
-└── workspace/       # mutation boundary used only after ingress is resolved
-tests/
-├── test_intent_parser.py
-├── test_planner.py
-├── test_qspec_validation.py
-├── test_cli_control_plane.py
-└── test_cli_runtime_gap.py
-```
-This is already the effective Phase 1 structure in the repo and should remain the planning backbone. [VERIFIED: codebase grep 2026-04-12]
-
-### Pattern 1: Intent-Only Prompt Normalization
-**What:** Keep prompt-only normalization as a pure `IntentResolution` surface that stops before planning or workspace access. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/cli.py`]  
-**When to use:** Use this for `INGR-01` and any agent preflight that only needs a normalized machine intent. [VERIFIED: `.planning/REQUIREMENTS.md`; `src/quantum_runtime/cli.py`]  
-**Example:**
-```python
-result = intent_resolution_from_prompt(text)
-return IntentResolution(
-    source_kind="prompt_text",
-    source="<inline>",
-    intent=_intent_payload(intent=intent, source_kind="prompt_text", source="<inline>"),
-)
-```
-Source: `src/quantum_runtime/runtime/resolve.py` [VERIFIED: `src/quantum_runtime/runtime/resolve.py`]
-
-### Pattern 2: One Resolver For All Executable Ingress
-**What:** Feed markdown, structured JSON, inline prompt text, and later import-backed inputs through `resolve_runtime_input()` so the rest of the runtime only sees `ResolvedRuntimeInput`. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`]  
-**When to use:** Use this for `resolve`, `plan`, and `exec`; do not add ingress-specific planning branches in the CLI. [VERIFIED: `src/quantum_runtime/cli.py`; `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/runtime/executor.py`]  
-**Example:**
-```python
-resolved = resolve_runtime_input(
-    workspace_root=workspace_root,
-    intent_file=intent_file,
-    intent_json_file=intent_json_file,
-    qspec_file=qspec_file,
-    report_file=report_file,
-    revision=revision,
-    intent_text=intent_text,
-)
-plan = build_execution_plan_from_resolved(workspace_root=workspace_root, resolved=resolved)
-```
-Source: `src/quantum_runtime/runtime/control_plane.py` [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`]
-
-### Pattern 3: Identity Comes From Normalized QSpec Semantics
-**What:** Compute `workload_id`, `workload_hash`, and `semantic_hash` from the normalized `QSpec`, not from ingress text. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`]  
-**When to use:** Use this whenever the planner needs to reason about INGR-03 or compare whether two ingress forms describe the same runtime object. [VERIFIED: `.planning/REQUIREMENTS.md`; `src/quantum_runtime/qspec/semantics.py`]  
-**Example:**
-```python
-semantics = summarize_qspec_semantics(resolved.qspec)
-semantic_hash = semantics["semantic_hash"]
-workload_id = semantics["workload_id"]
-```
-Source: `src/quantum_runtime/runtime/control_plane.py` and `src/quantum_runtime/qspec/semantics.py` [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/qspec/semantics.py`]
-
-### Anti-Patterns to Avoid
-- **Workspace mutation during preflight:** `prompt`, `resolve`, and `plan` are currently side-effect-free; do not let Phase 1 move workspace initialization or artifact writes ahead of `exec`. [VERIFIED: `src/quantum_runtime/runtime/executor.py`; `tests/test_cli_control_plane.py`; local CLI probe 2026-04-12]
-- **Hashing raw ingress text:** raw prompt or markdown equality is not FluxQ’s identity rule; the canonical object is the normalized `QSpec`. [VERIFIED: AGENTS.md; `src/quantum_runtime/qspec/semantics.py`]
-- **Ingress-specific semantic rules in the CLI:** keep parser, planner, and validation logic under `intent/`, `runtime/resolve.py`, and `qspec/`; `cli.py` should stay a thin boundary layer. [VERIFIED: AGENTS.md; `src/quantum_runtime/cli.py`; `.planning/codebase/ARCHITECTURE.md`]
-
-## Don't Hand-Roll
-
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| One-of-many input selection | Custom selector logic per command | The existing exact-one-input guard in `resolve_runtime_input()` | The resolver already enforces a single ingress selector and raises stable errors when callers pass zero or multiple inputs. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/contracts.py`] |
-| Intent schema parsing | Ad hoc dict extraction and string munging | `IntentModel` plus `parse_intent_text()`, `parse_intent_file()`, and `parse_intent_json_file()` | The current parser stack already normalizes defaults for exports, backend preferences, constraints, and shots. [VERIFIED: `src/quantum_runtime/intent/structured.py`; `src/quantum_runtime/intent/parser.py`] |
-| YAML front matter parsing | Regex-based YAML splitting | `split_front_matter()` + `yaml.safe_load()` | The repo already isolates markdown front matter parsing in one helper, which is simpler and safer than re-parsing YAML in multiple ingress paths. [VERIFIED: `src/quantum_runtime/intent/markdown.py`] |
-| Semantic identity | Text hash or serialized-intent hash | `normalize_qspec()`, `validate_qspec()`, and `summarize_qspec_semantics()` | Identity needs canonical circuit/runtime semantics, not source-form specifics. [VERIFIED: `src/quantum_runtime/qspec/validation.py`; `src/quantum_runtime/qspec/semantics.py`] |
-
-**Key insight:** Phase 1 does not need new libraries; it needs one locked normalization contract and tests that prevent future drift between prompt, markdown, and structured JSON ingress. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `tests/test_cli_runtime_gap.py`]
-
-## Common Pitfalls
-
-### Pitfall 1: Treating Workload Identity And Semantic Identity As The Same Thing
-**What goes wrong:** Two ingress forms can share the same `workload_id` but still produce different `semantic_hash` values when one form carries extra constraints or backend or export metadata. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12]  
-**Why it happens:** `workload_hash` is built from subject-shape fields, while `semantic_hash` aliases the broader execution hash over the full semantic summary. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`]  
-**How to avoid:** Lock INGR-03 to “same normalized `QSpec` semantics” and add both positive and negative parity tests. [VERIFIED: `.planning/REQUIREMENTS.md`; `tests/test_cli_runtime_gap.py`]  
-**Warning signs:** Equal `workload_id` with unequal `semantic_hash`, or prompt-vs-markdown parity failures when markdown front matter adds explicit constraints. [VERIFIED: local CLI probe 2026-04-12]
-
-### Pitfall 2: Letting Dry-Run Commands Cross The Mutation Boundary
-**What goes wrong:** A resolver or planner that touches `WorkspaceManager.load_or_init()` would create workspace state before execution begins. [VERIFIED: `src/quantum_runtime/runtime/executor.py`; `src/quantum_runtime/workspace/manager.py`]  
-**Why it happens:** The executor already owns workspace initialization, revision reservation, and runtime-object persistence, so copying its behavior into `resolve` or `plan` is an easy refactor mistake. [VERIFIED: `src/quantum_runtime/runtime/executor.py`]  
-**How to avoid:** Keep `prompt`, `resolve`, and `plan` on pure control-plane functions and add explicit filesystem assertions in CLI tests. [VERIFIED: `src/quantum_runtime/cli.py`; `tests/test_cli_control_plane.py`; local CLI probe 2026-04-12]  
-**Warning signs:** A `.quantum` directory appears after `prompt`, `resolve`, or `plan`, or preflight commands begin reserving revisions. [VERIFIED: local CLI probe 2026-04-12]
-
-### Pitfall 3: Duplicating Ingress Normalization In The CLI
-**What goes wrong:** `prompt`, `resolve`, `plan`, and `exec` drift in defaults, error handling, or semantic hashing because each command implements its own parsing path. [VERIFIED: `src/quantum_runtime/cli.py`; `src/quantum_runtime/runtime/resolve.py`]  
-**Why it happens:** `cli.py` is large, and it is tempting to solve a new ingress case by branching locally instead of extending `ResolvedRuntimeInput`. [VERIFIED: AGENTS.md; `.planning/codebase/CONCERNS.md`]  
-**How to avoid:** Treat `ResolvedRuntimeInput` as the only executable ingress contract and keep CLI changes limited to option wiring and output formatting. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/cli.py`]  
-**Warning signs:** A new CLI option requires bespoke planning logic instead of calling `resolve_runtime_input()`. [VERIFIED: `src/quantum_runtime/cli.py`]
-
-### Pitfall 4: Ignoring Backend Capability Effects In Dry-Run Results
-**What goes wrong:** Plan and resolve tests assume `status=\"ok\"` in environments where optional or required backends are unavailable. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/runtime/backend_registry.py`]  
-**Why it happens:** `build_execution_plan_from_resolved()` already merges backend capability findings into `blockers` and `advisories`. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`]  
-**How to avoid:** Keep Phase 1 equivalence tests focused on intent, `QSpec`, and identity fields, and assert backend advisories separately. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `tests/test_cli_control_plane.py`]  
-**Warning signs:** Optional-backend advisories, such as missing `classiq`, unexpectedly flip resolve or plan payload status in new tests. [VERIFIED: local CLI probe 2026-04-12; local import probe 2026-04-12]
-
-## Code Examples
-
-Verified patterns from the current codebase:
-
-### Normalize Prompt Text Without Planning
-```python
-result = intent_resolution_from_prompt("Build a 4-qubit GHZ circuit and measure all qubits.")
-assert result.source_kind == "prompt_text"
-assert result.intent["backend_preferences"] == ["qiskit-local"]
-```
-Source: `src/quantum_runtime/runtime/resolve.py` and `tests/test_cli_runtime_gap.py` [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `tests/test_cli_runtime_gap.py`]
-
-### Resolve Markdown Or Structured JSON Through The Same Control-Plane Surface
-```python
-result = resolve_runtime_object(
-    workspace_root=workspace,
-    intent_file=intent_file,
-)
-assert result.qspec["semantic_hash"].startswith("sha256:")
-assert result.plan["execution"]["selected_backends"] == ["qiskit-local"]
-```
-Source: `src/quantum_runtime/runtime/control_plane.py` and `tests/test_cli_runtime_gap.py` [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `tests/test_cli_runtime_gap.py`]
-
-### Lock Positive Semantic Parity In Tests
-```python
-assert json_payload["qspec"]["semantic_hash"] == markdown_payload["qspec"]["semantic_hash"]
-assert json_payload["qspec"]["workload_id"] == markdown_payload["qspec"]["workload_id"]
-```
-Source: `tests/test_cli_runtime_gap.py` [VERIFIED: `tests/test_cli_runtime_gap.py`]
-
-## State of the Art
-
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Raw ingress text as the effective subject identity | Normalized `QSpec` semantics with separate `workload_hash` and `semantic_hash` [VERIFIED: `src/quantum_runtime/qspec/semantics.py`] | Current repo state on 2026-04-12 [VERIFIED: codebase grep 2026-04-12] | Lets downstream compare and replay logic reason about canonical runtime objects instead of source-form noise. [VERIFIED: `src/quantum_runtime/runtime/compare.py`; `src/quantum_runtime/runtime/imports.py`] |
-| Parse-and-execute as one indistinguishable step | Split `prompt`, `resolve`, `plan`, and `exec` surfaces with `exec` as the first mutating boundary [VERIFIED: `src/quantum_runtime/cli.py`; `src/quantum_runtime/runtime/executor.py`] | Current repo state on 2026-04-12 [VERIFIED: codebase grep 2026-04-12] | Phase 1 can be planned as ingress-boundary hardening instead of executor redesign. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/runtime/executor.py`] |
-
-**Deprecated/outdated:**
-- Using raw prompt or markdown text as the identity surface is outdated for FluxQ; the repo-standard identity surface is `summarize_qspec_semantics()` over normalized `QSpec`. [VERIFIED: AGENTS.md; `src/quantum_runtime/qspec/semantics.py`]
-- Adding new ingress behavior directly inside `cli.py` is outdated for this repo; extend `resolve_runtime_input()` and downstream typed payloads instead. [VERIFIED: `.planning/codebase/ARCHITECTURE.md`; `src/quantum_runtime/runtime/resolve.py`]
-
-## Assumptions Log
-
-All claims in this research were verified or cited in this session; no additional user confirmation is required before planning. [VERIFIED: this research session 2026-04-12]
-
-## Open Questions
-
-1. **What exactly counts as “semantically equivalent” across prompt, markdown, and structured JSON?**
-   - What we know: The current implementation computes identity from normalized `QSpec` semantics, and prompt-vs-markdown parity only holds when the normalized semantics match. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12]
-   - What's unclear: Whether Phase 1 should infer richer constraints from free text or define equivalence strictly as equality after explicit normalization. [VERIFIED: `src/quantum_runtime/intent/parser.py`; `src/quantum_runtime/intent/planner.py`]
-   - Recommendation: Lock this definition in the Phase 1 plan and add one positive parity test plus one intentional mismatch test. [VERIFIED: `.planning/REQUIREMENTS.md`; `tests/test_cli_runtime_gap.py`]
-
-## Environment Availability
-
-| Dependency | Required By | Available | Version | Fallback |
-|------------|------------|-----------|---------|----------|
-| Python 3.11 virtualenv | Repo runtime and tests | ✓ [VERIFIED: `.venv` Python probe 2026-04-12] | `3.11.15` [VERIFIED: `.venv` Python probe 2026-04-12] | — |
-| System `uv` | Repo-standard developer workflow | ✓ [VERIFIED: `uv --version` 2026-04-12] | `0.11.1` [VERIFIED: `uv --version` 2026-04-12] | `./scripts/dev-bootstrap.sh install` uses `venv` and `pip`. [VERIFIED: `scripts/dev-bootstrap.sh`] |
-| `pytest` in `.venv` | Phase 1 regression suite | ✓ [VERIFIED: `.venv` pytest probe 2026-04-12] | `9.0.2` [VERIFIED: `.venv` pytest probe 2026-04-12] | — |
-| `qiskit` / `qiskit-aer` in `.venv` | `qiskit-local` capability checks seen in dry-run plans | ✓ [VERIFIED: local import probe 2026-04-12] | `2.3.1` / `0.17.2` [VERIFIED: local import probe 2026-04-12] | — |
-| `classiq` in `.venv` | Optional backend advisory path | ✗ [VERIFIED: local import probe 2026-04-12] | — | Treat as optional advisory only; do not make Phase 1 depend on it. [VERIFIED: `src/quantum_runtime/runtime/backend_registry.py`; `src/quantum_runtime/runtime/control_plane.py`] |
-
-**Missing dependencies with no fallback:**
-- None for Phase 1. [VERIFIED: local environment probes 2026-04-12]
-
-**Missing dependencies with fallback:**
-- `classiq` is absent, but Phase 1 can proceed because the backend is optional and dry-run payloads already model it as an advisory unless requested explicitly. [VERIFIED: `src/quantum_runtime/runtime/backend_registry.py`; `src/quantum_runtime/runtime/control_plane.py`]
-
-## Validation Architecture
-
-### Test Framework
-| Property | Value |
-|----------|-------|
-| Framework | `pytest 9.0.2` [VERIFIED: `.venv` pytest probe 2026-04-12] |
-| Config file | `pyproject.toml` [VERIFIED: `pyproject.toml`] |
-| Quick run command | `PYTHONPATH=src ./.venv/bin/python -m pytest -q tests/test_intent_parser.py tests/test_planner.py tests/test_qspec_validation.py tests/test_cli_control_plane.py tests/test_cli_runtime_gap.py` [VERIFIED: targeted pytest run 2026-04-12] |
-| Full suite command | `./scripts/dev-bootstrap.sh verify` [VERIFIED: `scripts/dev-bootstrap.sh`] |
-
-### Phase Requirements → Test Map
-| Req ID | Behavior | Test Type | Automated Command | File Exists? |
-|--------|----------|-----------|-------------------|-------------|
-| `INGR-01` | Prompt text returns normalized machine intent without side effects. [VERIFIED: `.planning/REQUIREMENTS.md`] | CLI integration | `PYTHONPATH=src ./.venv/bin/python -m pytest -q tests/test_cli_runtime_gap.py::test_qrun_prompt_json_returns_normalized_intent_payload` [VERIFIED: `tests/test_cli_runtime_gap.py`] | ✅ [VERIFIED: `tests/test_cli_runtime_gap.py`] |
-| `INGR-02` | Prompt, markdown, and JSON resolve through one canonical `QSpec` plus plan surface. [VERIFIED: `.planning/REQUIREMENTS.md`] | CLI integration | `PYTHONPATH=src ./.venv/bin/python -m pytest -q tests/test_cli_runtime_gap.py::test_qrun_resolve_json_normalizes_structured_intent_and_returns_plan tests/test_cli_control_plane.py::test_qrun_plan_json_is_dry_run_and_returns_machine_plan` [VERIFIED: `tests/test_cli_runtime_gap.py`; `tests/test_cli_control_plane.py`] | ✅ [VERIFIED: `tests/test_cli_runtime_gap.py`; `tests/test_cli_control_plane.py`] |
-| `INGR-03` | Semantically equivalent ingress forms share `workload_id` and `semantic_hash`. [VERIFIED: `.planning/REQUIREMENTS.md`] | CLI integration | `PYTHONPATH=src ./.venv/bin/python -m pytest -q tests/test_cli_runtime_gap.py::test_qrun_resolve_json_normalizes_structured_intent_and_returns_plan` [VERIFIED: `tests/test_cli_runtime_gap.py`] | ✅ partial [VERIFIED: `tests/test_cli_runtime_gap.py`] |
-
-### Sampling Rate
-- **Per task commit:** Run the quick Phase 1 subset above. [VERIFIED: targeted pytest run 2026-04-12]
-- **Per wave merge:** Run `./scripts/dev-bootstrap.sh verify`, then capture and triage any existing non-phase `mypy` failures explicitly. [VERIFIED: `scripts/dev-bootstrap.sh`; local `mypy src` run 2026-04-12]
-- **Phase gate:** Require the targeted Phase 1 pytest subset green plus explicit sign-off on the current unrelated `mypy` debt until that debt is fixed. [VERIFIED: local `mypy src` run 2026-04-12; `.planning/codebase/CONCERNS.md`]
-
-### Wave 0 Gaps
-- [ ] `tests/test_cli_runtime_gap.py` — add explicit assertions that `resolve` leaves the workspace absent, not just `plan`. [VERIFIED: `tests/test_cli_control_plane.py`; local CLI probe 2026-04-12]
-- [ ] `tests/test_cli_runtime_gap.py` or `tests/test_runtime_resolve.py` — add prompt-vs-markdown-vs-JSON parity coverage for a case with identical normalized semantics. [VERIFIED: `tests/test_cli_runtime_gap.py`; local CLI probe 2026-04-12]
-- [ ] `tests/test_cli_runtime_gap.py` or `tests/test_runtime_resolve.py` — add a negative parity case that intentionally changes constraints and proves `semantic_hash` diverges even when `workload_id` matches. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12]
-- [ ] `tests/test_runtime_resolve.py` — add direct unit coverage for `expected_exactly_one_input`, `manual_qspec_required`, and `ResolvedRuntimeInput` contents without going through the CLI. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`]
-- [ ] Full verification remains red because `mypy src` currently fails in unrelated runtime files. [VERIFIED: local `mypy src` run 2026-04-12; `.planning/codebase/CONCERNS.md`]
-
-## Security Domain
-
-### Applicable ASVS Categories
-
-| ASVS Category | Applies | Standard Control |
-|---------------|---------|-----------------|
-| V2 Authentication | no [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] | No authentication layer exists in the core Python runtime. [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] |
-| V3 Session Management | no [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] | Local CLI ingress has no session layer. [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] |
-| V4 Access Control | no [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] | Phase 1 is local single-process ingress parsing, not multi-user authorization. [VERIFIED: `.planning/codebase/ARCHITECTURE.md`] |
-| V5 Input Validation | yes [VERIFIED: `src/quantum_runtime/intent/structured.py`; `src/quantum_runtime/qspec/validation.py`] | Use `IntentModel`, `QSpec`, `normalize_qspec()`, and `validate_qspec()`; never trust raw prompt, markdown, or JSON directly. [VERIFIED: `src/quantum_runtime/intent/parser.py`; `src/quantum_runtime/qspec/validation.py`] |
-| V6 Cryptography | yes [VERIFIED: `src/quantum_runtime/qspec/semantics.py`] | Use the existing `hashlib.sha256`-based semantic and workload digests for integrity signaling; do not invent a second hash scheme in Phase 1. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`] |
-
-### Known Threat Patterns for FluxQ ingress
-
-| Pattern | STRIDE | Standard Mitigation |
-|---------|--------|---------------------|
-| Malformed JSON, YAML, or markdown input | Tampering | Parse into typed models and raise stable `ImportSourceError` or `QSpecValidationError` codes instead of continuing with partial state. [VERIFIED: `src/quantum_runtime/intent/parser.py`; `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/qspec/validation.py`] |
-| Ambiguous multi-input selection | Tampering | Keep the exact-one-input guard in `resolve_runtime_input()` and surface `expected_exactly_one_input`. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/contracts.py`] |
-| Semantic identity spoofing via non-canonical source text | Spoofing | Compare normalized `QSpec` semantics, not prompt text, markdown formatting, or JSON field order. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; `src/quantum_runtime/qspec/validation.py`] |
-| Workspace side effects during preflight | Tampering | Keep workspace mutation inside executor paths only and add no-write tests for preflight commands. [VERIFIED: `src/quantum_runtime/runtime/executor.py`; local CLI probe 2026-04-12] |
+- Keep `QSpec` as the canonical truth layer and evolve it compatibly instead of introducing a new IR or bypass path. `[VERIFIED: .planning/PROJECT.md:46-50]` `[VERIFIED: .planning/PROJECT.md:56-60]`
+- Keep all supported ingress normalization routed through `src/quantum_runtime/runtime/resolve.py` and `ResolvedRuntimeInput`; do not duplicate resolution logic inside CLI commands. `[VERIFIED: AGENTS.md:138-145]` `[VERIFIED: AGENTS.md:183-188]` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:103-198]`
+- Preserve the side-effect-free contract for `prompt`, `resolve`, and `plan`; persisted `intent`, `plan`, and event artifacts belong to `exec` and the later runtime-artifact phases. `[VERIFIED: .planning/ROADMAP.md:22-39]` `[VERIFIED: .planning/REQUIREMENTS.md:10-20]` `[VERIFIED: tests/test_cli_runtime_gap.py:81-115]`
+- Preserve existing machine-readable payload shape and schema-versioned behavior for the ingress surfaces that already have tests, including `schema_version == "0.3.0"` and the current `intent`, `qspec`, and `plan` blocks returned by JSON mode. `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
+- Do not change default prompt/markdown normalization lightly: default exports, backend preferences, shots, and supported pattern heuristics already affect `QSpec` generation and hash identity. `[VERIFIED: src/quantum_runtime/intent/parser.py:26-37]` `[VERIFIED: src/quantum_runtime/intent/planner.py:30-76]`
+- Treat unsupported goals as a deliberate `manual_qspec_required` boundary unless requirements explicitly expand the planner’s language coverage. `[VERIFIED: src/quantum_runtime/intent/planner.py:79-93]` `[VERIFIED: tests/test_planner.py:180-186]`
+- If Phase 1 adds new tests, prefer tests that prove cross-ingress parity and no-write behavior rather than broadening the planner’s pattern catalog. That aligns with the roadmap’s success criteria and avoids accidental Phase 2 scope creep. `[VERIFIED: .planning/ROADMAP.md:22-30]` `[VERIFIED: tests/test_cli_runtime_gap.py:16-78]`
 
 ## Sources
 
-### Primary (HIGH confidence)
-- `AGENTS.md` - product constraints, stack constraints, and architecture rules. [VERIFIED: AGENTS.md]
-- `pyproject.toml`, `uv.lock`, `.github/workflows/ci.yml`, `scripts/dev-bootstrap.sh` - package pins, test tooling, and bootstrap or verification commands. [VERIFIED: `pyproject.toml`; `uv.lock`; `.github/workflows/ci.yml`; `scripts/dev-bootstrap.sh`]
-- `src/quantum_runtime/runtime/resolve.py` - canonical ingress normalization and prompt-only intent resolution. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`]
-- `src/quantum_runtime/runtime/control_plane.py` - dry-run resolve and plan surfaces plus semantic-plan payload shape. [VERIFIED: `src/quantum_runtime/runtime/control_plane.py`]
-- `src/quantum_runtime/qspec/model.py`, `src/quantum_runtime/qspec/validation.py`, `src/quantum_runtime/qspec/semantics.py` - canonical runtime object, normalization, validation, and identity hashing. [VERIFIED: `src/quantum_runtime/qspec/model.py`; `src/quantum_runtime/qspec/validation.py`; `src/quantum_runtime/qspec/semantics.py`]
-- `src/quantum_runtime/runtime/executor.py` - first mutation boundary and runtime-object persistence. [VERIFIED: `src/quantum_runtime/runtime/executor.py`]
-- `tests/test_intent_parser.py`, `tests/test_planner.py`, `tests/test_qspec_validation.py`, `tests/test_cli_control_plane.py`, `tests/test_cli_runtime_gap.py` - current Phase 1 behavior coverage. [VERIFIED: `tests/`]
-- Typer docs - command and option structure. [CITED: https://typer.tiangolo.com/tutorial/commands/; CITED: https://typer.tiangolo.com/tutorial/options/]
-- Pydantic docs - typed validation and serialization model rationale. [CITED: https://docs.pydantic.dev/latest/why/]
-- pytest docs - parametrized test patterns for equivalence matrices. [CITED: https://docs.pytest.org/en/stable/how-to/parametrize.html]
-
-### Secondary (MEDIUM confidence)
-- PyPI project pages for repo-pinned verification tools and published release metadata. [CITED: https://pypi.org/project/pytest/9.0.2/; CITED: https://pypi.org/project/ruff/0.15.8/; CITED: https://pypi.org/project/qiskit-aer/0.17.2/]
-
-### Tertiary (LOW confidence)
-- None. [VERIFIED: this research session 2026-04-12]
-
-## Metadata
-
-**Confidence breakdown:**
-- Standard stack: HIGH - the phase can reuse the existing repo stack without new libraries, and the relevant pins and commands are verified locally. [VERIFIED: `uv.lock`; `scripts/dev-bootstrap.sh`; local import probe 2026-04-12]
-- Architecture: HIGH - the canonical resolver, control-plane, and executor boundaries are already explicit in code and tests. [VERIFIED: `src/quantum_runtime/runtime/resolve.py`; `src/quantum_runtime/runtime/control_plane.py`; `src/quantum_runtime/runtime/executor.py`]
-- Pitfalls: HIGH - the biggest risks are directly observable in current hashing behavior, dry-run boundaries, and verification gaps. [VERIFIED: `src/quantum_runtime/qspec/semantics.py`; local CLI probe 2026-04-12; local `mypy src` run 2026-04-12]
-
-**Research date:** 2026-04-12 [VERIFIED: this research session 2026-04-12]  
-**Valid until:** 2026-05-12 for repo-state facts; re-check sooner if dependency pins or ingress behavior change. [VERIFIED: repo state 2026-04-12]
+- `.planning/PROJECT.md` `[VERIFIED: .planning/PROJECT.md:1-80]`
+- `.planning/ROADMAP.md` `[VERIFIED: .planning/ROADMAP.md:1-91]`
+- `.planning/REQUIREMENTS.md` `[VERIFIED: .planning/REQUIREMENTS.md:1-80]`
+- `AGENTS.md` `[VERIFIED: AGENTS.md:1-244]`
+- `src/quantum_runtime/cli.py` `[VERIFIED: src/quantum_runtime/cli.py:217-442]` `[VERIFIED: src/quantum_runtime/cli.py:912-1056]`
+- `src/quantum_runtime/runtime/resolve.py` `[VERIFIED: src/quantum_runtime/runtime/resolve.py:29-296]`
+- `src/quantum_runtime/runtime/control_plane.py` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:103-198]` `[VERIFIED: src/quantum_runtime/runtime/control_plane.py:494-508]`
+- `src/quantum_runtime/intent/parser.py` `[VERIFIED: src/quantum_runtime/intent/parser.py:12-78]`
+- `src/quantum_runtime/intent/planner.py` `[VERIFIED: src/quantum_runtime/intent/planner.py:30-510]`
+- `src/quantum_runtime/qspec/semantics.py` `[VERIFIED: src/quantum_runtime/qspec/semantics.py:13-143]`
+- `tests/test_cli_runtime_gap.py` `[VERIFIED: tests/test_cli_runtime_gap.py:16-115]`
+- `tests/test_planner.py` `[VERIFIED: tests/test_planner.py:16-186]`
