@@ -21,6 +21,8 @@ REMEDIATIONS: dict[str, str] = {
     "workspace_manifest_missing": "Initialize the workspace with `qrun init` or point the command at an existing workspace.",
     "workspace_root_required_for_revision": "Pass `--workspace` when resolving a historical revision.",
     "workspace_root_required_for_report_file": "Pass `--workspace` or use a report file that still carries recoverable workspace provenance.",
+    "workspace_conflict": "Wait for the current workspace lease holder to finish, then retry the command or use a different workspace.",
+    "workspace_recovery_required": "Run `qrun doctor --fix` or clear the interrupted-write leftovers after validating the last known good revision.",
 }
 
 
@@ -40,9 +42,93 @@ class ErrorPayload(SchemaPayload):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkspaceConflictDetails(BaseModel):
+    """Structured metadata for a held workspace lease."""
+
+    workspace: str
+    lock_path: str
+    holder: dict[str, Any] = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkspaceConflictErrorPayload(ErrorPayload):
+    """Structured machine payload for workspace lease conflicts."""
+
+    reason: Literal["workspace_conflict"] = "workspace_conflict"
+    error_code: Literal["workspace_conflict"] = "workspace_conflict"
+    details: WorkspaceConflictDetails
+
+
+class WorkspaceRecoveryRequiredDetails(BaseModel):
+    """Structured metadata for interrupted-write recovery state."""
+
+    workspace: str
+    pending_files: list[str] = Field(default_factory=list)
+    last_valid_revision: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkspaceRecoveryRequiredErrorPayload(ErrorPayload):
+    """Structured machine payload for recovery-required workspace failures."""
+
+    reason: Literal["workspace_recovery_required"] = "workspace_recovery_required"
+    error_code: Literal["workspace_recovery_required"] = "workspace_recovery_required"
+    details: WorkspaceRecoveryRequiredDetails
+
+
 def remediation_for_error(error_code: str) -> str:
     """Return the best-known remediation for one runtime error code."""
     return REMEDIATIONS.get(error_code, DEFAULT_REMEDIATION)
+
+
+def workspace_conflict_error_payload(
+    *,
+    workspace: str,
+    lock_path: str,
+    holder: dict[str, Any],
+    reason_codes: list[str],
+    next_actions: list[str],
+    gate: dict[str, Any],
+) -> WorkspaceConflictErrorPayload:
+    """Build a schema-versioned payload for held workspace leases."""
+    return WorkspaceConflictErrorPayload(
+        remediation=remediation_for_error("workspace_conflict"),
+        details=WorkspaceConflictDetails(
+            workspace=workspace,
+            lock_path=lock_path,
+            holder=holder,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+            gate=gate,
+        ),
+    )
+
+
+def workspace_recovery_required_error_payload(
+    *,
+    workspace: str,
+    pending_files: list[str],
+    last_valid_revision: str | None,
+    reason_codes: list[str],
+    next_actions: list[str],
+    gate: dict[str, Any],
+) -> WorkspaceRecoveryRequiredErrorPayload:
+    """Build a schema-versioned payload for interrupted-write recovery."""
+    return WorkspaceRecoveryRequiredErrorPayload(
+        remediation=remediation_for_error("workspace_recovery_required"),
+        details=WorkspaceRecoveryRequiredDetails(
+            workspace=workspace,
+            pending_files=pending_files,
+            last_valid_revision=last_valid_revision,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+            gate=gate,
+        ),
+    )
 
 
 def ensure_schema_payload(value: Any) -> dict[str, Any]:

@@ -21,10 +21,30 @@ class JsonlEvent(BaseModel):
         default_factory=lambda: datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     )
     event_type: str
+    phase: str
     workspace: str
     status: str
     revision: str | None = None
+    error_code: str | None = None
+    remediation: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def phase_for_event_type(event_type: str) -> str:
+    """Map a machine event type into a stable phase label."""
+    if event_type in {"run_started", "input_resolved", "qspec_prepared", "intent_written", "plan_written"}:
+        return "resolve"
+    if event_type in {"artifact_written", "report_written", "manifest_written", "run_completed"}:
+        return "execute"
+    if event_type in {"compare_started", "left_resolved", "right_resolved", "compare_completed"}:
+        return "compare"
+    if event_type in {"benchmark_started", "benchmark_completed"} or event_type.startswith("backend_"):
+        return "benchmark"
+    if event_type in {"doctor_started", "workspace_checked", "dependency_checked", "doctor_completed"}:
+        return "doctor"
+    if event_type in {"pack_started", "pack_artifact_copied", "pack_completed"}:
+        return "pack"
+    return "runtime"
 
 
 def normalize_reason_codes(raw_items: list[str]) -> list[str]:
@@ -112,4 +132,36 @@ def gate_block(
         "severity": severity,
         "reason_codes": reason_codes,
         "recommended_action": next_actions[0] if next_actions else None,
+    }
+
+
+def workspace_conflict_observability() -> dict[str, Any]:
+    """Build machine-readable guidance for a held workspace lease."""
+    reason_codes = ["workspace_conflict"]
+    next_actions = ["retry_when_workspace_free", "inspect_workspace_lock"]
+    return {
+        "reason_codes": reason_codes,
+        "next_actions": next_actions,
+        "gate": gate_block(
+            ready=False,
+            severity="warning",
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        ),
+    }
+
+
+def workspace_recovery_required_observability() -> dict[str, Any]:
+    """Build machine-readable guidance for interrupted-write recovery."""
+    reason_codes = ["workspace_recovery_required"]
+    next_actions = ["run_doctor_fix", "review_workspace_recovery"]
+    return {
+        "reason_codes": reason_codes,
+        "next_actions": next_actions,
+        "gate": gate_block(
+            ready=False,
+            severity="error",
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        ),
     }

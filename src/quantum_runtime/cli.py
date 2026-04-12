@@ -8,6 +8,7 @@ import typer
 
 from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
     ComparePolicy,
@@ -15,17 +16,23 @@ from quantum_runtime.runtime import (
     ImportResolution,
     ImportSourceError,
     build_execution_plan,
+    intent_resolution_from_prompt,
     ReportImportError,
+    resolve_runtime_object,
     schema_contract,
     show_run,
     compare_import_resolutions,
+    persist_compare_result,
     execute_intent,
+    execute_intent_json,
     execute_intent_text,
     execute_qspec,
     execute_report,
     export_artifact,
     export_artifact_from_resolution,
     inspect_workspace,
+    inspect_pack_bundle,
+    pack_revision,
     list_backends,
     resolve_import_reference,
     resolve_workspace_baseline,
@@ -37,6 +44,8 @@ from quantum_runtime.runtime.contracts import (
     dump_schema_payload,
     ensure_schema_payload,
     remediation_for_error,
+    workspace_conflict_error_payload,
+    workspace_recovery_required_error_payload,
 )
 from quantum_runtime.runtime.exit_codes import (
     exit_code_for_benchmark,
@@ -46,8 +55,14 @@ from quantum_runtime.runtime.exit_codes import (
     exit_code_for_exec,
     exit_code_for_export,
     exit_code_for_inspect,
+    exit_code_for_workspace_safety,
 )
 from quantum_runtime.runtime.observability import JsonlEvent
+from quantum_runtime.runtime.observability import phase_for_event_type
+from quantum_runtime.runtime.observability import (
+    workspace_conflict_observability,
+    workspace_recovery_required_observability,
+)
 from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManager, WorkspacePaths
 
 
@@ -62,17 +77,67 @@ app.add_typer(backend_app, name="backend")
 app.add_typer(baseline_app, name="baseline")
 
 
+def _emit_json_payload(payload: object, *, exit_code: int) -> None:
+    typer.echo(dump_schema_payload(payload))
+    raise typer.Exit(code=exit_code)
+
+
 def _json_error(reason: str) -> None:
-    typer.echo(
-        dump_schema_payload(
-            ErrorPayload(
-                reason=reason,
-                error_code=reason,
-                remediation=remediation_for_error(reason),
-            )
-        )
+    _emit_json_payload(
+        ErrorPayload(
+            reason=reason,
+            error_code=reason,
+            remediation=remediation_for_error(reason),
+        ),
+        exit_code=3,
     )
-    raise typer.Exit(code=3)
+
+
+def _workspace_safety_payload(
+    error: WorkspaceConflictError | WorkspaceRecoveryRequiredError,
+) -> object:
+    if isinstance(error, WorkspaceConflictError):
+        observability = workspace_conflict_observability()
+        return workspace_conflict_error_payload(
+            workspace=str(error.details["workspace"]),
+            lock_path=str(error.details["lock_path"]),
+            holder=dict(error.details.get("holder", {})),
+            reason_codes=list(observability["reason_codes"]),
+            next_actions=list(observability["next_actions"]),
+            gate=dict(observability["gate"]),
+        )
+    observability = workspace_recovery_required_observability()
+    last_valid_revision = error.details.get("last_valid_revision")
+    return workspace_recovery_required_error_payload(
+        workspace=str(error.details["workspace"]),
+        pending_files=[str(item) for item in error.details.get("pending_files", [])],
+        last_valid_revision=str(last_valid_revision) if last_valid_revision is not None else None,
+        reason_codes=list(observability["reason_codes"]),
+        next_actions=list(observability["next_actions"]),
+        gate=dict(observability["gate"]),
+    )
+
+
+def _handle_workspace_safety_error(
+    error: WorkspaceConflictError | WorkspaceRecoveryRequiredError,
+    *,
+    json_output: bool,
+    jsonl_output: bool = False,
+    event_sink=None,
+) -> None:
+    payload = _workspace_safety_payload(error)
+    exit_code = exit_code_for_workspace_safety(error.code)
+    if json_output:
+        _emit_json_payload(payload, exit_code=exit_code)
+    if jsonl_output and event_sink is not None:
+        event_sink(
+            "run_completed",
+            ensure_schema_payload(payload),
+            status="error",
+        )
+        raise typer.Exit(code=exit_code)
+    typer.echo(error.message)
+    raise typer.Exit(code=exit_code)
 
 
 def _echo_json(payload: object, *, exclude_none: bool = False) -> None:
@@ -88,11 +153,15 @@ def _make_jsonl_emitter(*, workspace: Path):
     workspace_str = str(workspace.resolve())
 
     def emit(event_type: str, payload: dict[str, object], revision: str | None = None, status: str = "ok") -> None:
+        error_code = str(payload.get("error_code")) if isinstance(payload, dict) and payload.get("error_code") is not None else None
         event = JsonlEvent(
             event_type=event_type,
+            phase=phase_for_event_type(event_type),
             workspace=workspace_str,
             revision=revision,
             status=status,
+            error_code=error_code,
+            remediation=remediation_for_error(error_code) if error_code is not None else None,
             payload=ensure_schema_payload(payload) if isinstance(payload, dict) and "status" in payload else payload,
         )
         typer.echo(event.model_dump_json())
@@ -203,6 +272,132 @@ def version_command() -> None:
     typer.echo(__version__)
 
 
+@app.command("prompt")
+def prompt_command(
+    text: str = typer.Argument(..., help="Natural-language prompt to normalize into a machine intent."),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Normalize a natural-language prompt without planning or execution."""
+    try:
+        result = intent_resolution_from_prompt(text)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid prompt input: {exc.code}") from exc
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=0)
+
+    typer.echo(result.intent.get("goal", ""))
+
+
+@app.command("resolve")
+def resolve_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory to inspect for defaults and baseline context.",
+    ),
+    intent_file: Path | None = typer.Option(
+        None,
+        "--intent-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Markdown intent file to normalize.",
+    ),
+    intent_json_file: Path | None = typer.Option(
+        None,
+        "--intent-json-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Structured JSON intent file to normalize.",
+    ),
+    qspec_file: Path | None = typer.Option(
+        None,
+        "--qspec-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Serialized QSpec JSON file to normalize.",
+    ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to normalize.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to normalize.",
+    ),
+    intent_text: str | None = typer.Option(
+        None,
+        "--intent-text",
+        "--prompt-text",
+        help="Inline intent text to normalize.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Resolve runtime ingress into canonical intent, qspec, and plan objects."""
+    try:
+        result = resolve_runtime_object(
+            workspace_root=workspace,
+            intent_file=intent_file,
+            intent_json_file=intent_json_file,
+            qspec_file=qspec_file,
+            report_file=report_file,
+            revision=revision,
+            intent_text=intent_text,
+        )
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid resolve input: {exc.code}") from exc
+    except ReportImportError as exc:
+        if json_output:
+            _json_error(exc.reason)
+        raise typer.BadParameter(f"Invalid resolve input: {exc.reason}") from exc
+    except ValueError as exc:
+        if json_output:
+            _json_error(str(exc))
+        raise typer.BadParameter(str(exc)) from exc
+
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+
+    typer.echo(
+        f"resolve status: {result.status}; pattern={result.qspec.get('pattern', 'unknown')}; "
+        f"workload_id={result.qspec.get('workload_id', 'unknown')}"
+    )
+    raise typer.Exit(code=exit_code_for_control_plane(result))
+
+
 @app.command("plan")
 def plan_command(
     workspace: Path = typer.Option(
@@ -223,6 +418,16 @@ def plan_command(
         readable=True,
         resolve_path=False,
         help="Markdown intent file to resolve into a dry-run plan.",
+    ),
+    intent_json_file: Path | None = typer.Option(
+        None,
+        "--intent-json-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Structured JSON intent file to resolve into a dry-run plan.",
     ),
     qspec_file: Path | None = typer.Option(
         None,
@@ -265,6 +470,7 @@ def plan_command(
         result = build_execution_plan(
             workspace_root=workspace,
             intent_file=intent_file,
+            intent_json_file=intent_json_file,
             qspec_file=qspec_file,
             report_file=report_file,
             revision=revision,
@@ -637,6 +843,11 @@ def export_command(
         "--format",
         help="One of: qiskit, qasm3, classiq-python.",
     ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        help="Named export profile such as qiskit-native or qasm3-generic.",
+    ),
     report_file: Path | None = typer.Option(
         None,
         "--report-file",
@@ -670,6 +881,7 @@ def export_command(
                 workspace_root=workspace,
                 resolution=import_resolution,
                 output_format=output_format,
+                profile=profile,
             )
         else:
             qspec_path = workspace / "specs" / "current.json"
@@ -677,7 +889,7 @@ def export_command(
                 if json_output:
                     _json_error("missing_qspec")
                 raise typer.BadParameter(f"Missing QSpec at {qspec_path}")
-            result = export_artifact(workspace_root=workspace, output_format=output_format)
+            result = export_artifact(workspace_root=workspace, output_format=output_format, profile=profile)
     except ImportSourceError as exc:
         if json_output:
             _json_error(exc.code)
@@ -693,6 +905,65 @@ def export_command(
 
     typer.echo(result.path or result.reason or result.status)
     raise typer.Exit(code=exit_code_for_export(result))
+
+
+@app.command("pack")
+def pack_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains the revision to pack.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace revision to package. Defaults to the current revision.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Package one revision into a portable runtime bundle."""
+    handle = WorkspaceManager.load_or_init(workspace)
+    target_revision = revision or handle.manifest.current_revision
+    result = pack_revision(workspace_root=workspace, revision=target_revision)
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=0 if result.status == "ok" else 3)
+    typer.echo(result.pack_root)
+    raise typer.Exit(code=0 if result.status == "ok" else 3)
+
+
+@app.command("pack-inspect")
+def pack_inspect_command(
+    pack_root: Path = typer.Option(
+        ...,
+        "--pack-root",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Pack bundle directory to inspect.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Inspect a portable runtime bundle for required files."""
+    inspection = inspect_pack_bundle(pack_root)
+    if json_output:
+        _echo_json(inspection)
+        raise typer.Exit(code=0 if inspection.status == "ok" else 3)
+    typer.echo(f"pack inspection: {inspection.status}")
+    raise typer.Exit(code=0 if inspection.status == "ok" else 3)
 
 
 @app.command("exec")
@@ -715,6 +986,16 @@ def exec_command(
         readable=True,
         resolve_path=False,
         help="Markdown intent file to execute.",
+    ),
+    intent_json_file: Path | None = typer.Option(
+        None,
+        "--intent-json-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Structured JSON intent file to execute.",
     ),
     qspec_file: Path | None = typer.Option(
         None,
@@ -761,13 +1042,13 @@ def exec_command(
     _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
     inputs_provided = sum(
         value is not None
-        for value in (intent_file, qspec_file, report_file, revision, intent_text)
+        for value in (intent_file, intent_json_file, qspec_file, report_file, revision, intent_text)
     )
     if inputs_provided != 1:
         if json_output:
             _json_error("expected_exactly_one_input")
         raise typer.BadParameter(
-            "Provide exactly one of --intent-file, --qspec-file, --report-file, --revision, or --intent-text."
+            "Provide exactly one of --intent-file, --intent-json-file, --qspec-file, --report-file, --revision, or --intent-text."
         )
 
     try:
@@ -777,6 +1058,18 @@ def exec_command(
                 result = execute_intent(workspace_root=workspace, intent_file=intent_file, event_sink=event_sink)
             else:
                 result = execute_intent(workspace_root=workspace, intent_file=intent_file)
+        elif intent_json_file is not None:
+            if event_sink is not None:
+                result = execute_intent_json(
+                    workspace_root=workspace,
+                    intent_json_file=intent_json_file,
+                    event_sink=event_sink,
+                )
+            else:
+                result = execute_intent_json(
+                    workspace_root=workspace,
+                    intent_json_file=intent_json_file,
+                )
         elif report_file is not None or revision is not None:
             import_resolution = _resolve_report_import(
                 workspace=workspace,
@@ -814,6 +1107,13 @@ def exec_command(
         if json_output:
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(
+            exc,
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+        )
     if json_output:
         _echo_json(result)
         raise typer.Exit(code=exit_code_for_exec(result))
@@ -904,6 +1204,11 @@ def compare_command(
         "--expect",
         help="Optional compare policy expectation: same-subject, different-subject, same-qspec, different-qspec, same-report, different-report.",
     ),
+    fail_on: str | None = typer.Option(
+        None,
+        "--fail-on",
+        help="Comma-separated compare gate failures: subject_drift,qspec_drift,report_drift,backend_regression,replay_integrity_regression.",
+    ),
     allow_report_drift: bool = typer.Option(
         True,
         "--allow-report-drift/--forbid-report-drift",
@@ -929,6 +1234,11 @@ def compare_command(
         "--jsonl",
         help="Emit newline-delimited machine-readable compare events.",
     ),
+    detail: bool = typer.Option(
+        False,
+        "--detail",
+        help="Emit a more detailed human-readable compare summary.",
+    ),
 ) -> None:
     """Compare two runtime inputs and answer whether they describe the same workload."""
     _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
@@ -952,13 +1262,16 @@ def compare_command(
         raise typer.BadParameter("Provide at most one of --right-report-file or --right-revision.")
 
     try:
+        fail_on_items = [item.strip() for item in fail_on.split(",") if item.strip()] if fail_on else []
         policy = ComparePolicy.model_validate({
             "expect": expect,
+            "fail_on": fail_on_items,
             "allow_report_drift": allow_report_drift,
             "forbid_backend_regressions": forbid_backend_regressions,
             "forbid_replay_integrity_regressions": forbid_replay_integrity_regressions,
         }) if (
             expect is not None
+            or bool(fail_on_items)
             or not allow_report_drift
             or forbid_backend_regressions
             or forbid_replay_integrity_regressions
@@ -1048,9 +1361,11 @@ def compare_command(
         raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
 
     if json_output:
+        persist_compare_result(workspace_root=workspace, result=result)
         _echo_json(result, exclude_none=True)
         raise typer.Exit(code=exit_code_for_compare(result, structured=True))
     if jsonl_output:
+        persist_compare_result(workspace_root=workspace, result=result)
         assert event_sink is not None
         event_sink(
             "compare_completed",
@@ -1062,11 +1377,29 @@ def compare_command(
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
     verdict_summary = result.verdict.get("summary", "No compare policy requested.") if isinstance(result.verdict, dict) else "No compare policy requested."
-    typer.echo(
-        f"{result.status}; left={result.left.revision}; right={result.right.revision}; "
-        f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}; "
-        f"policy={verdict_summary}; highlight={highlight}"
-    )
+    persist_compare_result(workspace_root=workspace, result=result)
+    if detail:
+        typer.echo(
+            "\n".join(
+                [
+                    f"status: {result.status}",
+                    f"left: {result.left.revision}",
+                    f"right: {result.right.revision}",
+                    f"same_qspec: {str(result.same_qspec).lower()}",
+                    f"same_report: {str(result.same_report).lower()}",
+                    f"policy: {verdict_summary}",
+                    f"differences: {', '.join(result.differences) if result.differences else 'none'}",
+                    f"reason_codes: {', '.join(result.reason_codes) if result.reason_codes else 'none'}",
+                    f"highlight: {highlight}",
+                ]
+            )
+        )
+    else:
+        typer.echo(
+            f"{result.status}; left={result.left.revision}; right={result.right.revision}; "
+            f"same_qspec={str(result.same_qspec).lower()}; same_report={str(result.same_report).lower()}; "
+            f"policy={verdict_summary}; highlight={highlight}"
+        )
     raise typer.Exit(code=exit_code_for_compare(result, structured=False))
 
 
