@@ -52,6 +52,42 @@ def test_summarize_qspec_semantics_keeps_equivalent_ingress_hashes_aligned() -> 
         assert _identity_block(summary) == expected_identity
 
 
+def test_summarize_qspec_semantics_keeps_equivalent_ghz_ingress_hashes_aligned() -> None:
+    summaries = [
+        summarize_qspec_semantics(qspec)
+        for qspec in _equivalent_ghz_qspecs()
+    ]
+    expected_identity = _identity_block(summaries[0])
+
+    for summary in summaries:
+        assert _identity_block(summary) == expected_identity
+
+
+def test_summarize_qspec_semantics_keeps_raw_prompt_ghz_workload_hashes_aligned() -> None:
+    markdown_summary = summarize_qspec_semantics(_equivalent_ghz_qspecs()[0])
+    raw_prompt_summary = summarize_qspec_semantics(_raw_prompt_ghz_qspec())
+
+    assert raw_prompt_summary["workload_id"] == markdown_summary["workload_id"]
+    assert raw_prompt_summary["workload_hash"] == markdown_summary["workload_hash"]
+    assert raw_prompt_summary["execution_hash"] != markdown_summary["execution_hash"]
+    assert raw_prompt_summary["semantic_hash"] != markdown_summary["semantic_hash"]
+
+
+def test_summarize_qspec_semantics_changes_execution_hash_without_changing_workload_hash() -> None:
+    original = _equivalent_ghz_qspecs()[0]
+    mutated = original.model_copy(deep=True)
+    mutated.backend_preferences = ["qiskit-local", "ionq-local"]
+    mutated.constraints.shots = 2048
+
+    original_summary = summarize_qspec_semantics(original)
+    mutated_summary = summarize_qspec_semantics(mutated)
+
+    assert mutated_summary["workload_id"] == original_summary["workload_id"]
+    assert mutated_summary["workload_hash"] == original_summary["workload_hash"]
+    assert mutated_summary["execution_hash"] != original_summary["execution_hash"]
+    assert mutated_summary["semantic_hash"] != original_summary["semantic_hash"]
+
+
 def test_summarize_qspec_semantics_distinguishes_different_workloads() -> None:
     ghz_summary = summarize_qspec_semantics(_golden_qspec("qspec_ghz.json"))
     qaoa_summary = summarize_qspec_semantics(_golden_qspec("qspec_qaoa_maxcut.json"))
