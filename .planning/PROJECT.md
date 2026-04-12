@@ -20,12 +20,12 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 - ✓ FluxQ supports local parameterized workflows for `ghz`, `qaoa_ansatz`, and `hardware_efficient_ansatz`, including representative export points and target-aware diagnostics where available — existing
 - ✓ Agent can use `prompt`, `resolve`, and `plan` as side-effect-free ingress surfaces with canonical identity parity locked down by regression coverage — Phase 1
 - ✓ Agent can reopen trusted revisions from immutable history artifacts, and replay/import now fail closed on trusted drift while preserving explicit legacy-compatible reopen flows — Phase 2
+- ✓ Agent or CI can target one workspace from exec, compare, benchmark, doctor, baseline, export, and pack flows without silent current/history corruption, and blocked writes now surface structured conflict or recovery-required signals — Phase 3
 
 ### Active
 
 - [ ] Delivery bundles can be verified, unpacked, and reused outside the original workspace without losing provenance or trust signals
 - [ ] Policy surfaces support CI-ready acceptance decisions across compare, benchmark, and doctor flows without custom wrapper logic
-- [ ] Workspace mutation is safe for multi-agent and CI concurrency instead of assuming a single writer
 - [ ] Runtime documentation, release notes, and integration examples consistently describe FluxQ as a runtime/control-plane product rather than a generator demo
 
 ### Out of Scope
@@ -79,4 +79,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after Phase 2 completion*
+*Last updated: 2026-04-12 after Phase 3 completion*

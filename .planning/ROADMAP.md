@@ -12,7 +12,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 
 - [x] **Phase 1: Canonical Ingress Resolution** - Normalize supported intent inputs into one side-effect-free runtime object surface.
 - [x] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
-- [ ] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
+- [x] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
 - [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
 - [ ] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
 - [ ] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
@@ -61,10 +61,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Add the workspace lease and atomic alias-write primitives that preserve the current/history contract
-- [ ] 03-02-PLAN.md — Define stable machine-readable CLI conflict and recovery signals for shared-workspace failures
-- [ ] 03-03-PLAN.md — Guard the full exec mutation graph, including alias promotion, manifests, and event streams
-- [ ] 03-04-PLAN.md — Apply the workspace safety contract to compare, benchmark, doctor, baseline, export, and pack writers
+- [x] 03-01-PLAN.md — Add the workspace lease and atomic alias-write primitives that preserve the current/history contract
+- [x] 03-02-PLAN.md — Define stable machine-readable CLI conflict and recovery signals for shared-workspace failures
+- [x] 03-03-PLAN.md — Guard the full exec mutation graph, including alias promotion, manifests, and event streams
+- [x] 03-04-PLAN.md — Apply the workspace safety contract to compare, benchmark, doctor, baseline, export, and pack writers
 
 ### Phase 4: Policy Acceptance Gates
 **Goal**: Agents and CI can accept or reject runtime revisions directly from FluxQ policy surfaces.
@@ -102,7 +102,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
-| 3. Concurrent Workspace Safety | 0/4 | Planned | - |
+| 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |
 | 5. Verified Delivery Bundles | 0/TBD | Not started | - |
 | 6. Runtime Adoption Surface | 0/TBD | Not started | - |
