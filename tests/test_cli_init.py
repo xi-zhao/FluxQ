@@ -23,7 +23,12 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _start_lock_holder(workspace: Path, *, command: str) -> subprocess.Popen[str]:
+def _start_lock_holder(
+    workspace: Path,
+    *,
+    command: str,
+    sleep_seconds: float = 1.5,
+) -> subprocess.Popen[str]:
     script = f"""
 from pathlib import Path
 import sys
@@ -35,13 +40,14 @@ from quantum_runtime.workspace import acquire_workspace_lock
 
 workspace = Path(sys.argv[1])
 command = sys.argv[2]
+sleep_seconds = float(sys.argv[3])
 
 with acquire_workspace_lock(workspace, command=command):
     print("LOCKED", flush=True)
-    time.sleep(30)
+    time.sleep(sleep_seconds)
 """
     process = subprocess.Popen(
-        [sys.executable, "-u", "-c", script, str(workspace), command],
+        [sys.executable, "-u", "-c", script, str(workspace), command, str(sleep_seconds)],
         cwd=PROJECT_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -58,12 +64,15 @@ with acquire_workspace_lock(workspace, command=command):
 
 
 def _stop_lock_holder(process: subprocess.Popen[str]) -> None:
-    process.terminate()
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait(timeout=5)
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def test_init_creates_workspace_layout_and_json_output(tmp_path: Path) -> None:
@@ -139,8 +148,8 @@ def test_init_reports_lock_conflict_before_bootstrap_and_then_reuses_authoritati
 
     blocked_output = blocked.stdout + blocked.stderr
     assert blocked.returncode != 0
+    assert "workspace_lock_conflict" in blocked_output
     assert ".workspace.lock" in blocked_output
-    assert "pytest cli init holder" in blocked_output
 
     first = run_cli("init", "--workspace", str(workspace), "--json")
     assert first.returncode == 0, first.stderr
