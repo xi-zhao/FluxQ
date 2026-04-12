@@ -22,6 +22,7 @@ from quantum_runtime.runtime import (
     schema_contract,
     show_run,
     compare_import_resolutions,
+    compare_workspace_baseline,
     persist_compare_result,
     execute_intent,
     execute_intent_json,
@@ -1327,13 +1328,13 @@ def compare_command(
     event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     try:
         if baseline_mode:
-            baseline_resolution = resolve_workspace_baseline(workspace)
-            current_resolution = _resolve_runtime_input(
-                workspace=workspace,
-                report_file=None,
-                revision=None,
-            )
             if event_sink is not None:
+                baseline_resolution = resolve_workspace_baseline(workspace)
+                current_resolution = _resolve_runtime_input(
+                    workspace=workspace,
+                    report_file=None,
+                    revision=None,
+                )
                 event_sink("compare_started", {"mode": "baseline"}, current_resolution.revision, "ok")
                 event_sink(
                     "left_resolved",
@@ -1353,21 +1354,7 @@ def compare_command(
                     current_resolution.revision,
                     "ok",
                 )
-            result = compare_import_resolutions(
-                baseline_resolution.resolution,
-                current_resolution,
-                policy=policy,
-            ).model_copy(
-                update={
-                    "baseline": {
-                        "side": "left",
-                        "path": str(baseline_resolution.record_path),
-                        "source_kind": baseline_resolution.record.source_kind,
-                        "source": baseline_resolution.record.source,
-                        "revision": baseline_resolution.record.revision,
-                    }
-                }
-            )
+            result = compare_workspace_baseline(workspace, policy=policy)
         else:
             left = _resolve_runtime_input(
                 workspace=workspace,

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
+from quantum_runtime.runtime.contracts import ensure_schema_payload
 from quantum_runtime.runtime.observability import gate_block, next_actions_for_reason_codes, normalize_reason_codes
 from quantum_runtime.runtime.imports import (
     ImportResolution,
@@ -253,7 +254,7 @@ def persist_compare_result(*, workspace_root: Path, result: CompareResult) -> di
     history_root = compare_root / "history"
     latest_path = compare_root / "latest.json"
     history_path = history_root / f"{_compare_history_name(result)}.json"
-    serialized = json.dumps(result.model_dump(mode="json"), indent=2, ensure_ascii=True)
+    serialized = json.dumps(ensure_schema_payload(result), indent=2, ensure_ascii=True)
     try:
         with acquire_workspace_lock(workspace_root, command="qrun compare"):
             pending_files = pending_atomic_write_files(latest_path)
