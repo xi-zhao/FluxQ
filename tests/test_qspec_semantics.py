@@ -13,6 +13,7 @@ from quantum_runtime.qspec.semantics import summarize_qspec_semantics
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_PROMPT_GHZ = "Build a 4-qubit GHZ circuit and measure all qubits."
 
 
 def _equivalent_qaoa_sweep_qspecs() -> list[QSpec]:
@@ -24,6 +25,21 @@ def _equivalent_qaoa_sweep_qspecs() -> list[QSpec]:
         plan_to_qspec(parse_intent_text(markdown_text)),
         plan_to_qspec(parse_intent_json_text(structured_json_text)),
     ]
+
+
+def _equivalent_ghz_qspecs() -> list[QSpec]:
+    markdown_path = PROJECT_ROOT / "examples" / "intent-ghz.md"
+    markdown_text = markdown_path.read_text()
+    structured_json_text = parse_intent_file(markdown_path).model_dump_json(indent=2)
+    return [
+        plan_to_qspec(parse_intent_file(markdown_path)),
+        plan_to_qspec(parse_intent_text(markdown_text)),
+        plan_to_qspec(parse_intent_json_text(structured_json_text)),
+    ]
+
+
+def _raw_prompt_ghz_qspec() -> QSpec:
+    return plan_to_qspec(parse_intent_text(RAW_PROMPT_GHZ))
 
 
 def _golden_qspec(name: str) -> QSpec:
@@ -64,11 +80,17 @@ def test_summarize_qspec_semantics_keeps_equivalent_ghz_ingress_hashes_aligned()
 
 
 def test_summarize_qspec_semantics_keeps_raw_prompt_ghz_workload_hashes_aligned() -> None:
-    markdown_summary = summarize_qspec_semantics(_equivalent_ghz_qspecs()[0])
-    raw_prompt_summary = summarize_qspec_semantics(_raw_prompt_ghz_qspec())
+    markdown_qspec = _equivalent_ghz_qspecs()[0]
+    raw_prompt_qspec = _raw_prompt_ghz_qspec()
+    markdown_summary = summarize_qspec_semantics(markdown_qspec)
+    raw_prompt_summary = summarize_qspec_semantics(raw_prompt_qspec)
 
     assert raw_prompt_summary["workload_id"] == markdown_summary["workload_id"]
     assert raw_prompt_summary["workload_hash"] == markdown_summary["workload_hash"]
+    assert markdown_qspec.constraints.max_width == 4
+    assert markdown_qspec.constraints.max_depth == 64
+    assert raw_prompt_qspec.constraints.max_width is None
+    assert raw_prompt_qspec.constraints.max_depth is None
     assert raw_prompt_summary["execution_hash"] != markdown_summary["execution_hash"]
     assert raw_prompt_summary["semantic_hash"] != markdown_summary["semantic_hash"]
 
