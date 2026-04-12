@@ -10,7 +10,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions after planning
 
-- [ ] **Phase 1: Canonical Ingress Resolution** - Normalize supported intent inputs into one side-effect-free runtime object surface.
+- [x] **Phase 1: Canonical Ingress Resolution** - Normalize supported intent inputs into one side-effect-free runtime object surface.
 - [ ] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
 - [ ] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
 - [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
@@ -30,9 +30,9 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Lock down CLI prompt, resolve, and plan no-write behavior plus cross-ingress parity
-- [ ] 01-02-PLAN.md — Lock down shared resolver canonicalization and semantic hash parity across equivalent ingress
-- [ ] 01-03-PLAN.md — Close the semantic-hash artifact gap and harden raw-prompt/no-write ingress regressions
+- [x] 01-01-PLAN.md — Lock down CLI prompt, resolve, and plan no-write behavior plus cross-ingress parity
+- [x] 01-02-PLAN.md — Lock down shared resolver canonicalization and semantic hash parity across equivalent ingress
+- [x] 01-03-PLAN.md — Close the semantic-hash artifact gap in `tests/test_qspec_semantics.py`
 
 ### Phase 2: Trusted Revision Artifacts
 **Goal**: Completed runs become trusted, replayable runtime revisions with stable artifact evidence.
@@ -88,7 +88,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Canonical Ingress Resolution | 0/2 | Not started | - |
+| 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
 | 2. Trusted Revision Artifacts | 0/TBD | Not started | - |
 | 3. Concurrent Workspace Safety | 0/TBD | Not started | - |
 | 4. Policy Acceptance Gates | 0/TBD | Not started | - |

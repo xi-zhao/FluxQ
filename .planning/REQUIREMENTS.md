@@ -71,9 +71,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGR-01 | Phase 1 | Pending |
-| INGR-02 | Phase 1 | Pending |
-| INGR-03 | Phase 1 | Pending |
+| INGR-01 | Phase 1 | Complete |
+| INGR-02 | Phase 1 | Complete |
+| INGR-03 | Phase 1 | Complete |
 | RUNT-01 | Phase 2 | Pending |
 | RUNT-02 | Phase 3 | Pending |
 | RUNT-03 | Phase 2 | Pending |
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after roadmap creation*
+*Last updated: 2026-04-12 after Phase 1 completion*

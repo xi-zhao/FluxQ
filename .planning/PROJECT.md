@@ -18,6 +18,7 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 - ✓ Agent or CI can consume schema-versioned JSON and JSONL control-plane output for `plan`, `status`, `show`, `compare`, `export`, `bench`, `doctor`, and related commands — existing
 - ✓ FluxQ persists canonical `qspec`, `report`, `manifest`, artifact provenance, replay-integrity metadata, and revision history for completed runs — existing
 - ✓ FluxQ supports local parameterized workflows for `ghz`, `qaoa_ansatz`, and `hardware_efficient_ansatz`, including representative export points and target-aware diagnostics where available — existing
+- ✓ Agent can use `prompt`, `resolve`, and `plan` as side-effect-free ingress surfaces with canonical identity parity locked down by regression coverage — Phase 1
 
 ### Active
 
@@ -77,4 +78,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after initialization*
+*Last updated: 2026-04-12 after Phase 1 completion*
