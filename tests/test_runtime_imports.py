@@ -249,6 +249,32 @@ def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Pat
     )
 
 
+def test_resolve_workspace_current_prefers_history_when_latest_alias_is_tampered(
+    tmp_path: Path,
+) -> None:
+    workspace = _seed_workspace(tmp_path)
+    latest_report = workspace / "reports" / "latest.json"
+    latest_payload = json.loads(latest_report.read_text())
+    latest_payload["status"] = "degraded"
+    latest_payload["warnings"] = ["edited_latest_only"]
+    replay_integrity = latest_payload.get("replay_integrity")
+    assert isinstance(replay_integrity, dict)
+    replay_integrity.pop("artifact_output_digests", None)
+    replay_integrity.pop("artifact_output_missing", None)
+    replay_integrity.pop("artifact_output_set_hash", None)
+    replay_integrity.pop("artifact_set_hash", None)
+    latest_report.write_text(json.dumps(latest_payload, indent=2))
+
+    resolution = resolve_workspace_current(workspace)
+
+    assert resolution.source_kind == "workspace_current"
+    assert resolution.report_path == workspace / "reports" / "history" / "rev_000001.json"
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.report_summary["status"] == "ok"
+    assert resolution.replay_integrity["status"] == "ok"
+    assert resolution.replay_integrity["trust_level"] == "trusted"
+
+
 def test_resolve_report_file_normalizes_relative_alias_artifacts(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path)
     report_file = workspace / "reports" / "latest.json"

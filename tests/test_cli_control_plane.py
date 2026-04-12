@@ -667,12 +667,8 @@ def test_qrun_show_json_synthesizes_legacy_manifest_when_manifest_files_are_abse
 
     latest_report_path = workspace / "reports" / "latest.json"
     history_report_path = workspace / "reports" / "history" / "rev_000001.json"
-    latest_report = json.loads(latest_report_path.read_text())
-    history_report = json.loads(history_report_path.read_text())
-    latest_report.pop("schema_version", None)
-    history_report.pop("schema_version", None)
-    latest_report_path.write_text(json.dumps(latest_report, indent=2))
-    history_report_path.write_text(json.dumps(history_report, indent=2))
+    _remove_artifact_output_digests(latest_report_path)
+    _remove_artifact_output_digests(history_report_path)
 
     result = RUNNER.invoke(
         app,
@@ -685,6 +681,7 @@ def test_qrun_show_json_synthesizes_legacy_manifest_when_manifest_files_are_abse
     assert payload["status"] == "ok"
     assert payload["manifest"]["revision"] == "rev_000001"
     assert payload["manifest"]["report"]["path"] == str(history_report_path)
+    assert payload["report_summary"]["replay_integrity_status"] == "legacy"
 
 
 def test_qrun_show_json_exposes_legacy_replay_integrity_without_failing(tmp_path: Path) -> None:
@@ -707,8 +704,6 @@ def test_qrun_show_json_exposes_legacy_replay_integrity_without_failing(tmp_path
     history_report_path = workspace / "reports" / "history" / "rev_000001.json"
     _remove_artifact_output_digests(latest_report_path)
     _remove_artifact_output_digests(history_report_path)
-    _remove_schema_version(latest_report_path)
-    _remove_schema_version(history_report_path)
     (workspace / "manifests" / "latest.json").unlink()
     (workspace / "manifests" / "history" / "rev_000001.json").unlink()
 
@@ -724,6 +719,44 @@ def test_qrun_show_json_exposes_legacy_replay_integrity_without_failing(tmp_path
     assert payload["report_summary"]["replay_integrity_warnings"] == [
         "artifact_output_digests_missing"
     ]
+
+
+def test_qrun_show_json_prefers_history_when_latest_alias_is_tampered(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    latest_report_path = workspace / "reports" / "latest.json"
+    latest_payload = json.loads(latest_report_path.read_text())
+    latest_payload["status"] = "degraded"
+    latest_payload["warnings"] = ["edited_latest_only"]
+    latest_report_path.write_text(json.dumps(latest_payload, indent=2))
+    _remove_artifact_output_digests(latest_report_path)
+
+    result = RUNNER.invoke(
+        app,
+        ["show", "--workspace", str(workspace), "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["selected"]["report_path"] == str(
+        workspace / "reports" / "history" / "rev_000001.json"
+    )
+    assert payload["report_summary"]["replay_integrity_status"] == "ok"
+    assert payload["report_summary"]["replay_integrity_warnings"] == []
 
 
 def test_qrun_status_json_reports_stale_or_tampered_manifest_integrity(tmp_path: Path) -> None:
