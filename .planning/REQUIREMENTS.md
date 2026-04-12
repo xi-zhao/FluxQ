@@ -71,27 +71,27 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGR-01 | Unmapped | Pending |
-| INGR-02 | Unmapped | Pending |
-| INGR-03 | Unmapped | Pending |
-| RUNT-01 | Unmapped | Pending |
-| RUNT-02 | Unmapped | Pending |
-| RUNT-03 | Unmapped | Pending |
-| POLC-01 | Unmapped | Pending |
-| POLC-02 | Unmapped | Pending |
-| POLC-03 | Unmapped | Pending |
-| DELV-01 | Unmapped | Pending |
-| DELV-02 | Unmapped | Pending |
-| DELV-03 | Unmapped | Pending |
-| SURF-01 | Unmapped | Pending |
-| SURF-02 | Unmapped | Pending |
-| SURF-03 | Unmapped | Pending |
+| INGR-01 | Phase 1 | Pending |
+| INGR-02 | Phase 1 | Pending |
+| INGR-03 | Phase 1 | Pending |
+| RUNT-01 | Phase 2 | Pending |
+| RUNT-02 | Phase 3 | Pending |
+| RUNT-03 | Phase 2 | Pending |
+| POLC-01 | Phase 4 | Pending |
+| POLC-02 | Phase 4 | Pending |
+| POLC-03 | Phase 4 | Pending |
+| DELV-01 | Phase 5 | Pending |
+| DELV-02 | Phase 5 | Pending |
+| DELV-03 | Phase 5 | Pending |
+| SURF-01 | Phase 6 | Pending |
+| SURF-02 | Phase 6 | Pending |
+| SURF-03 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
-- Mapped to phases: 0
-- Unmapped: 15 ⚠️
+- Mapped to phases: 15
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after initial definition*
+*Last updated: 2026-04-12 after roadmap creation*
