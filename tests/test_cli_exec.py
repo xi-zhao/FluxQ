@@ -20,6 +20,18 @@ def _fmt(value: float) -> str:
     return rendered or "0"
 
 
+def _write_intent(path: Path, *, title: str, goal: str) -> Path:
+    path.write_text(
+        f"""---
+title: {title}
+---
+
+{goal}
+"""
+    )
+    return path
+
+
 def _binding_only_qaoa_qspec():
     qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
     qspec.metadata["parameter_workflow"] = {
@@ -255,6 +267,52 @@ def test_qrun_exec_json_accepts_report_file_input(tmp_path: Path) -> None:
     assert Path(payload["artifacts"]["qspec"]).exists()
     assert Path(payload["artifacts"]["qiskit_code"]).exists()
     assert payload["diagnostics"]["simulation"]["status"] == "ok"
+
+
+def test_qrun_exec_json_reports_workspace_recovery_required_for_leftover_commit_temps(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    intent_path = _write_intent(
+        tmp_path / "intent-bell.md",
+        title="Bell intent",
+        goal="Create a Bell pair and measure both qubits.",
+    )
+    initial = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial.exit_code == 0, initial.stdout
+
+    pending_report = workspace / "reports" / "latest.json.tmp"
+    pending_manifest = workspace / "manifests" / "latest.json.tmp"
+    pending_report.write_text("pending")
+    pending_manifest.write_text("pending")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(intent_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_recovery_required"
+    assert payload["error_code"] == "workspace_recovery_required"
+    assert payload["details"]["workspace"] == str(workspace.resolve())
+    assert sorted(payload["details"]["pending_files"]) == sorted([str(pending_manifest), str(pending_report)])
+    assert payload["details"]["last_valid_revision"] == "rev_000001"
 
 
 def test_qrun_exec_json_rejects_trusted_report_with_artifact_digest_drift(tmp_path: Path) -> None:
