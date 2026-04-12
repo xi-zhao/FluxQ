@@ -31,6 +31,36 @@ def _binding_only_qaoa_qspec():
     return qspec
 
 
+def _exec_intent(*, workspace: Path, intent_name: str) -> dict[str, object]:
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / intent_name),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    return json.loads(result.stdout)
+
+
+def _bench(*, workspace: Path, args: list[str]) -> tuple[object, dict[str, object]]:
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            *args,
+        ],
+    )
+    payload = json.loads(result.stdout)
+    return result, payload
+
+
 def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     tmp_path: Path,
 ) -> None:
@@ -186,6 +216,146 @@ def test_qrun_bench_json_accepts_history_revision_input(
     assert payload["status"] == "ok"
     assert payload["backends"]["qiskit-local"]["depth"] == 5
     assert (workspace / "benchmarks" / "history" / "rev_000001.json").exists()
+
+
+def test_qrun_bench_json_persists_imported_revision_history_using_source_revision(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    _exec_intent(workspace=workspace, intent_name="intent-ghz.md")
+    _exec_intent(workspace=workspace, intent_name="intent-qaoa-maxcut.md")
+
+    result, payload = _bench(
+        workspace=workspace,
+        args=[
+            "--revision",
+            "rev_000001",
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert payload["status"] == "ok"
+    assert payload["source_kind"] == "report_revision"
+    assert payload["source_revision"] == "rev_000001"
+    history_path = workspace / "benchmarks" / "history" / "rev_000001.json"
+    wrong_history_path = workspace / "benchmarks" / "history" / "rev_000002.json"
+    latest_path = workspace / "benchmarks" / "latest.json"
+    assert history_path.exists()
+    assert not wrong_history_path.exists()
+    latest_payload = json.loads(latest_path.read_text())
+    persisted_payload = json.loads(history_path.read_text())
+    assert latest_payload["source_kind"] == "report_revision"
+    assert latest_payload["source_revision"] == "rev_000001"
+    assert persisted_payload["source_kind"] == "report_revision"
+    assert persisted_payload["source_revision"] == "rev_000001"
+
+
+def test_qrun_bench_json_returns_baseline_benchmark_missing_when_saved_evidence_is_absent(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    _exec_intent(workspace=workspace, intent_name="intent-ghz.md")
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    _exec_intent(workspace=workspace, intent_name="intent-ghz.md")
+
+    result, payload = _bench(
+        workspace=workspace,
+        args=[
+            "--baseline",
+            "--max-depth-regression",
+            "0",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    assert payload["status"] == "error"
+    assert payload["reason"] == "baseline_benchmark_missing"
+    assert payload["error_code"] == "baseline_benchmark_missing"
+
+
+def test_qrun_bench_json_baseline_policy_fails_when_metrics_regress_from_saved_baseline(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    _exec_intent(workspace=workspace, intent_name="intent-ghz.md")
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    baseline_bench_result, baseline_bench_payload = _bench(
+        workspace=workspace,
+        args=[
+            "--revision",
+            "rev_000001",
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+    assert baseline_bench_result.exit_code == 0, baseline_bench_result.stdout
+    baseline_history_path = workspace / "benchmarks" / "history" / "rev_000001.json"
+    persisted_baseline = json.loads(baseline_history_path.read_text())
+    persisted_baseline["backends"]["qiskit-local"]["depth"] = baseline_bench_payload["backends"]["qiskit-local"]["depth"] - 1
+    persisted_baseline["backends"]["qiskit-local"]["two_qubit_gates"] = (
+        baseline_bench_payload["backends"]["qiskit-local"]["two_qubit_gates"] - 1
+    )
+    baseline_history_path.write_text(json.dumps(persisted_baseline, indent=2))
+
+    _exec_intent(workspace=workspace, intent_name="intent-ghz.md")
+
+    result, payload = _bench(
+        workspace=workspace,
+        args=[
+            "--baseline",
+            "--max-depth-regression",
+            "0",
+            "--max-two-qubit-regression",
+            "0",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    assert payload["status"] == "ok"
+    assert payload["baseline"]["revision"] == "rev_000001"
+    assert payload["verdict"]["status"] == "fail"
+    assert payload["gate"]["ready"] is False
+    assert payload["policy"]["max_depth_regression"] == 0
+    assert payload["policy"]["max_two_qubit_regression"] == 0
+    assert "benchmark_metric_regressed:qiskit-local:depth" in payload["reason_codes"]
+    assert "benchmark_metric_regressed:qiskit-local:two_qubit_gates" in payload["reason_codes"]
 
 
 def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: Path) -> None:

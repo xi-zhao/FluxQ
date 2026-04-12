@@ -288,6 +288,86 @@ def test_qrun_bench_jsonl_emits_backend_events(tmp_path: Path) -> None:
     assert events[-1]["payload"]["schema_version"] == "0.3.0"
 
 
+def test_qrun_bench_jsonl_emits_policy_payload_when_gating_is_requested(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    baseline_bench = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+    assert baseline_bench.exit_code == 0, baseline_bench.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--max-depth-regression",
+            "0",
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert events[-1]["event_type"] == "benchmark_completed"
+    assert events[-1]["payload"]["schema_version"] == "0.3.0"
+    assert events[-1]["payload"]["verdict"]["status"] == "pass"
+    assert "reason_codes" in events[-1]["payload"]
+    assert "gate" in events[-1]["payload"]
+
+
 def test_qrun_doctor_jsonl_emits_workspace_and_dependency_events(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
