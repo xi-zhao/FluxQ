@@ -7,14 +7,27 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime.backend_registry import backend_capabilities_as_dict
-from quantum_runtime.workspace import WorkspaceManifest, WorkspaceManager, WorkspacePaths
+from quantum_runtime.workspace import (
+    WorkspaceLockConflict,
+    WorkspaceManifest,
+    WorkspaceManager,
+    WorkspacePaths,
+    acquire_workspace_lock,
+    atomic_write_text,
+    pending_atomic_write_files,
+)
+
+
+SCHEMA_VERSION = "0.3.0"
 
 
 class DoctorReport(BaseModel):
     """Structured diagnostics for CLI health checks."""
 
+    schema_version: str = SCHEMA_VERSION
     status: Literal["ok", "degraded", "error"]
     workspace_ok: bool
     fix_applied: bool = False
@@ -73,8 +86,7 @@ def run_doctor(
         )
     all_issues = issues + dependency_issues
     status: Literal["ok", "degraded", "error"] = "ok" if not all_issues else "degraded"
-
-    return DoctorReport(
+    report = DoctorReport(
         status=status,
         workspace_ok=workspace_ok,
         fix_applied=fix,
@@ -83,6 +95,17 @@ def run_doctor(
         issues=all_issues,
         advisories=dependency_advisories,
     )
+    revision = current_revision if current_revision and current_revision != "rev_000000" else None
+    if revision is not None:
+        written_paths = _persist_doctor_report(workspace_root=paths.root, report=report, revision=revision)
+        if event_sink is not None:
+            event_sink(
+                "doctor_written",
+                {"paths": written_paths, "status": report.status},
+                current_revision,
+                report.status,
+            )
+    return report
 
 
 def collect_backend_capabilities() -> dict[str, dict[str, Any]]:
@@ -264,3 +287,32 @@ def _check_file(
         check["status"] = "invalid"
         check["error"] = str(exc)
     return check
+
+
+def _persist_doctor_report(*, workspace_root: Path, report: DoctorReport, revision: str) -> dict[str, str]:
+    doctor_root = workspace_root / "doctor"
+    serialized = report.model_dump_json(indent=2)
+    latest_path = doctor_root / "latest.json"
+    history_path = doctor_root / "history" / f"{revision}.json"
+    try:
+        with acquire_workspace_lock(workspace_root, command="qrun doctor"):
+            pending_files = pending_atomic_write_files(latest_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=workspace_root.resolve(),
+                    pending_files=pending_files,
+                    last_valid_revision=revision,
+                )
+
+            doctor_root.mkdir(parents=True, exist_ok=True)
+            history_path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(latest_path, serialized)
+            atomic_write_text(history_path, serialized)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=workspace_root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+
+    return {"latest": str(latest_path), "history": str(history_path)}

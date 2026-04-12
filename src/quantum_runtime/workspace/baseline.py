@@ -8,6 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
+from quantum_runtime.workspace.locking import WorkspaceLockConflict, acquire_workspace_lock
+from quantum_runtime.workspace.manifest import atomic_write_text, pending_atomic_write_files
+from quantum_runtime.workspace.paths import WorkspacePaths
+
 
 class WorkspaceBaseline(BaseModel):
     """Persisted baseline record for one workspace."""
@@ -69,7 +74,55 @@ class WorkspaceBaseline(BaseModel):
     def save(self, path: Path) -> None:
         """Persist the baseline record."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.model_dump_json(indent=2))
+        atomic_write_text(path, self.model_dump_json(indent=2))
+
+
+def save_workspace_baseline(*, workspace_root: Path, baseline: WorkspaceBaseline) -> Path:
+    """Persist the workspace baseline under the shared mutation lease."""
+    paths = WorkspacePaths(root=workspace_root)
+    baseline_path = paths.baseline_current_json
+    try:
+        with acquire_workspace_lock(paths.root, command="qrun baseline set"):
+            pending_files = pending_atomic_write_files(baseline_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=paths.root,
+                    pending_files=pending_files,
+                    last_valid_revision=None,
+                )
+            baseline.save(baseline_path)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=paths.root,
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+    return baseline_path
+
+
+def clear_workspace_baseline(*, workspace_root: Path) -> tuple[Path, bool]:
+    """Clear the current baseline under the shared mutation lease."""
+    paths = WorkspacePaths(root=workspace_root)
+    baseline_path = paths.baseline_current_json.resolve()
+    try:
+        with acquire_workspace_lock(paths.root, command="qrun baseline clear"):
+            pending_files = pending_atomic_write_files(baseline_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=paths.root,
+                    pending_files=pending_files,
+                    last_valid_revision=None,
+                )
+            cleared = baseline_path.exists()
+            if cleared:
+                baseline_path.unlink()
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=paths.root,
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+    return baseline_path, cleared
 
 
 def _canonicalize_history_path(

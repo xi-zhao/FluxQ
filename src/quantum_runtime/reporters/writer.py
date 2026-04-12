@@ -124,7 +124,7 @@ def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> Non
             continue
         canonical_path = Path(raw_canonical_path)
         alias_path = Path(raw_alias_path)
-        if canonical_path == alias_path or not alias_path.exists():
+        if canonical_path == alias_path or canonical_path.exists() or not alias_path.exists():
             continue
         canonical_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(alias_path, canonical_path)

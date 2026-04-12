@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.runtime.observability import gate_block, next_actions_for_reason_codes, normalize_reason_codes
 from quantum_runtime.runtime.imports import (
     ImportResolution,
     resolve_workspace_baseline,
     resolve_workspace_current,
+)
+from quantum_runtime.workspace import (
+    WorkspaceLockConflict,
+    acquire_workspace_lock,
+    atomic_write_text,
+    pending_atomic_write_files,
 )
 
 
@@ -22,6 +30,14 @@ CompareExpectation = Literal[
     "different-qspec",
     "same-report",
     "different-report",
+]
+
+CompareFailOn = Literal[
+    "subject_drift",
+    "qspec_drift",
+    "report_drift",
+    "backend_regression",
+    "replay_integrity_regression",
 ]
 
 
@@ -75,6 +91,7 @@ class ComparePolicy(BaseModel):
     """Optional guardrail policy for compare results."""
 
     expect: CompareExpectation | None = None
+    fail_on: list[CompareFailOn] = Field(default_factory=list)
     allow_report_drift: bool = True
     forbid_backend_regressions: bool = False
     forbid_replay_integrity_regressions: bool = False
@@ -230,6 +247,34 @@ def compare_import_resolutions(
     )
 
 
+def persist_compare_result(*, workspace_root: Path, result: CompareResult) -> dict[str, str]:
+    """Persist the latest compare result into the workspace."""
+    compare_root = workspace_root / "compare"
+    history_root = compare_root / "history"
+    latest_path = compare_root / "latest.json"
+    history_path = history_root / f"{_compare_history_name(result)}.json"
+    serialized = json.dumps(result.model_dump(mode="json"), indent=2, ensure_ascii=True)
+    try:
+        with acquire_workspace_lock(workspace_root, command="qrun compare"):
+            pending_files = pending_atomic_write_files(latest_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=workspace_root.resolve(),
+                    pending_files=pending_files,
+                    last_valid_revision=None,
+                )
+            history_root.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(latest_path, serialized)
+            atomic_write_text(history_path, serialized)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=workspace_root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+    return {"latest_path": str(latest_path), "history_path": str(history_path)}
+
+
 def _compare_side(resolution: ImportResolution) -> CompareSide:
     return CompareSide(
         source_kind=resolution.source_kind,
@@ -246,6 +291,12 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
         replay_integrity=resolution.replay_integrity,
         provenance=resolution.provenance,
     )
+
+
+def _compare_history_name(result: CompareResult) -> str:
+    if result.baseline is not None:
+        return f"baseline__{result.right.revision}"
+    return f"{result.left.revision}__{result.right.revision}"
 
 
 def _reason_codes(
@@ -714,6 +765,33 @@ def _evaluate_policy(
             passed_checks.append(f"expect:{policy.expect}")
         else:
             failed_checks.append(f"expect:{policy.expect}")
+
+    for gate in policy.fail_on:
+        if gate == "subject_drift":
+            if same_subject:
+                passed_checks.append("subject_drift")
+            else:
+                failed_checks.append("subject_drift")
+        elif gate == "qspec_drift":
+            if same_qspec:
+                passed_checks.append("qspec_drift")
+            else:
+                failed_checks.append("qspec_drift")
+        elif gate == "report_drift":
+            if report_drift_detected:
+                failed_checks.append("report_drift")
+            else:
+                passed_checks.append("report_drift")
+        elif gate == "backend_regression":
+            if backend_regressions:
+                failed_checks.append("backend_regression")
+            else:
+                passed_checks.append("backend_regression")
+        elif gate == "replay_integrity_regression":
+            if replay_integrity_regressions:
+                failed_checks.append("replay_integrity_regression")
+            else:
+                passed_checks.append("replay_integrity_regression")
 
     if policy.allow_report_drift:
         passed_checks.append("report_drift:allowed")

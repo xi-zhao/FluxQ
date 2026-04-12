@@ -9,9 +9,19 @@ from pydantic import BaseModel, Field
 from quantum_runtime.backends import run_classiq_backend
 from quantum_runtime.diagnostics.resources import estimate_resources
 from quantum_runtime.diagnostics.transpile_validate import validate_target_constraints
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.qspec.parameter_workflow import representative_bindings
-from quantum_runtime.workspace import WorkspaceHandle
+from quantum_runtime.workspace import (
+    WorkspaceHandle,
+    WorkspaceLockConflict,
+    acquire_workspace_lock,
+    atomic_write_text,
+    pending_atomic_write_files,
+)
+
+
+SCHEMA_VERSION = "0.3.0"
 
 
 class BackendBenchmark(BaseModel):
@@ -33,6 +43,7 @@ class BackendBenchmark(BaseModel):
 class BenchmarkReport(BaseModel):
     """Aggregate benchmark report across requested backends."""
 
+    schema_version: str = SCHEMA_VERSION
     status: Literal["ok", "degraded", "error"]
     backends: dict[str, BackendBenchmark]
     subject: dict[str, Any] = Field(default_factory=dict)
@@ -192,11 +203,21 @@ def run_structural_benchmark(
                 entries[normalized].status,
             )
 
-    return BenchmarkReport(
+    report = BenchmarkReport(
         status=_derive_status(entries),
         backends=entries,
         subject=subject,
     )
+    revision = workspace.manifest.current_revision
+    written_paths = _persist_benchmark_report(workspace_root=workspace.root, report=report, revision=revision)
+    if event_sink is not None:
+        event_sink(
+            "benchmark_written",
+            {"paths": written_paths, "status": report.status},
+            revision,
+            report.status,
+        )
+    return report
 
 
 def _derive_status(backends: dict[str, BackendBenchmark]) -> Literal["ok", "degraded", "error"]:
@@ -324,6 +345,44 @@ def _augment_contract(
     if comparability_reason is not None:
         contract["comparability_reason"] = comparability_reason
     return contract
+
+
+def _persist_benchmark_report(
+    *,
+    workspace_root,
+    report: BenchmarkReport,
+    revision: str | None,
+) -> dict[str, str]:
+    benchmark_root = workspace_root / "benchmarks"
+    serialized = report.model_dump_json(indent=2)
+    latest_path = benchmark_root / "latest.json"
+    written = {"latest": str(latest_path)}
+    try:
+        with acquire_workspace_lock(workspace_root, command="qrun bench"):
+            pending_files = pending_atomic_write_files(latest_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=workspace_root.resolve(),
+                    pending_files=pending_files,
+                    last_valid_revision=None,
+                )
+
+            benchmark_root.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(latest_path, serialized)
+
+            if revision and revision != "rev_000000":
+                history_path = benchmark_root / "history" / f"{revision}.json"
+                history_path.parent.mkdir(parents=True, exist_ok=True)
+                atomic_write_text(history_path, serialized)
+                written["history"] = str(history_path)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=workspace_root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+
+    return written
 
 
 def _qiskit_comparability_reason(transpile_report: object) -> str:

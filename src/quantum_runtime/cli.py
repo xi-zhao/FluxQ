@@ -63,7 +63,15 @@ from quantum_runtime.runtime.observability import (
     workspace_conflict_observability,
     workspace_recovery_required_observability,
 )
-from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManager, WorkspacePaths
+from quantum_runtime.workspace import (
+    WorkspaceBaseline,
+    WorkspaceLockConflict,
+    WorkspaceManager,
+    WorkspaceManifest,
+    WorkspacePaths,
+    clear_workspace_baseline,
+    save_workspace_baseline,
+)
 
 
 app = typer.Typer(
@@ -639,9 +647,11 @@ def baseline_set_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid baseline input: {exc.reason}") from exc
 
-    paths = WorkspacePaths(root=workspace)
     baseline = WorkspaceBaseline.from_import_resolution(resolution)
-    baseline.save(paths.baseline_current_json)
+    try:
+        save_workspace_baseline(workspace_root=workspace, baseline=baseline)
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
 
     if json_output:
         _echo_json(baseline)
@@ -702,11 +712,10 @@ def baseline_clear_command(
     ),
 ) -> None:
     """Clear the currently persisted workspace baseline."""
-    paths = WorkspacePaths(root=workspace)
-    baseline_path = paths.baseline_current_json.resolve()
-    cleared = baseline_path.exists()
-    if cleared:
-        baseline_path.unlink()
+    try:
+        baseline_path, cleared = clear_workspace_baseline(workspace_root=workspace)
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
 
     payload = {
         "status": "ok",
@@ -764,7 +773,18 @@ def bench_command(
 ) -> None:
     """Run structural backend benchmarks against the current QSpec."""
     _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
-    handle = WorkspaceManager.load_or_init(workspace)
+    try:
+        handle = WorkspaceManager.load_or_init(workspace)
+    except WorkspaceLockConflict as exc:
+        _handle_workspace_safety_error(
+            WorkspaceConflictError(
+                workspace=workspace.resolve(),
+                lock_path=Path(exc.lock_path),
+                holder=exc.holder.model_dump(mode="json"),
+            ),
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+        )
     try:
         import_resolution = _resolve_report_import(
             workspace=handle.root,
@@ -797,19 +817,22 @@ def bench_command(
             handle.manifest.current_revision,
             "ok",
         )
-    if event_sink is not None:
-        benchmark = run_structural_benchmark(
-            qspec,
-            handle,
-            _benchmark_backends(qspec, backends),
-            event_sink=event_sink,
-        )
-    else:
-        benchmark = run_structural_benchmark(
-            qspec,
-            handle,
-            _benchmark_backends(qspec, backends),
-        )
+    try:
+        if event_sink is not None:
+            benchmark = run_structural_benchmark(
+                qspec,
+                handle,
+                _benchmark_backends(qspec, backends),
+                event_sink=event_sink,
+            )
+        else:
+            benchmark = run_structural_benchmark(
+                qspec,
+                handle,
+                _benchmark_backends(qspec, backends),
+            )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
 
     if json_output:
         _echo_json(benchmark)
@@ -898,6 +921,8 @@ def export_command(
         if json_output:
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
 
     if json_output:
         _echo_json(result)
@@ -930,9 +955,27 @@ def pack_command(
     ),
 ) -> None:
     """Package one revision into a portable runtime bundle."""
-    handle = WorkspaceManager.load_or_init(workspace)
-    target_revision = revision or handle.manifest.current_revision
-    result = pack_revision(workspace_root=workspace, revision=target_revision)
+    try:
+        if revision is not None:
+            target_revision = revision
+        else:
+            paths = WorkspacePaths(root=workspace)
+            if paths.workspace_json.exists():
+                target_revision = WorkspaceManifest.load(paths.workspace_json).current_revision
+            else:
+                target_revision = WorkspaceManager.load_or_init(workspace).manifest.current_revision
+        result = pack_revision(workspace_root=workspace, revision=target_revision)
+    except WorkspaceLockConflict as exc:
+        _handle_workspace_safety_error(
+            WorkspaceConflictError(
+                workspace=workspace.resolve(),
+                lock_path=Path(exc.lock_path),
+                holder=exc.holder.model_dump(mode="json"),
+            ),
+            json_output=json_output,
+        )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
     if json_output:
         _echo_json(result)
         raise typer.Exit(code=0 if result.status == "ok" else 3)
@@ -1360,12 +1403,15 @@ def compare_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
 
-    if json_output:
+    try:
         persist_compare_result(workspace_root=workspace, result=result)
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
+
+    if json_output:
         _echo_json(result, exclude_none=True)
         raise typer.Exit(code=exit_code_for_compare(result, structured=True))
     if jsonl_output:
-        persist_compare_result(workspace_root=workspace, result=result)
         assert event_sink is not None
         event_sink(
             "compare_completed",
@@ -1377,7 +1423,6 @@ def compare_command(
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
     verdict_summary = result.verdict.get("summary", "No compare policy requested.") if isinstance(result.verdict, dict) else "No compare policy requested."
-    persist_compare_result(workspace_root=workspace, result=result)
     if detail:
         typer.echo(
             "\n".join(
@@ -1434,11 +1479,14 @@ def doctor_command(
     event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     if event_sink is not None:
         event_sink("doctor_started", {"fix": fix}, None, "ok")
-    report = (
-        run_doctor(workspace_root=workspace, fix=fix, event_sink=event_sink)
-        if event_sink is not None
-        else run_doctor(workspace_root=workspace, fix=fix)
-    )
+    try:
+        report = (
+            run_doctor(workspace_root=workspace, fix=fix, event_sink=event_sink)
+            if event_sink is not None
+            else run_doctor(workspace_root=workspace, fix=fix)
+        )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
     if json_output:
         _echo_json(report)
         raise typer.Exit(code=exit_code_for_doctor(report))
