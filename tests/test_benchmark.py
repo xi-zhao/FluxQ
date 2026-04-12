@@ -25,7 +25,7 @@ def test_run_structural_benchmark_reports_qiskit_and_classiq_statuses(
 
     monkeypatch.setattr(
         "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
-        lambda qspec, workspace: ClassiqBackendReport(
+        lambda qspec, workspace, parameter_bindings=None: ClassiqBackendReport(
             status="dependency_missing",
             reason="classiq_not_installed",
             code_path=workspace.root / "artifacts" / "classiq" / "main.py",
@@ -68,7 +68,7 @@ def test_run_structural_benchmark_uses_classiq_synthesis_metrics(
 
     monkeypatch.setattr(
         "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
-        lambda qspec, workspace: ClassiqBackendReport(
+        lambda qspec, workspace, parameter_bindings=None: ClassiqBackendReport(
             status="ok",
             reason=None,
             code_path=workspace.root / "artifacts" / "classiq" / "main.py",
@@ -134,7 +134,7 @@ def test_run_structural_benchmark_falls_back_when_classiq_metrics_missing(
 
     monkeypatch.setattr(
         "quantum_runtime.diagnostics.benchmark.run_classiq_backend",
-        lambda qspec, workspace: ClassiqBackendReport(
+        lambda qspec, workspace, parameter_bindings=None: ClassiqBackendReport(
             status="ok",
             reason=None,
             code_path=workspace.root / "artifacts" / "classiq" / "main.py",

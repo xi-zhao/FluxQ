@@ -14,6 +14,9 @@ from quantum_runtime.lowering import (
     write_qiskit_program,
 )
 from quantum_runtime.qspec import QSpec
+from quantum_runtime.qspec.parameter_workflow import (
+    representative_bindings as qspec_representative_bindings,
+)
 from quantum_runtime.runtime.imports import (
     ImportReference,
     ImportResolution,
@@ -57,6 +60,7 @@ def export_artifact(*, workspace_root: Path, output_format: str) -> ExportResult
         handle=handle,
         qspec=qspec,
         output_format=output_format,
+        parameter_bindings=_export_parameter_bindings(qspec, resolution=resolution),
         resolution=resolution,
     )
 
@@ -84,6 +88,7 @@ def export_artifact_from_resolution(
         handle=handle,
         qspec=qspec,
         output_format=output_format,
+        parameter_bindings=_export_parameter_bindings(qspec, resolution=resolution),
         resolution=resolution,
     )
 
@@ -93,16 +98,29 @@ def _export_from_qspec(
     handle: WorkspaceHandle,
     qspec: QSpec,
     output_format: str,
+    parameter_bindings: dict[str, float] | None = None,
     resolution: ImportResolution | None = None,
 ) -> ExportResult:
     if output_format == "qiskit":
-        path = write_qiskit_program(qspec, handle.root / "artifacts" / "qiskit" / "main.py")
+        path = write_qiskit_program(
+            qspec,
+            handle.root / "artifacts" / "qiskit" / "main.py",
+            parameter_bindings=parameter_bindings,
+        )
         return _build_export_result(output_format=output_format, path=path, resolution=resolution)
     if output_format == "qasm3":
-        path = write_qasm3_program(qspec, handle.root / "artifacts" / "qasm" / "main.qasm")
+        path = write_qasm3_program(
+            qspec,
+            handle.root / "artifacts" / "qasm" / "main.qasm",
+            parameter_bindings=parameter_bindings,
+        )
         return _build_export_result(output_format=output_format, path=path, resolution=resolution)
     if output_format == "classiq-python":
-        result = write_classiq_program(qspec, handle.root / "artifacts" / "classiq" / "main.py")
+        result = write_classiq_program(
+            qspec,
+            handle.root / "artifacts" / "classiq" / "main.py",
+            parameter_bindings=parameter_bindings,
+        )
         return _build_export_result(
             output_format=output_format,
             path=result.path,
@@ -153,9 +171,43 @@ def _build_export_result(
     return ExportResult.model_validate(payload)
 
 
+def _export_parameter_bindings(
+    qspec: QSpec,
+    *,
+    resolution: ImportResolution | None,
+) -> dict[str, float] | None:
+    if resolution is not None:
+        report_payload = resolution.load_report()
+        diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
+        exports = diagnostics.get("exports") if isinstance(diagnostics, dict) else {}
+        simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
+        for raw_bindings in (
+            exports.get("bindings") if isinstance(exports, dict) else None,
+            simulation.get("representative_bindings") if isinstance(simulation, dict) else None,
+            resolution.report_summary.get("representative_bindings")
+            if isinstance(resolution.report_summary, dict)
+            else None,
+        ):
+            bindings = _float_mapping(raw_bindings)
+            if bindings:
+                return bindings
+
+    bindings = qspec_representative_bindings(qspec)
+    return bindings or None
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
+
+
+def _float_mapping(value: object) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(name): float(raw_value)
+        for name, raw_value in value.items()
+    }
 
 
 def _optional_string(value: object) -> str | None:

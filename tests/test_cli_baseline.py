@@ -80,11 +80,10 @@ def test_qrun_baseline_set_show_and_clear_json(tmp_path: Path) -> None:
 
     assert clear_result.exit_code == 0, clear_result.stdout
     clear_payload = json.loads(clear_result.stdout)
-    assert clear_payload == {
-        "status": "ok",
-        "cleared": True,
-        "path": str(baseline_path.resolve()),
-    }
+    assert clear_payload["schema_version"] == "0.3.0"
+    assert clear_payload["status"] == "ok"
+    assert clear_payload["cleared"] is True
+    assert clear_payload["path"] == str(baseline_path.resolve())
     assert not baseline_path.exists()
 
 

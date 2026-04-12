@@ -1,7 +1,7 @@
 [project]
 name = "quantum-runtime"
-version = "0.2.4"
-description = "Workspace-native quantum workflow runtime for coding agents and CI"
+version = "0.3.1"
+description = "Agent-first quantum runtime CLI with a runtime control plane for reproducible quantum runs"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,7 +24,12 @@ class DoctorReport(BaseModel):
     advisories: list[str] = Field(default_factory=list)
 
 
-def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
+def run_doctor(
+    *,
+    workspace_root: Path,
+    fix: bool = False,
+    event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None = None,
+) -> DoctorReport:
     """Check workspace integrity and optional dependency availability."""
     current_revision = None
     manifest = None
@@ -42,6 +47,13 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
             current_revision = manifest.current_revision
         issues = _workspace_issues(paths, manifest=manifest)
         workspace_ok = not issues
+    if event_sink is not None:
+        event_sink(
+            "workspace_checked",
+            {"workspace_ok": workspace_ok, "issue_count": len(issues)},
+            current_revision,
+            "ok" if workspace_ok else "degraded",
+        )
 
     dependencies = collect_backend_capabilities()
     required_backends = _required_backend_names(paths, manifest=manifest)
@@ -49,6 +61,16 @@ def run_doctor(*, workspace_root: Path, fix: bool = False) -> DoctorReport:
         dependencies=dependencies,
         required_backends=required_backends,
     )
+    if event_sink is not None:
+        event_sink(
+            "dependencies_checked",
+            {
+                "issue_count": len(dependency_issues),
+                "advisory_count": len(dependency_advisories),
+            },
+            current_revision,
+            "ok" if not dependency_issues else "degraded",
+        )
     all_issues = issues + dependency_issues
     status: Literal["ok", "degraded", "error"] = "ok" if not all_issues else "degraded"
 

@@ -19,6 +19,18 @@ uv run --python 3.11 --extra dev mypy src
 uv run --python 3.11 --extra dev --extra qiskit pytest -q
 ```
 
+If you want a single command that bootstraps `.venv` and runs the same local gate, use:
+
+```bash
+./scripts/dev-bootstrap.sh all
+```
+
+For mainland China package mirrors:
+
+```bash
+./scripts/dev-bootstrap.sh all --mirror tsinghua
+```
+
 If your change affects packaging or release behavior, also run:
 
 ```bash

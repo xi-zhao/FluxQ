@@ -8,6 +8,16 @@ from .compare import (
     compare_import_resolutions,
     compare_workspace_baseline,
 )
+from .control_plane import (
+    PlanResult,
+    SchemaResult,
+    ShowResult,
+    StatusResult,
+    build_execution_plan,
+    schema_contract,
+    show_run,
+    workspace_status,
+)
 from .doctor import DoctorReport, collect_backend_capabilities, run_doctor
 from .executor import (
     ExecResult,
@@ -28,6 +38,7 @@ from .imports import (
     resolve_workspace_baseline,
 )
 from .inspect import InspectReport, inspect_workspace
+from .run_manifest import RunManifestArtifact, RunReportArtifact
 
 __all__ = [
     "BackendListReport",
@@ -41,7 +52,14 @@ __all__ = [
     "ImportResolution",
     "ImportSourceError",
     "InspectReport",
+    "PlanResult",
     "ReportImportError",
+    "RunManifestArtifact",
+    "RunReportArtifact",
+    "SchemaResult",
+    "ShowResult",
+    "StatusResult",
+    "build_execution_plan",
     "collect_backend_capabilities",
     "compare_import_resolutions",
     "compare_workspace_baseline",
@@ -58,5 +76,8 @@ __all__ = [
     "resolve_import_reference",
     "resolve_workspace_baseline",
     "run_doctor",
+    "schema_contract",
+    "show_run",
+    "workspace_status",
     "WorkspaceBaselineResolution",
 ]

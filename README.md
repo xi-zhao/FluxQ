@@ -4,28 +4,28 @@
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-3776AB.svg)
 
-Reproducible quantum workflows for coding agents, CI, and revision-aware teams.
+Agent-first quantum runtime control plane for reproducible quantum runs.
 
-FluxQ is a workspace-native quantum workflow runtime. It turns intents, QSpec inputs, and report replays into reproducible artifacts, reports, and comparisons that coding agents and CI systems can trust.
+FluxQ is an agent-first quantum runtime CLI. It turns natural language ingress, structured intent files, QSpec inputs, and report replays into executable, revisioned, and machine-readable run objects that coding agents and CI systems can trust.
 
-Instead of treating quantum generation as one-off code emission, FluxQ gives you revisioned workspaces, replayable reports, semantic workload comparison, and guardrails for drift and replay integrity.
+Natural language is ingress, not the source of truth. FluxQ's product core is the runtime: canonical `QSpec`, immutable run manifests, reproducible reports, semantic comparison, and explicit provenance for export, benchmark, and diagnostics flows.
 
 Package: `quantum-runtime`  
 CLI: `qrun`  
-Current release: `0.2.4`
+Current release: `0.3.1`
 
 ## Why FluxQ
 
-- reproducible quantum runs should survive beyond one generated script
-- replayable reports let hosts and developers re-run work from revision-stable inputs instead of rebuilding context from scratch
+- prompt text is useful as ingress, but agents need a canonical runtime object they can re-run and compare later
+- replayable reports and immutable manifests let hosts continue a workflow from revision-stable state instead of from prompt folklore
 - semantic workload comparison is more useful than raw file diff when you need to know whether a circuit family actually changed
-- one workload can be exported into Qiskit, OpenQASM 3, and Classiq Python outputs without losing the surrounding workspace history
-- local simulation, transpile validation, diagrams, and structural benchmarking make iteration fast before deeper backend work begins
+- one workload can be exported into Qiskit, OpenQASM 3, and Classiq Python outputs without losing surrounding workspace history
+- local simulation, transpile validation, diagrams, structural benchmarking, and `doctor` checks make iteration fast before deeper backend work begins
 
 ## Use FluxQ If
 
 - quantum developers who want circuits, exports, and diagnostics anchored to a stable workspace
-- agent and CI builders who need file-based orchestration, JSON output, and explicit trust signals
+- agent and CI builders who need file-based orchestration, schema-versioned JSON, and stable exit codes
 - teams that want to compare revisions, catch replay regressions, and keep generated quantum workflows understandable over time
 
 ## Install
@@ -33,7 +33,7 @@ Current release: `0.2.4`
 For CLI use from the public GitHub release:
 
 ```bash
-uv tool install git+https://github.com/xi-zhao/FluxQ@v0.2.4
+uv tool install git+https://github.com/xi-zhao/FluxQ@v0.3.1
 ```
 
 This public install includes the local `qiskit-local` runtime stack. `classiq` remains optional.
@@ -48,13 +48,27 @@ uv pip install -e '.[dev]'
 
 FluxQ currently targets Python `3.11`.
 
+For a one-shot local bootstrap and verification flow from the repository root:
+
+```bash
+./scripts/dev-bootstrap.sh all
+```
+
+For mainland China networks, the same helper can switch to a mirror without editing your shell profile:
+
+```bash
+./scripts/dev-bootstrap.sh all --mirror tsinghua
+```
+
 ## First Run
 
 ```bash
 qrun init --workspace .quantum --json
-qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json
+qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl
 qrun baseline set --workspace .quantum --revision rev_000001 --json
-qrun inspect --workspace .quantum --json
+qrun status --workspace .quantum --json
+qrun show --workspace .quantum --json
 qrun compare --workspace .quantum --baseline --json
 qrun export --workspace .quantum --format qasm3 --json
 qrun bench --workspace .quantum --json
@@ -64,6 +78,7 @@ qrun doctor --workspace .quantum --json --fix
 After one GHZ run, FluxQ writes:
 
 - `.quantum/specs/current.json`
+- `.quantum/manifests/latest.json`
 - `.quantum/artifacts/qiskit/main.py`
 - `.quantum/artifacts/qasm/main.qasm`
 - `.quantum/figures/circuit.png`
@@ -77,17 +92,31 @@ qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json
 qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json
 ```
 
+## Runtime Object
+
+FluxQ is designed to be orchestrated by coding agents through files plus shell commands. The release focus is not just generation, but a stable runtime control plane.
+
+- natural language or markdown intent is ingress
+- canonical `QSpec` is the truth layer for planning, compare, and export
+- every run persists `qspec.json`, `report.json`, and immutable `manifest.json` state
+- `qrun plan`, `qrun status`, `qrun show`, and `qrun schema` are machine-first control-plane commands for agents and CI
+- `qrun exec|compare|bench|doctor --jsonl` expose event streams for incremental agent consumption
+
 ## Trust And Replay
 
-FluxQ is designed to be orchestrated by coding agents through files plus shell commands. The release focus is not just generation, but repeatability and inspectability.
-
 - reports include stable provenance metadata for replay and inspection
+- manifests persist a join record for one revision so agents can identify what was run, exported, and selected
 - copied report files remain replayable as long as their recorded revision snapshots are still available
 - workspace baselines persist approved report/QSpec states at `.quantum/baselines/current.json`
 - `qrun compare --baseline --json` compares the saved baseline against the current workspace without retyping revisions
+- all machine-readable command payloads include `schema_version`
+- `qrun status`, `qrun show`, `qrun inspect`, and `qrun compare` now expose `health`, `reason_codes`, `next_actions`, and `decision` or `gate` blocks
+- `--jsonl` event streams for `qrun exec`, `qrun compare`, `qrun bench`, and `qrun doctor` make long-running steps incrementally consumable
 - report-backed imports now enforce replay integrity for QSpec identity instead of trusting path existence alone
 - baseline-backed compares also enforce stored report/QSpec identity so tampered baseline inputs fail closed
 - `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
+- `qrun status --json` reports workspace, active artifact, and baseline readiness
+- `qrun show --json` returns one selected run plus its baseline relation
 - `qrun compare --json` reports `detached_report_inputs` so hosts can detect copied-report replay explicitly
 - `qrun inspect --json` reports `replay_integrity` so hosts can detect legacy, degraded, or invalid replay trust directly
 - `qrun inspect --json` reports a `baseline` block so hosts can tell whether the current workspace still matches the approved baseline
@@ -99,15 +128,23 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 
 ## Decision Loop
 
-FluxQ `0.2.4` is organized around a simple decision loop for agent and CI workflows:
+FluxQ `0.3.1` is organized around a simple decision loop for agent and CI workflows:
 
-1. execute a workload into a revisioned workspace
-2. save an approved baseline
-3. compare the current workspace against that baseline
-4. export or benchmark with explicit provenance and comparability signals
-5. run `doctor` before continuing so dependency assumptions are explicit
+1. plan a workload into a canonical runtime object
+2. execute that workload into a revisioned workspace
+3. save an approved baseline
+4. compare the current workspace against that baseline
+5. show or export the selected run with explicit provenance
+6. benchmark and run `doctor` before continuing so dependency assumptions are explicit
 
-This keeps the first supported path grounded in `baseline -> compare -> export/bench -> doctor` rather than a bag of unrelated commands.
+This keeps the first supported path grounded in `plan -> exec -> baseline -> compare -> show/export -> bench/doctor` rather than a bag of unrelated commands.
+
+## Agent Observability
+
+- `--json` is for one-shot machine results
+- `--jsonl` is for long-running command streams with stable event envelopes
+- `status/show/inspect/compare` expose compact decision signals so agents can act without opening workspace files directly
+- `next_actions` are short machine hints such as `run_exec`, `set_baseline`, `review_compare`, and `run_doctor`
 
 ## Benchmark Honesty
 
@@ -121,7 +158,7 @@ When `--backends` is omitted, `qrun bench` defaults to `qiskit-local` plus any o
 
 ## Parameterized Local Evaluation
 
-FluxQ `0.2.4` includes a small parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch is intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
+FluxQ `0.3.1` keeps the existing local parameter workflow contract for `qaoa_ansatz` and `hardware_efficient_ansatz`. This batch remains intentionally local and explicit: `qiskit-local` exact evaluation, small bindings or sweeps, and declared Pauli-sum observables.
 
 - `parameter_workflow.mode` is `binding` or `sweep`
 - observables are explicit weighted `X/Y/Z` Pauli-string terms
@@ -130,7 +167,7 @@ FluxQ `0.2.4` includes a small parameter workflow contract for `qaoa_ansatz` and
 - exported Qiskit/QASM/Classiq source and diagrams follow the representative evaluated point for the run
 - `best_point` currently supports one objective observable, not multi-objective optimization
 - this is bounded local evaluation rather than a general optimizer workflow
-- `0.2.4` is not an optimizer, gradient engine, or remote execution story
+- `0.3.1` is not an optimizer, gradient engine, or remote execution story
 
 Example:
 
@@ -145,6 +182,7 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 ```text
 .quantum/
 ├─ workspace.json
+├─ manifests/
 ├─ qrun.toml
 ├─ baselines/
 ├─ intents/history/
@@ -162,13 +200,19 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 ## Command Reference
 
 - `qrun init --workspace .quantum --json`
+- `qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
+- `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl`
 - `qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json`
 - `qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
 - `qrun baseline set --workspace .quantum --revision rev_000001 --json`
 - `qrun baseline show --workspace .quantum --json`
 - `qrun baseline clear --workspace .quantum --json`
+- `qrun status --workspace .quantum --json`
+- `qrun show --workspace .quantum --json`
+- `qrun show --workspace .quantum --revision rev_000001 --json`
+- `qrun schema manifest`
 - `qrun inspect --workspace .quantum --json`
 - `qrun compare --workspace .quantum --baseline --expect same-subject --json`
 - `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
@@ -176,8 +220,11 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json`
+- `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --jsonl`
 - `qrun compare --workspace .quantum --left-report-file .quantum/reports/history/rev_000001.json --forbid-replay-integrity-regressions --json`
 - `qrun doctor --workspace .quantum --json --fix`
+- `qrun doctor --workspace .quantum --jsonl --fix`
+- `qrun bench --workspace .quantum --jsonl`
 - `qrun backend list --json`
 - `qrun version`
 
@@ -193,8 +240,8 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 FluxQ is released under `Apache-2.0`.
 
 - Repository: `https://github.com/xi-zhao/FluxQ`
-- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.2.4`
-- Release notes source: `docs/releases/v0.2.4.md`
+- Release: `https://github.com/xi-zhao/FluxQ/releases/tag/v0.3.1`
+- Release notes source: `docs/releases/v0.3.1.md`
 - License: `LICENSE`
 - Contributing guide: `CONTRIBUTING.md`
 - Security policy: `SECURITY.md`
@@ -204,6 +251,12 @@ FluxQ is released under `Apache-2.0`.
 
 ```bash
 uv run --python 3.11 --extra dev --extra qiskit pytest -q
+```
+
+Or run the repository helper:
+
+```bash
+./scripts/dev-bootstrap.sh verify
 ```
 
 ## Docs

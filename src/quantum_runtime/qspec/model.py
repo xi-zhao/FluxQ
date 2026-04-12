@@ -53,6 +53,7 @@ class MeasureNode(BaseModel):
 class QSpec(BaseModel):
     """Top-level intermediate representation for deterministic planning."""
 
+    schema_version: str = "0.3.0"
     version: str = "0.1"
     program_id: str
     title: str | None = None

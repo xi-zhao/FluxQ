@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,8 @@ def write_report(
     errors: list[str],
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
+    from quantum_runtime.runtime.run_manifest import RunReportArtifact
+
     semantics = summarize_qspec_semantics(qspec)
     latest_path = workspace.root / "reports" / "latest.json"
     history_path = workspace.root / "reports" / "history" / f"{revision}.json"
@@ -52,11 +53,11 @@ def write_report(
         errors=errors,
         backend_reports=backend_reports,
     )
-    payload: dict[str, Any] = {
-        "status": status,
-        "revision": revision,
-        "input": input_data,
-        "provenance": _build_provenance(
+    payload = RunReportArtifact(
+        status=status,
+        revision=revision,
+        input=input_data,
+        provenance=_build_provenance(
             workspace=workspace,
             revision=revision,
             input_data=input_data,
@@ -64,29 +65,29 @@ def write_report(
             semantics=semantics,
             artifact_provenance=artifact_provenance,
         ),
-        "qspec": {
+        qspec={
             "path": str(canonical_qspec_path),
             "hash": qspec_hash,
             "semantic_hash": semantics["semantic_hash"],
         },
-        "semantics": semantics,
-        "replay_integrity": replay_integrity,
-        "artifacts": artifact_payload,
-        "diagnostics": diagnostics,
-        "backend_reports": backend_reports,
-        "warnings": warnings,
-        "errors": errors,
-        "suggestions": _build_suggestions(
+        semantics=semantics,
+        replay_integrity=replay_integrity,
+        artifacts=artifact_payload,
+        diagnostics=diagnostics,
+        backend_reports=backend_reports,
+        warnings=warnings,
+        errors=errors,
+        suggestions=_build_suggestions(
             warnings=warnings,
             errors=errors,
             backend_reports=backend_reports,
         ),
-    }
+    )
 
-    serialized = json.dumps(payload, indent=2, ensure_ascii=True)
+    serialized = payload.model_dump_json(indent=2)
     latest_path.write_text(serialized)
     history_path.write_text(serialized)
-    return payload
+    return payload.model_dump(mode="json")
 
 
 def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> None:

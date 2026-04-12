@@ -222,6 +222,119 @@ def test_qrun_compare_json_accepts_copied_report_file_via_report_provenance(tmp_
     )
 
 
+def test_qrun_compare_json_accepts_copied_report_when_source_workspace_is_gone_but_target_matches(
+    tmp_path: Path,
+) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    source_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert source_result.exit_code == 0, source_result.stdout
+
+    target_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert target_result.exit_code == 0, target_result.stdout
+
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
+
+    import shutil
+
+    shutil.rmtree(source_workspace)
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(target_workspace),
+            "--left-report-file",
+            str(copied_report),
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 2, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "same_subject"
+    assert payload["left"]["workspace_root"] == str(target_workspace)
+    assert payload["left"]["qspec_path"] == str(target_workspace / "specs" / "history" / "rev_000001.json")
+    assert payload["detached_report_inputs"] == ["left"]
+
+
+def test_qrun_compare_json_returns_exit_code_3_for_tampered_run_manifest(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    source_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert source_result.exit_code == 0, source_result.stdout
+
+    target_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert target_result.exit_code == 0, target_result.stdout
+
+    manifest_path = source_workspace / "manifests" / "history" / "rev_000001.json"
+    manifest_payload = json.loads(manifest_path.read_text())
+    manifest_payload["report"]["path"] = str(source_workspace / "reports" / "history" / "rev_999999.json")
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2))
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(target_workspace),
+            "--left-report-file",
+            str(source_workspace / "reports" / "latest.json"),
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 3, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "run_manifest_integrity_invalid"
+
+
 def test_qrun_compare_json_returns_exit_code_3_for_conflicting_left_source(tmp_path: Path) -> None:
     report_path = tmp_path / "dummy-report.json"
     report_path.write_text(json.dumps({"status": "ok"}))
@@ -723,10 +836,11 @@ def test_qrun_compare_json_baseline_mode_requires_saved_baseline(tmp_path: Path)
 
     assert compare_result.exit_code == 3, compare_result.stdout
     payload = json.loads(compare_result.stdout)
-    assert payload == {
-        "status": "error",
-        "reason": "baseline_missing",
-    }
+    assert payload["schema_version"] == "0.3.0"
+    assert payload["status"] == "error"
+    assert payload["reason"] == "baseline_missing"
+    assert payload["error_code"] == "baseline_missing"
+    assert "remediation" in payload
 
 
 def test_qrun_compare_json_rejects_tampered_baseline_record_inputs(tmp_path: Path) -> None:
@@ -777,7 +891,8 @@ def test_qrun_compare_json_rejects_tampered_baseline_record_inputs(tmp_path: Pat
 
     assert compare_result.exit_code == 3, compare_result.stdout
     payload = json.loads(compare_result.stdout)
-    assert payload == {
-        "status": "error",
-        "reason": "baseline_integrity_invalid",
-    }
+    assert payload["schema_version"] == "0.3.0"
+    assert payload["status"] == "error"
+    assert payload["reason"] == "run_manifest_integrity_invalid"
+    assert payload["error_code"] == "run_manifest_integrity_invalid"
+    assert "remediation" in payload

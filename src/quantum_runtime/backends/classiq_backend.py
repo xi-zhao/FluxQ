@@ -30,7 +30,12 @@ class ClassiqBackendReport(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBackendReport:
+def run_classiq_backend(
+    qspec: QSpec,
+    workspace: WorkspaceHandle,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> ClassiqBackendReport:
     """Emit Classiq Python and synthesize it when the SDK is available."""
     code_path = workspace.root / "artifacts" / "classiq" / "main.py"
     target_assumptions = _target_assumptions(qspec)
@@ -41,7 +46,11 @@ def run_classiq_backend(qspec: QSpec, workspace: WorkspaceHandle) -> ClassiqBack
             reason="classiq_backend_not_requested",
         )
 
-    emit_result = write_classiq_program(qspec, code_path)
+    emit_result = write_classiq_program(
+        qspec,
+        code_path,
+        parameter_bindings=parameter_bindings,
+    )
     if emit_result.status != "ok" or emit_result.path is None:
         return ClassiqBackendReport(
             status="backend_unavailable",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +10,7 @@ from quantum_runtime.backends import run_classiq_backend
 from quantum_runtime.diagnostics.resources import estimate_resources
 from quantum_runtime.diagnostics.transpile_validate import validate_target_constraints
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.qspec.parameter_workflow import representative_bindings
 from quantum_runtime.workspace import WorkspaceHandle
 
 
@@ -41,17 +42,24 @@ def run_structural_benchmark(
     qspec: QSpec,
     workspace: WorkspaceHandle,
     backends: list[str],
+    event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None = None,
 ) -> BenchmarkReport:
     """Compare structural backend outputs without making hardware claims."""
     subject = summarize_qspec_semantics(qspec)
+    benchmark_bindings = representative_bindings(qspec) or None
     entries: dict[str, BackendBenchmark] = {}
     for backend in backends:
         normalized = backend.strip()
         if not normalized:
             continue
+        if event_sink is not None:
+            event_sink("backend_started", {"backend": normalized}, workspace.manifest.current_revision, "ok")
         if normalized == "qiskit-local":
-            resources = estimate_resources(qspec)
-            transpile_report = validate_target_constraints(qspec)
+            resources = estimate_resources(qspec, parameter_bindings=benchmark_bindings)
+            transpile_report = validate_target_constraints(
+                qspec,
+                parameter_bindings=benchmark_bindings,
+            )
             notes = ["Local Qiskit structural benchmark"]
             if transpile_report.status == "skipped":
                 notes.append("Transpile metrics were skipped because no target constraints were provided.")
@@ -83,12 +91,23 @@ def run_structural_benchmark(
                     "semantic_hash": subject["semantic_hash"],
                 },
             )
+            if event_sink is not None:
+                event_sink(
+                    "backend_completed",
+                    {"backend": normalized, "status": entries[normalized].status},
+                    workspace.manifest.current_revision,
+                    entries[normalized].status,
+                )
             continue
 
         if normalized == "classiq":
-            classiq_report = run_classiq_backend(qspec, workspace)
+            classiq_report = run_classiq_backend(
+                qspec,
+                workspace,
+                parameter_bindings=benchmark_bindings,
+            )
             if classiq_report.status == "ok":
-                resources = estimate_resources(qspec)
+                resources = estimate_resources(qspec, parameter_bindings=benchmark_bindings)
                 synthesis_metrics = _synthesis_metrics_from_report(classiq_report)
                 if synthesis_metrics:
                     benchmark = _benchmark_from_synthesis_metrics(
@@ -142,6 +161,13 @@ def run_structural_benchmark(
                         comparability_reason=classiq_report.reason or "backend_unavailable",
                     ),
                 )
+            if event_sink is not None:
+                event_sink(
+                    "backend_completed",
+                    {"backend": normalized, "status": entries[normalized].status},
+                    workspace.manifest.current_revision,
+                    entries[normalized].status,
+                )
             continue
 
         entries[normalized] = BackendBenchmark(
@@ -158,6 +184,13 @@ def run_structural_benchmark(
                 comparability_reason="unknown_backend",
             ),
         )
+        if event_sink is not None:
+            event_sink(
+                "backend_completed",
+                {"backend": normalized, "status": entries[normalized].status},
+                workspace.manifest.current_revision,
+                entries[normalized].status,
+            )
 
     return BenchmarkReport(
         status=_derive_status(entries),

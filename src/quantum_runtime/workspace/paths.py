@@ -28,6 +28,21 @@ class WorkspacePaths:
         return self.root / "trace" / "events.ndjson"
 
     @property
+    def manifests_dir(self) -> Path:
+        return self.root / "manifests"
+
+    @property
+    def manifests_history_dir(self) -> Path:
+        return self.manifests_dir / "history"
+
+    @property
+    def manifests_latest_json(self) -> Path:
+        return self.manifests_dir / "latest.json"
+
+    def manifest_history_json(self, revision: str) -> Path:
+        return self.manifests_history_dir / f"{revision}.json"
+
+    @property
     def baselines_dir(self) -> Path:
         return self.root / "baselines"
 
@@ -44,6 +59,8 @@ class WorkspacePaths:
             self.root / "intents" / "history",
             self.root / "specs",
             self.root / "specs" / "history",
+            self.manifests_dir,
+            self.manifests_history_dir,
             self.root / "artifacts",
             self.root / "artifacts" / "history",
             self.root / "artifacts" / "qiskit",

@@ -12,24 +12,37 @@ Use aionrs through files plus shell commands. Do not build a custom aionrs tool 
 
 2. Let aionrs write the current request into `.quantum/intents/latest.md`.
 
-3. Execute the runtime:
+3. Ask FluxQ for a dry-run runtime plan:
 
    ```bash
-   qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --json
+   qrun plan --workspace .quantum --intent-file .quantum/intents/latest.md --json
    ```
 
-4. Read `.quantum/reports/latest.json` and inspect generated artifacts before editing emitted code.
+4. Execute the runtime:
 
-5. Optionally run a lightweight post-tool health hook:
+   ```bash
+   qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --jsonl
+   ```
+
+5. Read `.quantum/reports/latest.json` and `.quantum/manifests/latest.json`, or call:
+
+   ```bash
+   qrun status --workspace .quantum --json
+   qrun show --workspace .quantum --json
+   ```
+
+   Agents can also consume `health`, `reason_codes`, `next_actions`, and `decision` directly from these payloads instead of opening workspace files themselves.
+
+6. Optionally run a lightweight post-tool health hook:
 
    ```bash
    qrun doctor --workspace .quantum
    ```
 
-6. If you want a structural backend comparison, run:
+7. If you want a structural backend comparison, run:
 
    ```bash
-   qrun bench --workspace .quantum --json
+   qrun bench --workspace .quantum --jsonl
    ```
 
 ## Files

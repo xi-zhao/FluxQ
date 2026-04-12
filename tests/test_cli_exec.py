@@ -20,6 +20,22 @@ def _fmt(value: float) -> str:
     return rendered or "0"
 
 
+def _binding_only_qaoa_qspec():
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "binding",
+        "bindings": {
+            "gamma_0": 0.2,
+            "beta_0": 0.1,
+            "gamma_1": 0.45,
+            "beta_1": 0.35,
+        },
+    }
+    for parameter in qspec.parameters:
+        parameter.pop("default", None)
+    return qspec
+
+
 def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
@@ -135,6 +151,34 @@ def test_qrun_exec_json_persists_parameterized_expectation_diagnostics(tmp_path:
     assert report["semantics"]["parameter_workflow_mode"] == "sweep"
     assert report["semantics"]["parameter_workflow"]["point_count"] == 4
     assert report["diagnostics"]["simulation"]["best_point"]["objective"] == "maximize"
+
+
+def test_qrun_exec_json_accepts_binding_only_parameter_workflow_qspec(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    qspec_path = tmp_path / "qaoa-binding-qspec.json"
+    qspec = _binding_only_qaoa_qspec()
+    qspec_path.write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--qspec-file",
+            str(qspec_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["diagnostics"]["resources"]["two_qubit_gates"] == 16
+    assert payload["diagnostics"]["transpile"]["status"] == "ok"
+    qiskit_code = Path(payload["artifacts"]["qiskit_code"]).read_text()
+    assert "qc.rz(0.4, 1)" in qiskit_code
+    assert "qc.rx(0.7, 0)" in qiskit_code
 
 
 def test_qrun_exec_qiskit_export_uses_representative_parameter_point(tmp_path: Path) -> None:

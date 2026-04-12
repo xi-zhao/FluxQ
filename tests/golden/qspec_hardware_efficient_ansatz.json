@@ -1,4 +1,5 @@
 {
+  "schema_version": "0.3.0",
   "version": "0.1",
   "program_id": "prog_hardware_efficient_ansatz_3",
   "title": "HEA Pattern Test",

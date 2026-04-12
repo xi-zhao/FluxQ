@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.3.1
+
+`0.3.1` is the agent-observability release for FluxQ: shared health signals, decision blocks, and JSONL event streams that make the runtime control plane easier for agents and CI to consume incrementally.
+
+- add `health`, `reason_codes`, `next_actions`, and `decision` or `gate` blocks to the machine-facing control plane
+- add `--jsonl` event streams for `qrun exec`, `qrun compare`, `qrun bench`, and `qrun doctor`
+- keep `--json` as the one-shot result surface while making the terminal completed JSONL event carry the same core payload
+- harden control-plane trust checks for active `qspec`, `report`, `manifest`, and baseline state
+- improve copied-report portability when a caller-provided workspace can safely satisfy the expected revision inputs
+
+## 0.3.0
+
+`0.3.0` is the runtime control-plane release for FluxQ: agent-first command surfaces, immutable per-run manifests, and schema-versioned machine output across the CLI.
+
+- reposition FluxQ as an agent-first quantum runtime CLI rather than a thin natural-language demo surface
+- add immutable `manifests/history/<revision>.json` and `manifests/latest.json` artifacts alongside `qspec.json` and `report.json`
+- add `qrun plan`, `qrun status`, `qrun show`, and `qrun schema`
+- emit `schema_version` on machine-readable command payloads and core runtime artifacts
+- add structured `error_code` and `remediation` fields to machine-readable CLI failures
+- keep `QSpec.version` as the IR version while treating CLI/result/artifact `schema_version` as a separate compatibility surface
+
 ## 0.2.4
 
 `0.2.4` is a patch release that tightens FluxQ's public install and trust contract without changing the core decision-loop surface introduced in `0.2.3`.

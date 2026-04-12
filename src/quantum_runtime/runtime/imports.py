@@ -16,6 +16,7 @@ from quantum_runtime.artifact_provenance import (
     select_accessible_artifact_paths,
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.runtime.run_manifest import RunManifestIntegrityError, load_run_manifest
 from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, WorkspacePaths
 
 
@@ -214,55 +215,43 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
         invalid_payload_code="report_file_invalid_payload",
         source=str(report_path),
     )
-    inferred_root, workspace_source = _resolve_report_workspace_root(
+    candidates = _resolve_report_workspace_candidates(
         report_path=report_path,
         report_payload=report_payload,
         workspace_root=workspace_root,
     )
-    if inferred_root is None or workspace_source is None:
+    if not candidates:
         raise ImportSourceError(
             "workspace_root_required_for_report_file",
             source=str(report_path),
         )
 
-    workspace_root_path = inferred_root.resolve()
-    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
-        report_path=report_path,
-        report_payload=report_payload,
-        workspace_root=workspace_root_path,
-        prefer_history=report_path.parent.name == "history",
-    )
-    _extract_artifact_provenance(
-        workspace_root=workspace_root_path,
-        revision=_report_revision(report_payload, fallback=report_path.stem),
-        artifacts=report_payload.get("artifacts"),
-        provenance=report_payload.get("provenance"),
-        source=str(report_path),
-    )
-    qspec = _load_qspec_file(
-        qspec_path,
-        missing_code="report_qspec_missing",
-        invalid_json_code="report_qspec_invalid_json",
-        source=str(qspec_path),
-    )
-    manifest = _load_manifest(workspace_root_path / "workspace.json")
+    last_error: ImportSourceError | None = None
+    for candidate_root, workspace_source, relocated in candidates:
+        try:
+            candidate_payload = (
+                _relocate_report_payload_for_workspace(
+                    report_payload=report_payload,
+                    workspace_root=candidate_root,
+                    revision=_report_revision(report_payload, fallback=report_path.stem),
+                )
+                if relocated
+                else report_payload
+            )
+            return _resolve_report_file_against_workspace(
+                report_path=report_path,
+                report_payload=candidate_payload,
+                workspace_root=candidate_root,
+                workspace_source=workspace_source,
+            )
+        except ImportSourceError as exc:
+            last_error = exc
+            if exc.code not in _report_resolution_retryable_codes():
+                raise
+            continue
 
-    return _build_resolution(
-        source_kind="report_file",
-        source=f"report_file:{report_path}",
-        workspace_root=workspace_root_path,
-        workspace_manifest_path=workspace_root_path / "workspace.json",
-        workspace_project_id=manifest.project_id,
-        revision=_report_revision(report_payload, fallback=report_path.stem),
-        report_path=report_path,
-        qspec_path=qspec_path,
-        report_payload=report_payload,
-        qspec=qspec,
-        provenance={
-            "workspace_source": workspace_source,
-            "qspec_resolution_source": qspec_resolution_source,
-        },
-    )
+    assert last_error is not None
+    raise last_error
 
 
 def resolve_report_revision(workspace_root: Path, revision: str) -> ImportResolution:
@@ -363,6 +352,21 @@ def _build_resolution(
     report_summary["replay_integrity_warnings"] = replay_integrity["warnings"]
     report_summary["replay_integrity_missing_artifacts"] = replay_integrity["missing_artifacts"]
     report_summary["replay_integrity_mismatched_artifacts"] = replay_integrity["mismatched_artifacts"]
+    paths = WorkspacePaths(root=workspace_root)
+    expected_qspec_history_path = paths.root / "specs" / "history" / f"{revision}.json"
+    expected_report_history_path = paths.root / "reports" / "history" / f"{revision}.json"
+    manifest_payload = _load_run_manifest_if_present(
+        workspace_root=workspace_root,
+        revision=revision,
+        expected_qspec_path=expected_qspec_history_path,
+        expected_report_path=expected_report_history_path,
+        source=str(paths.manifest_history_json(revision)),
+    )
+    report_summary["manifest_path"] = (
+        str(paths.manifest_history_json(revision))
+        if manifest_payload is not None
+        else None
+    )
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
@@ -397,10 +401,134 @@ def _build_resolution(
             "report_hash": report_hash,
             "qspec_hash": qspec_hash,
             "revision": revision,
+            "run_manifest_path": report_summary.get("manifest_path"),
             "artifacts": artifact_provenance,
             "replay_integrity": replay_integrity,
         },
     )
+
+
+def _resolve_report_file_against_workspace(
+    *,
+    report_path: Path,
+    report_payload: dict[str, Any],
+    workspace_root: Path,
+    workspace_source: str,
+) -> ImportResolution:
+    workspace_root_path = workspace_root.resolve()
+    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
+        report_path=report_path,
+        report_payload=report_payload,
+        workspace_root=workspace_root_path,
+        prefer_history=report_path.parent.name == "history",
+    )
+    _extract_artifact_provenance(
+        workspace_root=workspace_root_path,
+        revision=_report_revision(report_payload, fallback=report_path.stem),
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+        source=str(report_path),
+    )
+    qspec = _load_qspec_file(
+        qspec_path,
+        missing_code="report_qspec_missing",
+        invalid_json_code="report_qspec_invalid_json",
+        source=str(qspec_path),
+    )
+    manifest = _load_manifest(workspace_root_path / "workspace.json")
+
+    return _build_resolution(
+        source_kind="report_file",
+        source=f"report_file:{report_path}",
+        workspace_root=workspace_root_path,
+        workspace_manifest_path=workspace_root_path / "workspace.json",
+        workspace_project_id=manifest.project_id,
+        revision=_report_revision(report_payload, fallback=report_path.stem),
+        report_path=report_path,
+        qspec_path=qspec_path,
+        report_payload=report_payload,
+        qspec=qspec,
+        provenance={
+            "workspace_source": workspace_source,
+            "qspec_resolution_source": qspec_resolution_source,
+        },
+    )
+
+
+def _load_run_manifest_if_present(
+    *,
+    workspace_root: Path,
+    revision: str,
+    expected_qspec_path: Path,
+    expected_report_path: Path,
+    source: str,
+) -> dict[str, Any] | None:
+    try:
+        return load_run_manifest(
+            workspace_root=workspace_root,
+            revision=revision,
+            expected_qspec_path=expected_qspec_path,
+            expected_report_path=expected_report_path,
+        )
+    except RunManifestIntegrityError as exc:
+        raise ImportSourceError(
+            "run_manifest_integrity_invalid",
+            source=source,
+            details=exc.details or {"mismatches": exc.mismatches},
+        ) from exc
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
+        raise ImportSourceError(
+            "run_manifest_invalid",
+            source=source,
+            details={"error": str(exc)},
+        ) from exc
+
+
+def _relocate_report_payload_for_workspace(
+    *,
+    report_payload: dict[str, Any],
+    workspace_root: Path,
+    revision: str,
+) -> dict[str, Any]:
+    relocated = json.loads(json.dumps(report_payload))
+    normalized_root = Path(workspace_root).resolve()
+
+    qspec_block = relocated.get("qspec")
+    if not isinstance(qspec_block, dict):
+        qspec_block = {}
+        relocated["qspec"] = qspec_block
+    qspec_block["path"] = str(normalized_root / "specs" / "history" / f"{revision}.json")
+
+    artifacts = relocated.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    relocated_artifacts = dict(artifacts)
+    relocated_artifacts["qspec"] = str(normalized_root / "specs" / "history" / f"{revision}.json")
+    relocated_artifacts["report"] = str(normalized_root / "reports" / "history" / f"{revision}.json")
+
+    artifact_mapping = {
+        "qiskit_code": normalized_root / "artifacts" / "history" / revision / "qiskit" / "main.py",
+        "qasm3": normalized_root / "artifacts" / "history" / revision / "qasm" / "main.qasm",
+        "classiq_code": normalized_root / "artifacts" / "history" / revision / "classiq" / "main.py",
+        "classiq_results": normalized_root / "artifacts" / "history" / revision / "classiq" / "synthesis.json",
+        "diagram_txt": normalized_root / "artifacts" / "history" / revision / "figures" / "circuit.txt",
+        "diagram_png": normalized_root / "artifacts" / "history" / revision / "figures" / "circuit.png",
+    }
+    for artifact_name, candidate_path in artifact_mapping.items():
+        if artifact_name in relocated_artifacts:
+            relocated_artifacts[artifact_name] = str(candidate_path)
+    relocated["artifacts"] = relocated_artifacts
+
+    provenance = relocated.get("provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    else:
+        provenance = dict(provenance)
+    provenance["workspace_root"] = str(normalized_root)
+    provenance.pop("artifacts", None)
+    relocated["provenance"] = provenance
+
+    return relocated
 
 
 def _extract_artifact_provenance(
@@ -650,24 +778,46 @@ def _infer_workspace_root_from_report_path(report_path: Path) -> Path | None:
     return None
 
 
-def _resolve_report_workspace_root(
+def _resolve_report_workspace_candidates(
     *,
     report_path: Path,
     report_payload: dict[str, Any],
     workspace_root: Path | None,
-) -> tuple[Path | None, str | None]:
+) -> list[tuple[Path, str, bool]]:
+    candidates: list[tuple[Path, str, bool]] = []
+    seen: set[tuple[Path, bool]] = set()
+
+    def add_candidate(path: Path | None, source: str | None, relocated: bool = False) -> None:
+        if path is None or source is None:
+            return
+        resolved = Path(path).resolve()
+        key = (resolved, relocated)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append((resolved, source, relocated))
+
     payload_root, payload_source = _infer_workspace_root_from_report_payload(report_payload)
-    if payload_root is not None and payload_source is not None:
-        return payload_root, payload_source
+    add_candidate(payload_root, payload_source)
 
     path_root = _infer_workspace_root_from_report_path(report_path)
-    if path_root is not None:
-        return path_root, "inferred_from_report_path"
+    add_candidate(path_root, "inferred_from_report_path" if path_root is not None else None)
 
     if workspace_root is not None:
-        return Path(workspace_root), "workspace_option"
+        explicit_root = Path(workspace_root)
+        add_candidate(explicit_root, "workspace_option")
+        add_candidate(explicit_root, "workspace_option_relocated_report", relocated=True)
 
-    return None, None
+    return candidates
+
+
+def _report_resolution_retryable_codes() -> set[str]:
+    return {
+        "workspace_manifest_missing",
+        "workspace_manifest_invalid",
+        "report_qspec_missing",
+        "artifact_provenance_invalid",
+    }
 
 
 def _infer_workspace_root_from_report_payload(report_payload: dict[str, Any]) -> tuple[Path | None, str | None]:

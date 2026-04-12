@@ -109,6 +109,16 @@ def exit_code_for_compare(result: Any, *, structured: bool = False) -> int:
     return EXIT_OK
 
 
+def exit_code_for_control_plane(result: Any) -> int:
+    """Map generic control-plane result payloads to stable CLI exit codes."""
+    status = str(getattr(result, "status", "ok"))
+    if status == "ok":
+        return EXIT_OK
+    if status == "degraded":
+        return EXIT_DEGRADED
+    return EXIT_INVALID_INPUT
+
+
 def _as_mapping(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value

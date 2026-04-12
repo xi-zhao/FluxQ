@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from quantum_runtime.runtime.observability import gate_block, next_actions_for_reason_codes, normalize_reason_codes
 from quantum_runtime.runtime.imports import (
     ImportResolution,
     resolve_workspace_baseline,
@@ -60,6 +61,9 @@ class CompareResult(BaseModel):
     report_drift_detected: bool = False
     backend_regressions: list[str] = Field(default_factory=list)
     replay_integrity_regressions: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
     policy: dict[str, Any] = Field(default_factory=dict)
     verdict: dict[str, Any] = Field(default_factory=dict)
     baseline: dict[str, Any] | None = None
@@ -180,6 +184,20 @@ def compare_import_resolutions(
         backend_regressions=backend_regressions,
         replay_integrity_regressions=replay_integrity_regressions,
     )
+    reason_codes = _reason_codes(
+        differences=differences,
+        replay_integrity_regressions=replay_integrity_regressions,
+        verdict=verdict.model_dump(mode="json"),
+    )
+    next_actions = next_actions_for_reason_codes(reason_codes) or (["review_compare"] if differences else [])
+    gate_ready = same_subject and not replay_integrity_regressions and verdict.status != "fail"
+    severity: Literal["info", "warning", "error"]
+    if verdict.status == "fail":
+        severity = "error"
+    elif differences or replay_integrity_regressions:
+        severity = "warning"
+    else:
+        severity = "info"
 
     return CompareResult(
         status="same_subject" if same_subject else "different_subject",
@@ -197,6 +215,14 @@ def compare_import_resolutions(
         report_drift_detected=report_drift_detected,
         backend_regressions=backend_regressions,
         replay_integrity_regressions=replay_integrity_regressions,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+        gate=gate_block(
+            ready=gate_ready,
+            severity=severity,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        ),
         policy=policy.model_dump(mode="json") if policy is not None else {},
         verdict=verdict.model_dump(mode="json"),
         left=_compare_side(left),
@@ -220,6 +246,25 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
         replay_integrity=resolution.replay_integrity,
         provenance=resolution.provenance,
     )
+
+
+def _reason_codes(
+    *,
+    differences: list[str],
+    replay_integrity_regressions: list[str],
+    verdict: dict[str, Any],
+) -> list[str]:
+    codes: list[str] = []
+    for difference in differences:
+        if difference.startswith("semantic_subject_changed"):
+            codes.append("semantic_subject_changed")
+        else:
+            codes.append(f"compare_difference:{difference}")
+    if replay_integrity_regressions:
+        codes.append("replay_integrity_regressed")
+    if verdict.get("status") == "fail":
+        codes.append("compare_policy_failed")
+    return normalize_reason_codes(codes)
 
 
 def _semantic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:

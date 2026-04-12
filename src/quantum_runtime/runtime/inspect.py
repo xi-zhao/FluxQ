@@ -16,6 +16,11 @@ from quantum_runtime.artifact_provenance import (
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime.compare import compare_workspace_baseline
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
+from quantum_runtime.runtime.observability import (
+    decision_block,
+    next_actions_for_reason_codes,
+    normalize_reason_codes,
+)
 from quantum_runtime.runtime.imports import (
     ImportSourceError,
     resolve_report_file,
@@ -35,6 +40,10 @@ class InspectReport(BaseModel):
     artifacts: dict[str, Any] = Field(default_factory=dict)
     baseline: dict[str, Any] = Field(default_factory=dict)
     replay_integrity: dict[str, Any] = Field(default_factory=dict)
+    health: dict[str, Any] = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    decision: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     backend_capabilities: dict[str, dict[str, Any]] = Field(default_factory=dict)
     issues: list[str] = Field(default_factory=list)
@@ -112,6 +121,13 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     issues.extend(baseline_issues)
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
+    reason_codes = normalize_reason_codes(errors + issues)
+    next_actions = next_actions_for_reason_codes(reason_codes)
+    health = {
+        "workspace": {"status": "ok" if workspace_info.get("exists") else "missing"},
+        "baseline": {"status": str(baseline.get("status", "unknown"))},
+        "replay": {"status": "degraded" if replay_integrity.get("status") not in {None, "ok"} else "ok"},
+    }
 
     return InspectReport(
         status=status,
@@ -122,6 +138,15 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         artifacts=canonical_artifacts,
         baseline=baseline,
         replay_integrity=replay_integrity,
+        health=health,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+        decision=decision_block(
+            status="degraded" if status == "error" and reason_codes and any(code.startswith("run_manifest_") for code in reason_codes) else status,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+            ready_when_ok=True,
+        ),
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
         backend_capabilities=collect_backend_capabilities(),
         issues=issues,
@@ -277,6 +302,15 @@ def _load_replay_integrity(
     try:
         resolution = resolve_report_file(active_report_path, workspace_root=workspace_root)
     except ImportSourceError as exc:
+        degrade_only_codes = {
+            "run_manifest_invalid",
+            "run_manifest_integrity_invalid",
+            "report_qspec_missing",
+            "report_qspec_hash_mismatch",
+            "report_qspec_semantic_hash_mismatch",
+        }
+        issue_list: list[str] = [exc.code] if exc.code in degrade_only_codes else []
+        error_list: list[str] = [] if exc.code in degrade_only_codes else [exc.code]
         return (
             {
                 "status": "error",
@@ -284,8 +318,8 @@ def _load_replay_integrity(
                 "warnings": [],
                 "errors": [exc.code],
             },
-            [],
-            [exc.code],
+            issue_list,
+            error_list,
         )
 
     replay_integrity = (

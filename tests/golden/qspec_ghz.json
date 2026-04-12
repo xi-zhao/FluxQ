@@ -1,4 +1,5 @@
 {
+  "schema_version": "0.3.0",
   "version": "0.1",
   "program_id": "prog_ghz_4",
   "title": "GHZ circuit",

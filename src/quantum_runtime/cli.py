@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -15,9 +14,11 @@ from quantum_runtime.runtime import (
     ImportReference,
     ImportResolution,
     ImportSourceError,
+    build_execution_plan,
     ReportImportError,
+    schema_contract,
+    show_run,
     compare_import_resolutions,
-    compare_workspace_baseline,
     execute_intent,
     execute_intent_text,
     execute_qspec,
@@ -27,16 +28,26 @@ from quantum_runtime.runtime import (
     inspect_workspace,
     list_backends,
     resolve_import_reference,
+    resolve_workspace_baseline,
     run_doctor,
+    workspace_status,
+)
+from quantum_runtime.runtime.contracts import (
+    ErrorPayload,
+    dump_schema_payload,
+    ensure_schema_payload,
+    remediation_for_error,
 )
 from quantum_runtime.runtime.exit_codes import (
     exit_code_for_benchmark,
     exit_code_for_compare,
+    exit_code_for_control_plane,
     exit_code_for_doctor,
     exit_code_for_exec,
     exit_code_for_export,
     exit_code_for_inspect,
 )
+from quantum_runtime.runtime.observability import JsonlEvent
 from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManager, WorkspacePaths
 
 
@@ -52,8 +63,41 @@ app.add_typer(baseline_app, name="baseline")
 
 
 def _json_error(reason: str) -> None:
-    typer.echo(json.dumps({"status": "error", "reason": reason}))
+    typer.echo(
+        dump_schema_payload(
+            ErrorPayload(
+                reason=reason,
+                error_code=reason,
+                remediation=remediation_for_error(reason),
+            )
+        )
+    )
     raise typer.Exit(code=3)
+
+
+def _echo_json(payload: object, *, exclude_none: bool = False) -> None:
+    typer.echo(dump_schema_payload(payload, exclude_none=exclude_none))
+
+
+def _validate_output_modes(*, json_output: bool, jsonl_output: bool) -> None:
+    if json_output and jsonl_output:
+        _json_error("output_mode_conflict")
+
+
+def _make_jsonl_emitter(*, workspace: Path):
+    workspace_str = str(workspace.resolve())
+
+    def emit(event_type: str, payload: dict[str, object], revision: str | None = None, status: str = "ok") -> None:
+        event = JsonlEvent(
+            event_type=event_type,
+            workspace=workspace_str,
+            revision=revision,
+            status=status,
+            payload=ensure_schema_payload(payload) if isinstance(payload, dict) and "status" in payload else payload,
+        )
+        typer.echo(event.model_dump_json())
+
+    return emit
 
 
 def _resolve_report_import(
@@ -68,7 +112,7 @@ def _resolve_report_import(
         raise ReportImportError("report_source_conflict")
 
     reference = (
-        ImportReference(report_file=report_file)
+        ImportReference(workspace_root=workspace, report_file=report_file)
         if report_file is not None
         else ImportReference(workspace_root=workspace, revision=revision)
     )
@@ -147,7 +191,7 @@ def init_command(
     result = WorkspaceManager.init_workspace(workspace)
     result.created = not existed
     if json_output:
-        typer.echo(result.model_dump_json(indent=2))
+        _echo_json(result)
         return
 
     typer.echo(f"Initialized workspace at {result.workspace}")
@@ -157,6 +201,188 @@ def init_command(
 def version_command() -> None:
     """Print the package version."""
     typer.echo(__version__)
+
+
+@app.command("plan")
+def plan_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory to inspect for baseline and default export context.",
+    ),
+    intent_file: Path | None = typer.Option(
+        None,
+        "--intent-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Markdown intent file to resolve into a dry-run plan.",
+    ),
+    qspec_file: Path | None = typer.Option(
+        None,
+        "--qspec-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Serialized QSpec JSON file to inspect without execution.",
+    ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to re-import for planning.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to re-import for planning.",
+    ),
+    intent_text: str | None = typer.Option(
+        None,
+        "--intent-text",
+        help="Inline intent text to normalize without executing it.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Resolve a runtime input into a dry-run execution plan."""
+    try:
+        result = build_execution_plan(
+            workspace_root=workspace,
+            intent_file=intent_file,
+            qspec_file=qspec_file,
+            report_file=report_file,
+            revision=revision,
+            intent_text=intent_text,
+        )
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid plan input: {exc.code}") from exc
+    except ReportImportError as exc:
+        if json_output:
+            _json_error(exc.reason)
+        raise typer.BadParameter(f"Invalid plan input: {exc.reason}") from exc
+    except ValueError as exc:
+        if json_output:
+            _json_error(str(exc))
+        raise typer.BadParameter(str(exc)) from exc
+
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+
+    typer.echo(
+        f"plan status: {result.status}; pattern={result.qspec.get('pattern', 'unknown')}; "
+        f"backends={','.join(result.execution.get('selected_backends', []))}"
+    )
+    raise typer.Exit(code=exit_code_for_control_plane(result))
+
+
+@app.command("status")
+def status_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Workspace directory to summarize for agents and CI.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Return a thin workspace status summary."""
+    result = workspace_status(workspace_root=workspace)
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+    typer.echo(
+        f"status={result.status}; revision={result.current_revision or 'unknown'}; "
+        f"latest_run={result.latest_run_status or 'missing'}"
+    )
+    raise typer.Exit(code=exit_code_for_control_plane(result))
+
+
+@app.command("show")
+def show_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Workspace directory that provides the default latest run.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Specific workspace revision to show instead of the latest run.",
+    ),
+    latest: bool = typer.Option(
+        True,
+        "--latest/--no-latest",
+        help="Show the latest workspace run when no revision is supplied.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Show one resolved run plus baseline relation details."""
+    if revision is not None and not latest:
+        if json_output:
+            _json_error("show_source_conflict")
+        raise typer.BadParameter("Use either --revision or --latest.")
+    try:
+        result = show_run(workspace_root=workspace, revision=revision if revision is not None else None)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_error(exc.code)
+        raise typer.BadParameter(f"Invalid show input: {exc.code}") from exc
+
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+
+    typer.echo(
+        f"revision={result.revision}; pattern={result.qspec_summary.get('pattern', 'unknown')}; "
+        f"baseline_match={result.baseline_relation.get('matches_baseline')}"
+    )
+    raise typer.Exit(code=exit_code_for_control_plane(result))
+
+
+@app.command("schema")
+def schema_command(
+    name: str = typer.Argument(..., help="One of: qspec, report, manifest, compare, plan, status."),
+) -> None:
+    """Return the JSON Schema for one public runtime contract."""
+    try:
+        result = schema_contract(name)
+    except ValueError as exc:
+        _json_error(str(exc))
+    _echo_json(result)
 
 
 @baseline_app.command("set")
@@ -212,7 +438,7 @@ def baseline_set_command(
     baseline.save(paths.baseline_current_json)
 
     if json_output:
-        typer.echo(baseline.model_dump_json(indent=2))
+        _echo_json(baseline)
         return
 
     typer.echo(f"Set workspace baseline to {baseline.revision}")
@@ -246,7 +472,7 @@ def baseline_show_command(
 
     baseline = WorkspaceBaseline.load(baseline_path)
     if json_output:
-        typer.echo(baseline.model_dump_json(indent=2))
+        _echo_json(baseline)
         return
 
     typer.echo(f"Workspace baseline: {baseline.revision}")
@@ -282,7 +508,7 @@ def baseline_clear_command(
         "path": str(baseline_path),
     }
     if json_output:
-        typer.echo(json.dumps(payload))
+        _echo_json(payload)
         return
 
     typer.echo("Cleared workspace baseline." if cleared else "No baseline set.")
@@ -324,8 +550,14 @@ def bench_command(
         "--json",
         help="Emit a machine-readable JSON result.",
     ),
+    jsonl_output: bool = typer.Option(
+        False,
+        "--jsonl",
+        help="Emit newline-delimited machine-readable benchmark events.",
+    ),
 ) -> None:
     """Run structural backend benchmarks against the current QSpec."""
+    _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
     handle = WorkspaceManager.load_or_init(workspace)
     try:
         import_resolution = _resolve_report_import(
@@ -351,14 +583,38 @@ def bench_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
-    benchmark = run_structural_benchmark(
-        qspec,
-        handle,
-        _benchmark_backends(qspec, backends),
-    )
+    event_sink = _make_jsonl_emitter(workspace=handle.root) if jsonl_output else None
+    if event_sink is not None:
+        event_sink(
+            "benchmark_started",
+            {"backends": _benchmark_backends(qspec, backends)},
+            handle.manifest.current_revision,
+            "ok",
+        )
+    if event_sink is not None:
+        benchmark = run_structural_benchmark(
+            qspec,
+            handle,
+            _benchmark_backends(qspec, backends),
+            event_sink=event_sink,
+        )
+    else:
+        benchmark = run_structural_benchmark(
+            qspec,
+            handle,
+            _benchmark_backends(qspec, backends),
+        )
 
     if json_output:
-        typer.echo(benchmark.model_dump_json(indent=2))
+        _echo_json(benchmark)
+        raise typer.Exit(code=exit_code_for_benchmark(benchmark))
+    if event_sink is not None:
+        event_sink(
+            "benchmark_completed",
+            benchmark.model_dump(mode="json"),
+            handle.manifest.current_revision,
+            benchmark.status,
+        )
         raise typer.Exit(code=exit_code_for_benchmark(benchmark))
 
     typer.echo(f"Benchmark status: {benchmark.status}")
@@ -432,7 +688,7 @@ def export_command(
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
     if json_output:
-        typer.echo(result.model_dump_json(indent=2))
+        _echo_json(result)
         raise typer.Exit(code=exit_code_for_export(result))
 
     typer.echo(result.path or result.reason or result.status)
@@ -495,23 +751,32 @@ def exec_command(
         "--json",
         help="Emit a machine-readable JSON result.",
     ),
+    jsonl_output: bool = typer.Option(
+        False,
+        "--jsonl",
+        help="Emit newline-delimited machine-readable events instead of a single JSON payload.",
+    ),
 ) -> None:
     """Execute an intent file through the deterministic runtime pipeline."""
+    _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
     inputs_provided = sum(
         value is not None
         for value in (intent_file, qspec_file, report_file, revision, intent_text)
     )
     if inputs_provided != 1:
         if json_output:
-            typer.echo('{"status":"error","reason":"expected_exactly_one_input"}')
-            raise typer.Exit(code=3)
+            _json_error("expected_exactly_one_input")
         raise typer.BadParameter(
             "Provide exactly one of --intent-file, --qspec-file, --report-file, --revision, or --intent-text."
         )
 
     try:
+        event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
         if intent_file is not None:
-            result = execute_intent(workspace_root=workspace, intent_file=intent_file)
+            if event_sink is not None:
+                result = execute_intent(workspace_root=workspace, intent_file=intent_file, event_sink=event_sink)
+            else:
+                result = execute_intent(workspace_root=workspace, intent_file=intent_file)
         elif report_file is not None or revision is not None:
             import_resolution = _resolve_report_import(
                 workspace=workspace,
@@ -519,15 +784,28 @@ def exec_command(
                 revision=revision,
             )
             assert import_resolution is not None
-            result = execute_report(
-                workspace_root=workspace,
-                report_file=import_resolution.report_path,
-            )
+            if event_sink is not None:
+                result = execute_report(
+                    workspace_root=workspace,
+                    report_file=import_resolution.report_path,
+                    event_sink=event_sink,
+                )
+            else:
+                result = execute_report(
+                    workspace_root=workspace,
+                    report_file=import_resolution.report_path,
+                )
         elif intent_text is not None:
-            result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
+            if event_sink is not None:
+                result = execute_intent_text(workspace_root=workspace, intent_text=intent_text, event_sink=event_sink)
+            else:
+                result = execute_intent_text(workspace_root=workspace, intent_text=intent_text)
         else:
             assert qspec_file is not None
-            result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
+            if event_sink is not None:
+                result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file, event_sink=event_sink)
+            else:
+                result = execute_qspec(workspace_root=workspace, qspec_file=qspec_file)
     except ImportSourceError as exc:
         if json_output:
             _json_error(exc.code)
@@ -537,7 +815,9 @@ def exec_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
     if json_output:
-        typer.echo(result.model_dump_json(indent=2))
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_exec(result))
+    if jsonl_output:
         raise typer.Exit(code=exit_code_for_exec(result))
 
     typer.echo(result.summary)
@@ -564,7 +844,7 @@ def inspect_command(
     """Inspect the current workspace revision, artifacts, and diagnostics."""
     report = inspect_workspace(workspace)
     if json_output:
-        typer.echo(report.model_dump_json(indent=2))
+        _echo_json(report)
         raise typer.Exit(code=exit_code_for_inspect(report))
     if report.status == "ok":
         typer.echo(f"revision={report.revision}")
@@ -644,8 +924,14 @@ def compare_command(
         "--json",
         help="Emit a machine-readable JSON result.",
     ),
+    jsonl_output: bool = typer.Option(
+        False,
+        "--jsonl",
+        help="Emit newline-delimited machine-readable compare events.",
+    ),
 ) -> None:
     """Compare two runtime inputs and answer whether they describe the same workload."""
+    _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
     if baseline_mode and any(
         value is not None
         for value in (left_report_file, left_revision, right_report_file, right_revision)
@@ -682,9 +968,50 @@ def compare_command(
             _json_error("invalid_compare_policy")
         raise typer.BadParameter("Invalid compare policy.") from exc
 
+    event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     try:
         if baseline_mode:
-            result = compare_workspace_baseline(workspace, policy=policy)
+            baseline_resolution = resolve_workspace_baseline(workspace)
+            current_resolution = _resolve_runtime_input(
+                workspace=workspace,
+                report_file=None,
+                revision=None,
+            )
+            if event_sink is not None:
+                event_sink("compare_started", {"mode": "baseline"}, current_resolution.revision, "ok")
+                event_sink(
+                    "left_resolved",
+                    {
+                        "revision": baseline_resolution.resolution.revision,
+                        "source_kind": baseline_resolution.resolution.source_kind,
+                    },
+                    baseline_resolution.resolution.revision,
+                    "ok",
+                )
+                event_sink(
+                    "right_resolved",
+                    {
+                        "revision": current_resolution.revision,
+                        "source_kind": current_resolution.source_kind,
+                    },
+                    current_resolution.revision,
+                    "ok",
+                )
+            result = compare_import_resolutions(
+                baseline_resolution.resolution,
+                current_resolution,
+                policy=policy,
+            ).model_copy(
+                update={
+                    "baseline": {
+                        "side": "left",
+                        "path": str(baseline_resolution.record_path),
+                        "source_kind": baseline_resolution.record.source_kind,
+                        "source": baseline_resolution.record.source,
+                        "revision": baseline_resolution.record.revision,
+                    }
+                }
+            )
         else:
             left = _resolve_runtime_input(
                 workspace=workspace,
@@ -696,6 +1023,20 @@ def compare_command(
                 report_file=right_report_file,
                 revision=right_revision,
             )
+            if event_sink is not None:
+                event_sink("compare_started", {"mode": "explicit"}, None, "ok")
+                event_sink(
+                    "left_resolved",
+                    {"revision": left.revision, "source_kind": left.source_kind},
+                    left.revision,
+                    "ok",
+                )
+                event_sink(
+                    "right_resolved",
+                    {"revision": right.revision, "source_kind": right.source_kind},
+                    right.revision,
+                    "ok",
+                )
             result = compare_import_resolutions(left, right, policy=policy)
     except ImportSourceError as exc:
         if json_output:
@@ -707,7 +1048,16 @@ def compare_command(
         raise typer.BadParameter(f"Invalid compare input: {exc.reason}") from exc
 
     if json_output:
-        typer.echo(result.model_dump_json(indent=2, exclude_none=True))
+        _echo_json(result, exclude_none=True)
+        raise typer.Exit(code=exit_code_for_compare(result, structured=True))
+    if jsonl_output:
+        assert event_sink is not None
+        event_sink(
+            "compare_completed",
+            result.model_dump(mode="json"),
+            None,
+            "ok" if result.status == "same_subject" else "degraded",
+        )
         raise typer.Exit(code=exit_code_for_compare(result, structured=True))
 
     highlight = result.highlights[0] if result.highlights else "no_highlights"
@@ -740,11 +1090,27 @@ def doctor_command(
         "--json",
         help="Emit a machine-readable JSON result.",
     ),
+    jsonl_output: bool = typer.Option(
+        False,
+        "--jsonl",
+        help="Emit newline-delimited machine-readable doctor events.",
+    ),
 ) -> None:
     """Check runtime dependencies and workspace health."""
-    report = run_doctor(workspace_root=workspace, fix=fix)
+    _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
+    event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
+    if event_sink is not None:
+        event_sink("doctor_started", {"fix": fix}, None, "ok")
+    report = (
+        run_doctor(workspace_root=workspace, fix=fix, event_sink=event_sink)
+        if event_sink is not None
+        else run_doctor(workspace_root=workspace, fix=fix)
+    )
     if json_output:
-        typer.echo(report.model_dump_json(indent=2))
+        _echo_json(report)
+        raise typer.Exit(code=exit_code_for_doctor(report))
+    if event_sink is not None:
+        event_sink("doctor_completed", report.model_dump(mode="json"), None, report.status)
         raise typer.Exit(code=exit_code_for_doctor(report))
     typer.echo(f"doctor status: {report.status}")
     raise typer.Exit(code=exit_code_for_doctor(report))
@@ -761,7 +1127,7 @@ def backend_list_command(
     """List known runtime backends and their availability."""
     report = list_backends()
     if json_output:
-        typer.echo(report.model_dump_json(indent=2))
+        _echo_json(report)
         return
     typer.echo(", ".join(sorted(report.backends)))
 

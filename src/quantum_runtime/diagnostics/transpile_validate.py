@@ -29,9 +29,13 @@ class TargetValidationReport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
-def validate_target_constraints(qspec: QSpec) -> TargetValidationReport:
+def validate_target_constraints(
+    qspec: QSpec,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> TargetValidationReport:
     """Transpile a circuit under target constraints and report structural metrics."""
-    circuit = build_qiskit_circuit(qspec)
+    circuit = build_qiskit_circuit(qspec, parameter_bindings=parameter_bindings)
     original_depth = int(circuit.depth() or 0)
     original_two_qubit_gates = _count_two_qubit_gates(circuit)
     target_assumptions = _target_assumptions(qspec)

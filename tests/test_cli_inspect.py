@@ -178,7 +178,7 @@ def test_qrun_inspect_json_reports_classiq_artifact_snapshot_aliases(
     qspec_path = tmp_path / "classiq-qspec.json"
     qspec_path.write_text(qspec.model_dump_json(indent=2))
 
-    def fake_run_classiq_backend(qspec, workspace_handle):
+    def fake_run_classiq_backend(qspec, workspace_handle, parameter_bindings=None):
         code_path = workspace_handle.root / "artifacts" / "classiq" / "main.py"
         results_path = workspace_handle.root / "artifacts" / "classiq" / "synthesis.json"
         code_path.parent.mkdir(parents=True, exist_ok=True)

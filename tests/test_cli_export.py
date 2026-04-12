@@ -188,6 +188,68 @@ def test_qrun_export_json_accepts_copied_report_file_via_report_provenance(tmp_p
     assert "ry(" not in exported_qasm
 
 
+def test_qrun_export_json_accepts_copied_report_when_source_workspace_is_gone_but_target_matches(
+    tmp_path: Path,
+) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    source_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert source_result.exit_code == 0, source_result.stdout
+
+    target_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(target_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert target_result.exit_code == 0, target_result.stdout
+
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
+
+    import shutil
+
+    shutil.rmtree(source_workspace)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(target_workspace),
+            "--report-file",
+            str(copied_report),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["format"] == "qasm3"
+    assert Path(payload["path"]).exists()
+    assert payload["source_qspec_path"] == str(target_workspace / "specs" / "history" / "rev_000001.json")
+
+
 def test_qrun_export_json_returns_exit_code_3_for_tampered_report_qspec_fallback(
     tmp_path: Path,
 ) -> None:
@@ -230,6 +292,48 @@ def test_qrun_export_json_returns_exit_code_3_for_tampered_report_qspec_fallback
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "report_qspec_hash_mismatch"
+
+
+def test_qrun_export_json_returns_exit_code_3_for_tampered_run_manifest(tmp_path: Path) -> None:
+    source_workspace = tmp_path / ".quantum-source"
+    target_workspace = tmp_path / ".quantum-target"
+
+    initial_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(source_workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert initial_result.exit_code == 0, initial_result.stdout
+
+    manifest_path = source_workspace / "manifests" / "history" / "rev_000001.json"
+    manifest_payload = json.loads(manifest_path.read_text())
+    manifest_payload["report"]["path"] = str(source_workspace / "reports" / "history" / "rev_999999.json")
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(target_workspace),
+            "--report-file",
+            str(source_workspace / "reports" / "latest.json"),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "run_manifest_integrity_invalid"
 
 
 def test_qrun_export_json_reports_replay_source_for_revision_input(tmp_path: Path) -> None:
@@ -324,6 +428,42 @@ def test_qrun_export_json_reports_source_for_current_workspace_input(tmp_path: P
     assert payload["source_report_path"] == str(workspace / "reports" / "latest.json")
     assert payload["source_qspec_path"] == str(workspace / "specs" / "current.json")
     assert payload["source_artifact_snapshot_root"] == str(workspace / "artifacts" / "history" / "rev_000001")
+
+
+def test_qrun_export_json_reuses_report_parameter_point_for_current_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut-sweep.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report = json.loads((workspace / "reports" / "latest.json").read_text())
+    report_qasm = Path(report["artifacts"]["qasm3"]).read_text()
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "export",
+            "--workspace",
+            str(workspace),
+            "--format",
+            "qasm3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert Path(payload["path"]).read_text() == report_qasm
 
 
 def test_qrun_export_json_returns_exit_code_3_for_tampered_current_workspace_input(

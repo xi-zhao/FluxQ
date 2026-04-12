@@ -107,6 +107,12 @@ def representative_bindings(qspec: QSpec) -> dict[str, float]:
     mode = summary.get("mode")
     if mode == "binding":
         return dict(summary.get("bindings", {}))
+    if mode == "sweep":
+        points = summary.get("points")
+        if isinstance(points, list):
+            for point in points:
+                if isinstance(point, dict):
+                    return _coerce_bindings(point)
     return parameter_defaults(qspec)
 
 

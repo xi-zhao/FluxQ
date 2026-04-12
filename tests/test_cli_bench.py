@@ -16,6 +16,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
 
 
+def _binding_only_qaoa_qspec():
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "binding",
+        "bindings": {
+            "gamma_0": 0.2,
+            "beta_0": 0.1,
+            "gamma_1": 0.45,
+            "beta_1": 0.35,
+        },
+    }
+    for parameter in qspec.parameters:
+        parameter.pop("default", None)
+    return qspec
+
+
 def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     tmp_path: Path,
     monkeypatch,
@@ -352,6 +368,30 @@ def test_qrun_bench_json_defaults_to_qiskit_local_for_qiskit_only_workspace(tmp_
     payload = json.loads(result.stdout)
     assert payload["status"] == "ok"
     assert set(payload["backends"]) == {"qiskit-local"}
+
+
+def test_qrun_bench_json_accepts_binding_only_parameter_workflow_qspec(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    qspec = _binding_only_qaoa_qspec()
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["backends"]["qiskit-local"]["depth"] > 0
+    assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 16
 
 
 def test_qrun_bench_json_defaults_include_requested_classiq_backend(tmp_path: Path) -> None:

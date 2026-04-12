@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -160,6 +161,53 @@ def test_resolve_report_file_uses_report_provenance_for_copied_report_files(tmp_
     assert resolution.provenance["replay_integrity"]["status"] == "ok"
     assert resolution.provenance["replay_integrity"]["qspec_hash_matches"] is True
     assert resolution.provenance["replay_integrity"]["qspec_semantic_hash_matches"] is True
+
+
+def test_resolve_report_file_rejects_tampered_run_manifest(tmp_path: Path) -> None:
+    workspace = _seed_workspace(tmp_path)
+    manifest_path = workspace / "manifests" / "history" / "rev_000001.json"
+    manifest_payload = json.loads(manifest_path.read_text())
+    manifest_payload["report"]["path"] = str(workspace / "reports" / "history" / "rev_999999.json")
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2))
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(workspace / "reports" / "latest.json")
+
+    assert excinfo.value.code == "run_manifest_integrity_invalid"
+
+
+def test_resolve_report_file_uses_explicit_workspace_for_copied_report_when_source_is_gone(
+    tmp_path: Path,
+) -> None:
+    source_workspace = _seed_workspace(tmp_path)
+    target_workspace = _seed_workspace(tmp_path / "target-seed")
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
+    shutil.rmtree(source_workspace)
+
+    resolution = resolve_report_file(copied_report, workspace_root=target_workspace)
+
+    assert resolution.workspace_root == target_workspace
+    assert resolution.report_path == copied_report.resolve()
+    assert resolution.qspec_path == target_workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.provenance["workspace_source"] == "workspace_option_relocated_report"
+    assert resolution.provenance["qspec_resolution_source"] == "artifact_provenance"
+
+
+def test_resolve_report_file_still_fails_for_copied_report_when_source_is_gone_and_target_lacks_revision(
+    tmp_path: Path,
+) -> None:
+    source_workspace = _seed_workspace(tmp_path)
+    copied_report = tmp_path / "imports" / "copied-rev-1.json"
+    copied_report.parent.mkdir(parents=True, exist_ok=True)
+    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
+    shutil.rmtree(source_workspace)
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_report_file(copied_report, workspace_root=tmp_path / ".quantum-target")
+
+    assert excinfo.value.code == "report_qspec_missing"
 
 
 def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Path) -> None:
