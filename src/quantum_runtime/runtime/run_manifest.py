@@ -20,6 +20,9 @@ class RunManifestArtifact(SchemaPayload):
     status: str
     revision: str
     input: dict[str, Any] = Field(default_factory=dict)
+    intent: dict[str, Any] = Field(default_factory=dict)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    events: dict[str, Any] = Field(default_factory=dict)
     qspec: dict[str, Any] = Field(default_factory=dict)
     report: dict[str, Any] = Field(default_factory=dict)
     representative_point: dict[str, Any] | None = None
@@ -62,6 +65,10 @@ def write_run_manifest(
     qspec: QSpec,
     qspec_path: Path,
     report_path: Path,
+    intent_path: Path | None = None,
+    plan_path: Path | None = None,
+    event_history_path: Path | None = None,
+    trace_history_path: Path | None = None,
 ) -> dict[str, Any]:
     """Persist the immutable manifest artifact for one revision."""
     payload = build_run_manifest(
@@ -71,6 +78,10 @@ def write_run_manifest(
         qspec=qspec,
         qspec_path=qspec_path,
         report_path=report_path,
+        intent_path=intent_path,
+        plan_path=plan_path,
+        event_history_path=event_history_path,
+        trace_history_path=trace_history_path,
     )
     paths = WorkspacePaths(root=workspace_root)
     history_path = paths.manifest_history_json(revision)
@@ -123,6 +134,9 @@ def parse_and_validate_run_manifest(
 
     qspec_block = payload.qspec if isinstance(payload.qspec, dict) else {}
     report_block = payload.report if isinstance(payload.report, dict) else {}
+    intent_block = payload.intent if isinstance(payload.intent, dict) else {}
+    plan_block = payload.plan if isinstance(payload.plan, dict) else {}
+    events_block = payload.events if isinstance(payload.events, dict) else {}
     qspec_path = Path(str(qspec_block.get("path", ""))).resolve()
     report_path = Path(str(report_block.get("path", ""))).resolve()
     expected_qspec_path = expected_qspec_path.resolve()
@@ -154,6 +168,27 @@ def parse_and_validate_run_manifest(
         details["expected_report_hash"] = report_hash
         details["actual_report_hash"] = _sha256_file(report_path)
 
+    mismatches.extend(
+        _validate_optional_artifact_block("intent", intent_block, details=details),
+    )
+    mismatches.extend(
+        _validate_optional_artifact_block("plan", plan_block, details=details),
+    )
+    mismatches.extend(
+        _validate_optional_artifact_block(
+            "events_jsonl",
+            events_block.get("events_jsonl"),
+            details=details,
+        ),
+    )
+    mismatches.extend(
+        _validate_optional_artifact_block(
+            "trace_ndjson",
+            events_block.get("trace_ndjson"),
+            details=details,
+        ),
+    )
+
     if mismatches:
         raise RunManifestIntegrityError(mismatches, details=details)
 
@@ -168,8 +203,13 @@ def build_run_manifest(
     qspec: QSpec,
     qspec_path: Path,
     report_path: Path,
+    intent_path: Path | None = None,
+    plan_path: Path | None = None,
+    event_history_path: Path | None = None,
+    trace_history_path: Path | None = None,
 ) -> RunManifestArtifact:
     """Build an immutable run manifest from report + qspec truth."""
+    paths = WorkspacePaths(root=workspace_root)
     semantics = summarize_qspec_semantics(qspec)
     report_block = report_payload.get("qspec") if isinstance(report_payload, dict) else {}
     artifact_paths = report_payload.get("artifacts") if isinstance(report_payload, dict) else {}
@@ -177,11 +217,25 @@ def build_run_manifest(
     diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
     simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
     exports = diagnostics.get("exports") if isinstance(diagnostics, dict) else {}
+    resolved_intent_path = intent_path if intent_path is not None else paths.intent_history_json(revision)
+    resolved_plan_path = plan_path if plan_path is not None else paths.plan_history_json(revision)
+    resolved_event_history_path = (
+        event_history_path if event_history_path is not None else paths.event_history_jsonl(revision)
+    )
+    resolved_trace_history_path = (
+        trace_history_path if trace_history_path is not None else paths.trace_history_ndjson(revision)
+    )
 
     return RunManifestArtifact(
         status=str(report_payload.get("status", "unknown")),
         revision=revision,
         input=dict(report_payload.get("input", {}) or {}),
+        intent=_manifest_artifact_entry(resolved_intent_path),
+        plan=_manifest_artifact_entry(resolved_plan_path),
+        events=_manifest_event_entries(
+            event_history_path=resolved_event_history_path,
+            trace_history_path=resolved_trace_history_path,
+        ),
         qspec={
             "path": str(qspec_path),
             "hash": _sha256_file(qspec_path),
@@ -240,6 +294,55 @@ def _artifact_manifest_entries(raw_artifacts: object) -> dict[str, dict[str, Any
             "hash": _sha256_file(path) if path.exists() and path.is_file() else None,
         }
     return payload
+
+
+def _manifest_artifact_entry(path: Path) -> dict[str, Any]:
+    if not path.exists() or not path.is_file():
+        return {}
+    return {
+        "path": str(path),
+        "hash": _sha256_file(path),
+    }
+
+
+def _manifest_event_entries(*, event_history_path: Path, trace_history_path: Path) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    event_entry = _manifest_artifact_entry(event_history_path)
+    if event_entry:
+        payload["events_jsonl"] = event_entry
+    trace_entry = _manifest_artifact_entry(trace_history_path)
+    if trace_entry:
+        payload["trace_ndjson"] = trace_entry
+    return payload
+
+
+def _validate_optional_artifact_block(
+    label: str,
+    block: object,
+    *,
+    details: dict[str, Any],
+) -> list[str]:
+    if not isinstance(block, dict) or not block:
+        return []
+
+    path_value = block.get("path")
+    hash_value = block.get("hash")
+    if not isinstance(path_value, str) or not isinstance(hash_value, str):
+        details[f"{label}_block"] = block
+        return [f"{label}_invalid"]
+
+    path = Path(path_value).resolve()
+    if not path.exists() or not path.is_file():
+        details[f"{label}_path"] = str(path)
+        return [f"{label}_missing"]
+
+    actual_hash = _sha256_file(path)
+    if actual_hash != hash_value:
+        details[f"{label}_expected_hash"] = hash_value
+        details[f"{label}_actual_hash"] = actual_hash
+        return [f"{label}_hash"]
+
+    return []
 
 
 def _representative_point(*, simulation: object, exports: object) -> dict[str, Any] | None:

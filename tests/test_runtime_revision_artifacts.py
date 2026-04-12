@@ -111,4 +111,4 @@ def test_revision_history_artifacts_remain_immutable_after_later_exec(tmp_path: 
 
 
 def _sha256(path: Path) -> str:
-    return __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+    return "sha256:" + __import__("hashlib").sha256(path.read_bytes()).hexdigest()
