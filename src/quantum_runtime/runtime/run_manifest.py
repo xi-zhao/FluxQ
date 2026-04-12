@@ -108,6 +108,7 @@ def load_run_manifest(
         expected_revision=revision,
         expected_qspec_path=expected_qspec_path,
         expected_report_path=expected_report_path,
+        workspace_root=workspace_root,
     )
 
 
@@ -117,6 +118,7 @@ def parse_and_validate_run_manifest(
     expected_revision: str,
     expected_qspec_path: Path,
     expected_report_path: Path,
+    workspace_root: Path | None = None,
 ) -> dict[str, Any]:
     """Load a run manifest and verify that it still describes the expected immutable run."""
     try:
@@ -141,6 +143,17 @@ def parse_and_validate_run_manifest(
     report_path = Path(str(report_block.get("path", ""))).resolve()
     expected_qspec_path = expected_qspec_path.resolve()
     expected_report_path = expected_report_path.resolve()
+    workspace_paths = _resolve_workspace_paths(
+        manifest_path=path,
+        expected_revision=expected_revision,
+        expected_qspec_path=expected_qspec_path,
+        expected_report_path=expected_report_path,
+        workspace_root=workspace_root,
+    )
+    expected_optional_paths = _expected_optional_artifact_paths(
+        revision=expected_revision,
+        workspace_paths=workspace_paths,
+    )
 
     if qspec_path != expected_qspec_path:
         mismatches.append("qspec_path")
@@ -169,16 +182,27 @@ def parse_and_validate_run_manifest(
         details["actual_report_hash"] = _sha256_file(report_path)
 
     mismatches.extend(
-        _validate_optional_artifact_block("intent", intent_block, details=details),
+        _validate_optional_artifact_block(
+            "intent",
+            intent_block,
+            details=details,
+            expected_path=expected_optional_paths.get("intent"),
+        ),
     )
     mismatches.extend(
-        _validate_optional_artifact_block("plan", plan_block, details=details),
+        _validate_optional_artifact_block(
+            "plan",
+            plan_block,
+            details=details,
+            expected_path=expected_optional_paths.get("plan"),
+        ),
     )
     mismatches.extend(
         _validate_optional_artifact_block(
             "events_jsonl",
             events_block.get("events_jsonl"),
             details=details,
+            expected_path=expected_optional_paths.get("events_jsonl"),
         ),
     )
     mismatches.extend(
@@ -186,6 +210,7 @@ def parse_and_validate_run_manifest(
             "trace_ndjson",
             events_block.get("trace_ndjson"),
             details=details,
+            expected_path=expected_optional_paths.get("trace_ndjson"),
         ),
     )
 
@@ -321,6 +346,7 @@ def _validate_optional_artifact_block(
     block: object,
     *,
     details: dict[str, Any],
+    expected_path: Path | None = None,
 ) -> list[str]:
     if not isinstance(block, dict) or not block:
         return []
@@ -332,6 +358,12 @@ def _validate_optional_artifact_block(
         return [f"{label}_invalid"]
 
     path = Path(path_value).resolve()
+    resolved_expected_path = expected_path.resolve() if expected_path is not None else None
+    if resolved_expected_path is not None and path != resolved_expected_path:
+        details[f"expected_{label}_path"] = str(resolved_expected_path)
+        details[f"actual_{label}_path"] = str(path)
+        return [f"{label}_path"]
+
     if not path.exists() or not path.is_file():
         details[f"{label}_path"] = str(path)
         return [f"{label}_missing"]
@@ -392,3 +424,68 @@ def _string_or_default(value: object, default: str) -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _expected_optional_artifact_paths(
+    *,
+    revision: str,
+    workspace_paths: WorkspacePaths | None,
+) -> dict[str, Path]:
+    if workspace_paths is None:
+        return {}
+
+    return {
+        "intent": workspace_paths.intent_history_json(revision).resolve(),
+        "plan": workspace_paths.plan_history_json(revision).resolve(),
+        "events_jsonl": workspace_paths.event_history_jsonl(revision).resolve(),
+        "trace_ndjson": workspace_paths.trace_history_ndjson(revision).resolve(),
+    }
+
+
+def _resolve_workspace_paths(
+    *,
+    manifest_path: Path,
+    expected_revision: str,
+    expected_qspec_path: Path,
+    expected_report_path: Path,
+    workspace_root: Path | None,
+) -> WorkspacePaths | None:
+    if workspace_root is not None:
+        return WorkspacePaths(root=workspace_root)
+
+    inferred_root = (
+        _workspace_root_from_history_path(
+            expected_qspec_path,
+            top_level_dir="specs",
+            expected_revision=expected_revision,
+        )
+        or _workspace_root_from_history_path(
+            expected_report_path,
+            top_level_dir="reports",
+            expected_revision=expected_revision,
+        )
+        or _workspace_root_from_history_path(
+            manifest_path.resolve(),
+            top_level_dir="manifests",
+            expected_revision=expected_revision,
+        )
+    )
+    if inferred_root is None:
+        return None
+    return WorkspacePaths(root=inferred_root)
+
+
+def _workspace_root_from_history_path(
+    path: Path,
+    *,
+    top_level_dir: str,
+    expected_revision: str,
+) -> Path | None:
+    resolved_path = path.resolve()
+    if resolved_path.stem != expected_revision:
+        return None
+    if resolved_path.parent.name != "history":
+        return None
+    if resolved_path.parent.parent.name != top_level_dir:
+        return None
+    return resolved_path.parent.parent.parent
