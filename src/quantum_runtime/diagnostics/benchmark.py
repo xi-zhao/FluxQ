@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -47,7 +48,16 @@ class BenchmarkReport(BaseModel):
     schema_version: str = SCHEMA_VERSION
     status: Literal["ok", "degraded", "error"]
     backends: dict[str, BackendBenchmark]
+    source_kind: str | None = None
+    source_revision: str | None = None
     subject: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] | None = None
+    comparison: dict[str, Any] = Field(default_factory=dict)
+    policy: dict[str, Any] = Field(default_factory=dict)
+    verdict: dict[str, Any] = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
 
 
 def run_structural_benchmark(
@@ -55,17 +65,22 @@ def run_structural_benchmark(
     workspace: WorkspaceHandle,
     backends: list[str],
     event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None = None,
+    *,
+    source_kind: str | None = None,
+    source_revision: str | None = None,
 ) -> BenchmarkReport:
     """Compare structural backend outputs without making hardware claims."""
     subject = summarize_qspec_semantics(qspec)
     benchmark_bindings = representative_bindings(qspec) or None
+    effective_source_revision = source_revision or workspace.manifest.current_revision
+    effective_source_kind = source_kind or "workspace_current"
     entries: dict[str, BackendBenchmark] = {}
     for backend in backends:
         normalized = backend.strip()
         if not normalized:
             continue
         if event_sink is not None:
-            event_sink("backend_started", {"backend": normalized}, workspace.manifest.current_revision, "ok")
+            event_sink("backend_started", {"backend": normalized}, effective_source_revision, "ok")
         if normalized == "qiskit-local":
             resources = estimate_resources(qspec, parameter_bindings=benchmark_bindings)
             transpile_report = validate_target_constraints(
@@ -107,7 +122,7 @@ def run_structural_benchmark(
                 event_sink(
                     "backend_completed",
                     {"backend": normalized, "status": entries[normalized].status},
-                    workspace.manifest.current_revision,
+                    effective_source_revision,
                     entries[normalized].status,
                 )
             continue
@@ -177,7 +192,7 @@ def run_structural_benchmark(
                 event_sink(
                     "backend_completed",
                     {"backend": normalized, "status": entries[normalized].status},
-                    workspace.manifest.current_revision,
+                    effective_source_revision,
                     entries[normalized].status,
                 )
             continue
@@ -200,25 +215,17 @@ def run_structural_benchmark(
             event_sink(
                 "backend_completed",
                 {"backend": normalized, "status": entries[normalized].status},
-                workspace.manifest.current_revision,
+                effective_source_revision,
                 entries[normalized].status,
             )
 
-    report = BenchmarkReport(
+    return BenchmarkReport(
         status=_derive_status(entries),
         backends=entries,
+        source_kind=effective_source_kind,
+        source_revision=effective_source_revision,
         subject=subject,
     )
-    revision = workspace.manifest.current_revision
-    written_paths = _persist_benchmark_report(workspace_root=workspace.root, report=report, revision=revision)
-    if event_sink is not None:
-        event_sink(
-            "benchmark_written",
-            {"paths": written_paths, "status": report.status},
-            revision,
-            report.status,
-        )
-    return report
 
 
 def _derive_status(backends: dict[str, BackendBenchmark]) -> Literal["ok", "degraded", "error"]:
@@ -348,14 +355,16 @@ def _augment_contract(
     return contract
 
 
-def _persist_benchmark_report(
+def persist_benchmark_report(
     *,
     workspace_root,
     report: BenchmarkReport,
     revision: str | None,
 ) -> dict[str, str]:
     benchmark_root = workspace_root / "benchmarks"
-    serialized = report.model_dump_json(indent=2)
+    payload = report.model_dump(mode="json")
+    payload.setdefault("schema_version", SCHEMA_VERSION)
+    serialized = json.dumps(payload, indent=2, ensure_ascii=True)
     latest_path = benchmark_root / "latest.json"
     written = {"latest": str(latest_path)}
     try:
