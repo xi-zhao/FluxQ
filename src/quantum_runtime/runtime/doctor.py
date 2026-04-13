@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime.backend_registry import backend_capabilities_as_dict
+from quantum_runtime.runtime.policy import DoctorPolicy, apply_doctor_policy
 from quantum_runtime.workspace import (
     WorkspaceLockConflict,
     WorkspaceManifest,
@@ -35,12 +36,20 @@ class DoctorReport(BaseModel):
     dependencies: dict[str, dict[str, Any]]
     issues: list[str]
     advisories: list[str] = Field(default_factory=list)
+    blocking_issues: list[str] | None = None
+    advisory_issues: list[str] | None = None
+    policy: dict[str, Any] | None = None
+    verdict: dict[str, Any] | None = None
+    reason_codes: list[str] | None = None
+    next_actions: list[str] | None = None
+    gate: dict[str, Any] | None = None
 
 
 def run_doctor(
     *,
     workspace_root: Path,
     fix: bool = False,
+    ci: bool = False,
     event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None = None,
 ) -> DoctorReport:
     """Check workspace integrity and optional dependency availability."""
@@ -95,6 +104,11 @@ def run_doctor(
         issues=all_issues,
         advisories=dependency_advisories,
     )
+    if ci:
+        report = apply_doctor_policy(
+            report=report,
+            policy=DoctorPolicy(mode="ci", block_on_issues=True),
+        )
     revision = current_revision if current_revision and current_revision != "rev_000000" else None
     if revision is not None:
         written_paths = _persist_doctor_report(workspace_root=paths.root, report=report, revision=revision)
@@ -291,7 +305,7 @@ def _check_file(
 
 def _persist_doctor_report(*, workspace_root: Path, report: DoctorReport, revision: str) -> dict[str, str]:
     doctor_root = workspace_root / "doctor"
-    serialized = report.model_dump_json(indent=2)
+    serialized = report.model_dump_json(indent=2, exclude_none=True)
     latest_path = doctor_root / "latest.json"
     history_path = doctor_root / "history" / f"{revision}.json"
     try:

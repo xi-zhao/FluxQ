@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import re
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, Field
 
 from quantum_runtime.diagnostics.benchmark import BenchmarkReport
 from quantum_runtime.runtime.observability import gate_block, next_actions_for_reason_codes, normalize_reason_codes
+
+if TYPE_CHECKING:
+    from quantum_runtime.runtime.doctor import DoctorReport
 
 
 PolicySeverity = Literal["info", "warning", "error"]
@@ -41,9 +45,16 @@ class BenchmarkPolicy(BaseModel):
     max_measure_regression: int | None = Field(default=None, ge=0)
 
 
+class DoctorPolicy(BaseModel):
+    """Configurable doctor acceptance policy."""
+
+    mode: Literal["ci"] = "ci"
+    block_on_issues: bool = True
+
+
 def policy_gate_payload(
     *,
-    policy: BenchmarkPolicy | None,
+    policy: BaseModel | None,
     verdict: PolicyVerdict,
     ready: bool,
     severity: PolicySeverity,
@@ -65,6 +76,63 @@ def policy_gate_payload(
             next_actions=normalized_next_actions,
         ),
     }
+
+
+def apply_doctor_policy(
+    *,
+    report: DoctorReport,
+    policy: DoctorPolicy | None = None,
+) -> DoctorReport:
+    """Project doctor findings into a CI-friendly blocking/advisory envelope."""
+    effective_policy = policy or DoctorPolicy(mode="ci", block_on_issues=True)
+    raw_issues = [str(item) for item in report.issues]
+    raw_advisories = [str(item) for item in report.advisories]
+    blocking_issues = list(raw_issues) if effective_policy.block_on_issues else []
+    advisory_issues = list(raw_advisories)
+    if not effective_policy.block_on_issues:
+        advisory_issues = raw_issues + advisory_issues
+
+    blocking_reason_codes = [_doctor_reason_code("doctor_blocking_issue", item) for item in blocking_issues]
+    advisory_reason_codes = [_doctor_reason_code("doctor_advisory_issue", item) for item in advisory_issues]
+    reason_codes = normalize_reason_codes(blocking_reason_codes + advisory_reason_codes)
+    next_actions = _doctor_next_actions(blocking_issues, advisory_issues)
+
+    verdict_failed = bool(blocking_issues)
+    if verdict_failed:
+        verdict = PolicyVerdict(
+            status="fail",
+            summary="Doctor CI failed: blocking findings remain.",
+            failed_checks=["doctor_blocking_issues"],
+            passed_checks=["doctor_advisory_projection"],
+        )
+        severity: PolicySeverity = "error"
+    else:
+        summary = "Doctor CI passed."
+        if advisory_issues:
+            summary = "Doctor CI passed with advisory findings."
+        verdict = PolicyVerdict(
+            status="pass",
+            summary=summary,
+            failed_checks=[],
+            passed_checks=["doctor_blocking_issues", "doctor_advisory_projection"],
+        )
+        severity = "info"
+
+    envelope = policy_gate_payload(
+        policy=effective_policy,
+        verdict=verdict,
+        ready=not verdict_failed,
+        severity=severity,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+    )
+    return report.model_copy(
+        update={
+            "blocking_issues": blocking_issues,
+            "advisory_issues": advisory_issues,
+            **envelope,
+        }
+    )
 
 
 def apply_benchmark_policy(
@@ -318,3 +386,37 @@ def _subject_identity(report: BenchmarkReport) -> str | None:
 
 def _status_rank(status: str) -> int:
     return _STATUS_RANK.get(status, 99)
+
+
+def _doctor_reason_code(prefix: str, issue: str) -> str:
+    return f"{prefix}:{_doctor_issue_slug(issue)}"
+
+
+def _doctor_issue_slug(issue: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", str(issue).lower()).strip("_")
+    return slug or "unknown_issue"
+
+
+def _doctor_next_actions(blocking_issues: list[str], advisory_issues: list[str]) -> list[str]:
+    actions: list[str] = []
+    for issue in blocking_issues + advisory_issues:
+        normalized_issue = str(issue)
+        if normalized_issue in {
+            "workspace_root_missing",
+            "workspace_manifest_missing",
+            "workspace_manifest_invalid",
+            "active_spec_missing",
+            "active_spec_invalid",
+            "active_report_missing",
+            "active_report_invalid",
+        } or normalized_issue.startswith("missing_directories:"):
+            actions.append("run_exec")
+        elif "unavailable" in normalized_issue:
+            actions.append("run_doctor")
+
+    fallback_actions = next_actions_for_reason_codes(actions)
+    if fallback_actions:
+        return fallback_actions
+    if actions:
+        return normalize_reason_codes(actions)
+    return ["run_doctor"]
