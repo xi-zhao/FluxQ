@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-04-13T00:02:18.304Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-04-13T00:11:15.266Z"
 last_activity: 2026-04-13
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 14
-  percent: 93
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Progress: [███████░░░] 73%
 
 | Phase 04 P02 | 1 min | 2 tasks | 4 files |
 | Phase 04-policy-acceptance-gates P03 | 6min | 3 tasks | 8 files |
+| Phase 04-policy-acceptance-gates P04 | 4min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [Phase 04-policy-acceptance-gates]: Benchmark policy remains CLI-flag driven in Phase 4; no automatic policy-hint consumption.
 - [Phase 04-policy-acceptance-gates]: Benchmark history keys off source_revision/source_kind so imported report and revision benchmarks persist under the evaluated revision.
 - [Phase 04-policy-acceptance-gates]: Benchmark exit mapping is verdict-first when policy is requested and falls back to legacy status-based exits otherwise.
+- [Phase 04-policy-acceptance-gates]: Doctor CI reuses the existing issues versus advisories split and only projects it into explicit blocking/advisory fields.
+- [Phase 04-policy-acceptance-gates]: Doctor reports keep legacy raw findings intact; CI verdict, reason-code, and gate fields are additive and only emitted when --ci is requested.
+- [Phase 04-policy-acceptance-gates]: Doctor exit behavior is verdict-first only when a CI verdict exists; legacy workspace/dependency fallback mapping remains unchanged otherwise.
 
 ### Pending Todos
 
@@ -82,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-13T00:02:18.302Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-04-13T00:11:15.264Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
