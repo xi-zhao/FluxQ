@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from quantum_runtime.diagnostics.benchmark import BackendBenchmark, BenchmarkReport
-from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy
+from quantum_runtime.runtime.doctor import DoctorReport
+from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy, apply_doctor_policy
 
 
 def _benchmark_report(
@@ -81,3 +82,26 @@ def test_apply_benchmark_policy_fails_when_backend_metric_regresses() -> None:
     assert result.verdict["status"] == "fail"
     assert "benchmark_metric_regressed:qiskit-local:depth" in result.reason_codes
     assert result.gate["ready"] is False
+
+
+def test_apply_doctor_policy_maps_issues_and_advisories_into_ci_fields() -> None:
+    report = DoctorReport(
+        status="degraded",
+        workspace_ok=True,
+        workspace={
+            "root": "/tmp/.quantum",
+            "root_exists": True,
+        },
+        dependencies={},
+        issues=["active_report_missing", "classiq unavailable: No module named 'classiq'"],
+        advisories=["optional_backend_unavailable"],
+    )
+
+    result = apply_doctor_policy(report=report)
+
+    assert result.blocking_issues == ["active_report_missing", "classiq unavailable: No module named 'classiq'"]
+    assert result.advisory_issues == ["optional_backend_unavailable"]
+    assert result.verdict["status"] == "fail"
+    assert result.gate["ready"] is False
+    assert "doctor_blocking_issue:active_report_missing" in result.reason_codes
+    assert "doctor_advisory_issue:optional_backend_unavailable" in result.reason_codes

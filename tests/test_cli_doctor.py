@@ -15,6 +15,67 @@ from quantum_runtime.workspace import WorkspaceManager, acquire_workspace_lock
 RUNNER = CliRunner()
 
 
+def _doctor_capabilities(*, classiq_available: bool, classiq_optional: bool = True) -> dict[str, dict[str, object]]:
+    return {
+        "qiskit-local": BackendCapabilityDescriptor(
+            backend="qiskit-local",
+            provider="qiskit",
+            available=True,
+            module_dependencies=[
+                BackendDependency(
+                    module="qiskit",
+                    distribution="qiskit",
+                    available=True,
+                    version="2.3.1",
+                    location="/tmp/qiskit/__init__.py",
+                    error=None,
+                ),
+                BackendDependency(
+                    module="qiskit_aer",
+                    distribution="qiskit-aer",
+                    available=True,
+                    version="0.17.1",
+                    location="/tmp/qiskit_aer/__init__.py",
+                    error=None,
+                ),
+            ],
+            capabilities={
+                "simulate_locally": True,
+                "transpile_validation": True,
+                "structural_benchmark": True,
+                "classiq_synthesis": False,
+                "remote_submit": False,
+            },
+            notes=["Local Qiskit backend"],
+        ).model_dump(mode="json"),
+        "classiq": BackendCapabilityDescriptor(
+            backend="classiq",
+            provider="classiq",
+            available=classiq_available,
+            optional=classiq_optional,
+            reason=None if classiq_available else "No module named 'classiq'",
+            module_dependencies=[
+                BackendDependency(
+                    module="classiq",
+                    distribution="classiq",
+                    available=classiq_available,
+                    version="1.7.0" if classiq_available else None,
+                    location="/tmp/classiq/__init__.py" if classiq_available else None,
+                    error=None if classiq_available else "No module named 'classiq'",
+                )
+            ],
+            capabilities={
+                "simulate_locally": False,
+                "transpile_validation": False,
+                "structural_benchmark": True,
+                "classiq_synthesis": True,
+                "remote_submit": False,
+            },
+            notes=["Optional Classiq synthesis backend"],
+        ).model_dump(mode="json"),
+    }
+
+
 def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     tmp_path: Path,
     monkeypatch,
@@ -23,64 +84,7 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
 
     monkeypatch.setattr(
         "quantum_runtime.runtime.doctor.collect_backend_capabilities",
-        lambda: {
-            "qiskit-local": BackendCapabilityDescriptor(
-                backend="qiskit-local",
-                provider="qiskit",
-                available=True,
-                module_dependencies=[
-                    BackendDependency(
-                        module="qiskit",
-                        distribution="qiskit",
-                        available=True,
-                        version="2.3.1",
-                        location="/tmp/qiskit/__init__.py",
-                        error=None,
-                    ),
-                    BackendDependency(
-                        module="qiskit_aer",
-                        distribution="qiskit-aer",
-                        available=True,
-                        version="0.17.1",
-                        location="/tmp/qiskit_aer/__init__.py",
-                        error=None,
-                    ),
-                ],
-                capabilities={
-                    "simulate_locally": True,
-                    "transpile_validation": True,
-                    "structural_benchmark": True,
-                    "classiq_synthesis": False,
-                    "remote_submit": False,
-                },
-                notes=["Local Qiskit backend"],
-            ).model_dump(mode="json"),
-            "classiq": BackendCapabilityDescriptor(
-                backend="classiq",
-                provider="classiq",
-                available=False,
-                optional=True,
-                reason="No module named 'classiq'",
-                module_dependencies=[
-                    BackendDependency(
-                        module="classiq",
-                        distribution="classiq",
-                        available=False,
-                        version=None,
-                        location=None,
-                        error="No module named 'classiq'",
-                    )
-                ],
-                capabilities={
-                    "simulate_locally": False,
-                    "transpile_validation": False,
-                    "structural_benchmark": True,
-                    "classiq_synthesis": True,
-                    "remote_submit": False,
-                },
-                notes=["Optional Classiq synthesis backend"],
-            ).model_dump(mode="json"),
-        },
+        lambda: _doctor_capabilities(classiq_available=False),
     )
 
     result = RUNNER.invoke(
@@ -108,6 +112,31 @@ def test_qrun_doctor_json_reports_workspace_and_dependency_health(
     assert not (workspace / "doctor").exists()
 
 
+def test_qrun_doctor_ci_json_reports_advisory_only_findings_as_pass(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: _doctor_capabilities(classiq_available=False),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json", "--fix", "--ci"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["blocking_issues"] == []
+    assert payload["advisory_issues"] == ["classiq unavailable: No module named 'classiq'"]
+    assert payload["verdict"]["status"] == "pass"
+    assert payload["gate"]["ready"] is True
+    assert payload["policy"]["mode"] == "ci"
+
+
 def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests_it(
     tmp_path: Path,
     monkeypatch,
@@ -120,37 +149,7 @@ def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests
 
     monkeypatch.setattr(
         "quantum_runtime.runtime.doctor.collect_backend_capabilities",
-        lambda: {
-            "qiskit-local": BackendCapabilityDescriptor(
-                backend="qiskit-local",
-                provider="qiskit",
-                available=True,
-                module_dependencies=[],
-                capabilities={},
-                notes=[],
-            ).model_dump(mode="json"),
-            "classiq": BackendCapabilityDescriptor(
-                backend="classiq",
-                provider="classiq",
-                available=False,
-                optional=True,
-                reason="No module named 'classiq'",
-                module_dependencies=[
-                    BackendDependency(
-                        module="classiq",
-                        distribution="classiq",
-                        available=False,
-                        version=None,
-                        location=None,
-                        error="No module named 'classiq'",
-                    )
-                ],
-                capabilities={
-                    "classiq_synthesis": True,
-                },
-                notes=["Optional Classiq synthesis backend"],
-            ).model_dump(mode="json"),
-        },
+        lambda: _doctor_capabilities(classiq_available=False),
     )
 
     exec_result = RUNNER.invoke(
@@ -187,6 +186,48 @@ def test_qrun_doctor_json_flags_missing_optional_backend_when_workspace_requests
     assert (workspace / "doctor" / "history" / "rev_000001.json").exists()
 
 
+def test_qrun_doctor_ci_json_returns_exit_code_2_for_blocking_workspace_findings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: _doctor_capabilities(classiq_available=True),
+    )
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(Path(__file__).resolve().parents[1] / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    (workspace / "reports" / "latest.json").unlink()
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json", "--ci"],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads(result.stdout)
+    assert "active_report_missing" in payload["blocking_issues"]
+    assert payload["advisory_issues"] == []
+    assert payload["verdict"]["status"] == "fail"
+    assert payload["gate"]["ready"] is False
+    assert payload["policy"]["block_on_issues"] is True
+    assert (workspace / "doctor" / "latest.json").exists()
+    assert (workspace / "doctor" / "history" / "rev_000001.json").exists()
+
+
 def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
     tmp_path: Path,
     monkeypatch,
@@ -195,24 +236,7 @@ def test_qrun_doctor_json_returns_exit_code_3_for_missing_workspace(
 
     monkeypatch.setattr(
         "quantum_runtime.runtime.doctor.collect_backend_capabilities",
-        lambda: {
-            "qiskit-local": BackendCapabilityDescriptor(
-                backend="qiskit-local",
-                provider="qiskit",
-                available=True,
-                module_dependencies=[],
-                capabilities={},
-                notes=[],
-            ).model_dump(mode="json"),
-            "classiq": BackendCapabilityDescriptor(
-                backend="classiq",
-                provider="classiq",
-                available=True,
-                module_dependencies=[],
-                capabilities={},
-                notes=[],
-            ).model_dump(mode="json"),
-        },
+        lambda: _doctor_capabilities(classiq_available=True),
     )
 
     result = RUNNER.invoke(
@@ -236,24 +260,7 @@ def test_qrun_doctor_json_flags_missing_active_report_after_execution(
 
     monkeypatch.setattr(
         "quantum_runtime.runtime.doctor.collect_backend_capabilities",
-        lambda: {
-            "qiskit-local": BackendCapabilityDescriptor(
-                backend="qiskit-local",
-                provider="qiskit",
-                available=True,
-                module_dependencies=[],
-                capabilities={},
-                notes=[],
-            ).model_dump(mode="json"),
-            "classiq": BackendCapabilityDescriptor(
-                backend="classiq",
-                provider="classiq",
-                available=True,
-                module_dependencies=[],
-                capabilities={},
-                notes=[],
-            ).model_dump(mode="json"),
-        },
+        lambda: _doctor_capabilities(classiq_available=True),
     )
 
     exec_result = RUNNER.invoke(

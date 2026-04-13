@@ -385,3 +385,37 @@ def test_qrun_doctor_jsonl_emits_workspace_and_dependency_events(tmp_path: Path)
         "doctor_completed",
     ]
     assert events[-1]["payload"]["schema_version"] == "0.3.0"
+
+
+def test_qrun_doctor_ci_jsonl_emits_policy_payload_on_completion(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    report_path = workspace / "reports" / "latest.json"
+    report_path.unlink()
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--jsonl", "--ci"],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert events[-1]["event_type"] == "doctor_completed"
+    assert events[-1]["payload"]["schema_version"] == "0.3.0"
+    assert "active_report_missing" in events[-1]["payload"]["blocking_issues"]
+    assert events[-1]["payload"]["advisory_issues"] == []
+    assert events[-1]["payload"]["verdict"]["status"] == "fail"
+    assert events[-1]["payload"]["gate"]["ready"] is False
