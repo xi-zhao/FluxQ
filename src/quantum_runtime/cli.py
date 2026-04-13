@@ -934,8 +934,9 @@ def bench_command(
         except FileNotFoundError as exc:
             if json_output:
                 _json_error("baseline_benchmark_missing")
+            missing_revision = baseline_resolution.record.revision if baseline_resolution is not None else "<unknown>"
             raise typer.BadParameter(
-                f"Missing saved baseline benchmark history for {baseline_resolution.record.revision}."
+                f"Missing saved baseline benchmark history for {missing_revision}."
             ) from exc
         except Exception as exc:
             if json_output:
