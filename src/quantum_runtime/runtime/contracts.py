@@ -17,7 +17,13 @@ DEFAULT_REMEDIATION = (
 REMEDIATIONS: dict[str, str] = {
     "missing_qspec": "Run `qrun exec` first or point the command at a valid QSpec or report input.",
     "baseline_missing": "Persist a baseline with `qrun baseline set` before requesting baseline-backed operations.",
+    "baseline_benchmark_missing": (
+        "Run `qrun bench --revision <baseline-revision>` to persist saved benchmark evidence before using `qrun bench --baseline ...`."
+    ),
     "expected_exactly_one_input": "Provide exactly one supported input selector for the command.",
+    "invalid_benchmark_policy": (
+        "Use `qrun bench --baseline` with non-negative regression thresholds and valid comparable/status policy options."
+    ),
     "workspace_manifest_missing": "Initialize the workspace with `qrun init` or point the command at an existing workspace.",
     "workspace_root_required_for_revision": "Pass `--workspace` when resolving a historical revision.",
     "workspace_root_required_for_report_file": "Pass `--workspace` or use a report file that still carries recoverable workspace provenance.",

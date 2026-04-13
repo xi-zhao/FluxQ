@@ -8,6 +8,7 @@ import typer
 
 from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
+from quantum_runtime.diagnostics.benchmark import BenchmarkReport, persist_benchmark_report
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
@@ -40,6 +41,7 @@ from quantum_runtime.runtime import (
     run_doctor,
     workspace_status,
 )
+from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy
 from quantum_runtime.runtime.contracts import (
     ErrorPayload,
     dump_schema_payload,
@@ -245,6 +247,55 @@ def _benchmark_backends(qspec: QSpec, requested_backends: str | None) -> list[st
     if requested_backends is None:
         return _default_benchmark_backends(qspec)
     return [item.strip() for item in requested_backends.split(",") if item.strip()]
+
+
+def _build_benchmark_policy(
+    *,
+    baseline_mode: bool,
+    require_comparable: bool,
+    forbid_status_regressions: bool,
+    max_width_regression: int | None,
+    max_depth_regression: int | None,
+    max_two_qubit_regression: int | None,
+    max_measure_regression: int | None,
+) -> BenchmarkPolicy | None:
+    policy_requested = baseline_mode or any(
+        value
+        for value in (
+            require_comparable,
+            forbid_status_regressions,
+        )
+    ) or any(
+        value is not None
+        for value in (
+            max_width_regression,
+            max_depth_regression,
+            max_two_qubit_regression,
+            max_measure_regression,
+        )
+    )
+    if not policy_requested:
+        return None
+    if not baseline_mode:
+        raise ValueError("benchmark policy requires --baseline in this phase")
+    return BenchmarkPolicy.model_validate(
+        {
+            "baseline": baseline_mode,
+            "require_comparable": require_comparable,
+            "forbid_status_regressions": forbid_status_regressions,
+            "max_width_regression": max_width_regression,
+            "max_depth_regression": max_depth_regression,
+            "max_two_qubit_regression": max_two_qubit_regression,
+            "max_measure_regression": max_measure_regression,
+        }
+    )
+
+
+def _load_saved_baseline_benchmark(*, workspace: Path, baseline_revision: str) -> BenchmarkReport:
+    benchmark_path = workspace / "benchmarks" / "history" / f"{baseline_revision}.json"
+    if not benchmark_path.exists():
+        raise FileNotFoundError(str(benchmark_path))
+    return BenchmarkReport.model_validate_json(benchmark_path.read_text())
 
 
 @app.command("init")
@@ -761,6 +812,45 @@ def bench_command(
         "--revision",
         help="Workspace report history revision to re-import for benchmarking.",
     ),
+    baseline_mode: bool = typer.Option(
+        False,
+        "--baseline",
+        help="Evaluate the current benchmark against the saved workspace baseline benchmark history.",
+    ),
+    require_comparable: bool = typer.Option(
+        False,
+        "--require-comparable",
+        help="Fail benchmark policy when backend comparability metadata is false on either side.",
+    ),
+    forbid_status_regressions: bool = typer.Option(
+        False,
+        "--forbid-status-regressions",
+        help="Fail benchmark policy when backend status regresses from the saved baseline.",
+    ),
+    max_width_regression: int | None = typer.Option(
+        None,
+        "--max-width-regression",
+        min=0,
+        help="Maximum allowed width increase relative to the saved baseline benchmark.",
+    ),
+    max_depth_regression: int | None = typer.Option(
+        None,
+        "--max-depth-regression",
+        min=0,
+        help="Maximum allowed depth increase relative to the saved baseline benchmark.",
+    ),
+    max_two_qubit_regression: int | None = typer.Option(
+        None,
+        "--max-two-qubit-regression",
+        min=0,
+        help="Maximum allowed two-qubit gate increase relative to the saved baseline benchmark.",
+    ),
+    max_measure_regression: int | None = typer.Option(
+        None,
+        "--max-measure-regression",
+        min=0,
+        help="Maximum allowed measurement-count increase relative to the saved baseline benchmark.",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -787,6 +877,20 @@ def bench_command(
             jsonl_output=jsonl_output,
         )
     try:
+        policy = _build_benchmark_policy(
+            baseline_mode=baseline_mode,
+            require_comparable=require_comparable,
+            forbid_status_regressions=forbid_status_regressions,
+            max_width_regression=max_width_regression,
+            max_depth_regression=max_depth_regression,
+            max_two_qubit_regression=max_two_qubit_regression,
+            max_measure_regression=max_measure_regression,
+        )
+    except Exception as exc:
+        if json_output:
+            _json_error("invalid_benchmark_policy")
+        raise typer.BadParameter("Invalid benchmark policy.") from exc
+    try:
         import_resolution = _resolve_report_import(
             workspace=handle.root,
             report_file=report_file,
@@ -810,28 +914,70 @@ def bench_command(
             _json_error(exc.reason)
         raise typer.BadParameter(f"Invalid report input: {exc.reason}") from exc
 
+    source_kind = import_resolution.source_kind if import_resolution is not None else "workspace_current"
+    source_revision = import_resolution.revision if import_resolution is not None else handle.manifest.current_revision
+    requested_backends = _benchmark_backends(qspec, backends)
+
+    baseline_resolution = None
+    baseline_benchmark = None
+    if policy is not None:
+        try:
+            baseline_resolution = resolve_workspace_baseline(handle.root)
+            baseline_benchmark = _load_saved_baseline_benchmark(
+                workspace=handle.root,
+                baseline_revision=baseline_resolution.record.revision,
+            )
+        except ImportSourceError as exc:
+            if json_output:
+                _json_error(exc.code)
+            raise typer.BadParameter(f"Invalid benchmark baseline: {exc.code}") from exc
+        except FileNotFoundError as exc:
+            if json_output:
+                _json_error("baseline_benchmark_missing")
+            raise typer.BadParameter(
+                f"Missing saved baseline benchmark history for {baseline_resolution.record.revision}."
+            ) from exc
+        except Exception as exc:
+            if json_output:
+                _json_error("invalid_benchmark_policy")
+            raise typer.BadParameter("Invalid saved baseline benchmark.") from exc
+
     event_sink = _make_jsonl_emitter(workspace=handle.root) if jsonl_output else None
     if event_sink is not None:
         event_sink(
             "benchmark_started",
-            {"backends": _benchmark_backends(qspec, backends)},
-            handle.manifest.current_revision,
+            {"backends": requested_backends},
+            source_revision,
             "ok",
         )
     try:
-        if event_sink is not None:
-            benchmark = run_structural_benchmark(
-                qspec,
-                handle,
-                _benchmark_backends(qspec, backends),
-                event_sink=event_sink,
-            )
-        else:
-            benchmark = run_structural_benchmark(
-                qspec,
-                handle,
-                _benchmark_backends(qspec, backends),
-            )
+        benchmark = run_structural_benchmark(
+            qspec,
+            handle,
+            requested_backends,
+            event_sink=event_sink,
+            source_kind=source_kind,
+            source_revision=source_revision,
+        )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
+
+    if policy is not None:
+        assert baseline_resolution is not None
+        assert baseline_benchmark is not None
+        benchmark = apply_benchmark_policy(
+            report=benchmark,
+            baseline_report=baseline_benchmark,
+            baseline_revision=baseline_resolution.record.revision,
+            policy=policy,
+        )
+
+    try:
+        persist_benchmark_report(
+            workspace_root=handle.root,
+            report=benchmark,
+            revision=benchmark.source_revision,
+        )
     except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
         _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
 
@@ -842,12 +988,18 @@ def bench_command(
         event_sink(
             "benchmark_completed",
             benchmark.model_dump(mode="json"),
-            handle.manifest.current_revision,
+            benchmark.source_revision,
             benchmark.status,
         )
         raise typer.Exit(code=exit_code_for_benchmark(benchmark))
 
-    typer.echo(f"Benchmark status: {benchmark.status}")
+    verdict_status = None
+    if isinstance(benchmark.verdict, dict):
+        verdict_status = benchmark.verdict.get("status")
+    if verdict_status and verdict_status != "not_requested":
+        typer.echo(f"Benchmark status: {benchmark.status}; verdict={verdict_status}")
+    else:
+        typer.echo(f"Benchmark status: {benchmark.status}")
     raise typer.Exit(code=exit_code_for_benchmark(benchmark))
 
 

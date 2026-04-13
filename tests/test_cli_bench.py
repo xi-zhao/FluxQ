@@ -132,9 +132,18 @@ def test_qrun_bench_json_accepts_report_file_input(
     assert payload["status"] == "ok"
     assert payload["schema_version"] == "0.3.0"
     assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 3
+    assert payload["source_kind"] == "report_file"
+    assert payload["source_revision"] == "rev_000001"
     latest_path = target_workspace / "benchmarks" / "latest.json"
+    history_path = target_workspace / "benchmarks" / "history" / "rev_000001.json"
     assert latest_path.exists()
-    assert not (target_workspace / "benchmarks" / "history").exists()
+    assert history_path.exists()
+    latest_payload = json.loads(latest_path.read_text())
+    persisted_payload = json.loads(history_path.read_text())
+    assert latest_payload["source_kind"] == "report_file"
+    assert latest_payload["source_revision"] == "rev_000001"
+    assert persisted_payload["source_kind"] == "report_file"
+    assert persisted_payload["source_revision"] == "rev_000001"
 
 
 def test_qrun_bench_json_returns_exit_code_3_for_tampered_report_qspec_fallback(

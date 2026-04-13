@@ -38,6 +38,13 @@ def exit_code_for_exec(result: Any) -> int:
 
 def exit_code_for_benchmark(result: Any) -> int:
     """Map a benchmark report to the documented CLI exit codes."""
+    verdict = _as_mapping(getattr(result, "verdict", None))
+    verdict_status = str(verdict.get("status")) if verdict else None
+    if verdict_status == "pass":
+        return EXIT_OK
+    if verdict_status == "fail":
+        return EXIT_DEGRADED
+
     backends = _as_mapping(getattr(result, "backends", None))
     statuses = {_status_of(report) for report in backends.values()}
     statuses.discard(None)
