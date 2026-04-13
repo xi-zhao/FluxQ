@@ -63,6 +63,13 @@ def exit_code_for_benchmark(result: Any) -> int:
 
 def exit_code_for_doctor(result: Any) -> int:
     """Map a doctor report to the documented CLI exit codes."""
+    verdict = _as_mapping(getattr(result, "verdict", None))
+    verdict_status = str(verdict.get("status")) if verdict else None
+    if verdict_status == "pass":
+        return EXIT_OK
+    if verdict_status == "fail":
+        return EXIT_DEGRADED
+
     issues = list(getattr(result, "issues", []) or [])
     workspace_ok = bool(getattr(result, "workspace_ok", True))
 

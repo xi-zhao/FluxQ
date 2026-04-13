@@ -1613,25 +1613,30 @@ def doctor_command(
         "--jsonl",
         help="Emit newline-delimited machine-readable doctor events.",
     ),
+    ci: bool = typer.Option(
+        False,
+        "--ci",
+        help="Emit blocking/advisory CI gate output and return exit code 2 when blocking findings remain.",
+    ),
 ) -> None:
     """Check runtime dependencies and workspace health."""
     _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
     event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     if event_sink is not None:
-        event_sink("doctor_started", {"fix": fix}, None, "ok")
+        event_sink("doctor_started", {"fix": fix, "ci": ci}, None, "ok")
     try:
         report = (
-            run_doctor(workspace_root=workspace, fix=fix, event_sink=event_sink)
+            run_doctor(workspace_root=workspace, fix=fix, ci=ci, event_sink=event_sink)
             if event_sink is not None
-            else run_doctor(workspace_root=workspace, fix=fix)
+            else run_doctor(workspace_root=workspace, fix=fix, ci=ci)
         )
     except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
         _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
     if json_output:
-        _echo_json(report)
+        _echo_json(report, exclude_none=not ci)
         raise typer.Exit(code=exit_code_for_doctor(report))
     if event_sink is not None:
-        event_sink("doctor_completed", report.model_dump(mode="json"), None, report.status)
+        event_sink("doctor_completed", report.model_dump(mode="json", exclude_none=not ci), None, report.status)
         raise typer.Exit(code=exit_code_for_doctor(report))
     typer.echo(f"doctor status: {report.status}")
     raise typer.Exit(code=exit_code_for_doctor(report))

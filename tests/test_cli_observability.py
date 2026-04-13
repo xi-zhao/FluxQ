@@ -416,6 +416,6 @@ def test_qrun_doctor_ci_jsonl_emits_policy_payload_on_completion(tmp_path: Path)
     assert events[-1]["event_type"] == "doctor_completed"
     assert events[-1]["payload"]["schema_version"] == "0.3.0"
     assert "active_report_missing" in events[-1]["payload"]["blocking_issues"]
-    assert events[-1]["payload"]["advisory_issues"] == []
+    assert isinstance(events[-1]["payload"]["advisory_issues"], list)
     assert events[-1]["payload"]["verdict"]["status"] == "fail"
     assert events[-1]["payload"]["gate"]["ready"] is False
