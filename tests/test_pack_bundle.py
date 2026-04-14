@@ -25,7 +25,18 @@ def _write_current_pack_shape(root: Path) -> Path:
     (root / "plan.json").write_text(json.dumps({"schema_version": "0.3.0"}, indent=2))
     (root / "report.json").write_text(json.dumps({"schema_version": "0.3.0"}, indent=2))
     (root / "manifest.json").write_text(json.dumps({"schema_version": "0.3.0"}, indent=2))
+    (root / "bundle_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "0.3.0",
+                "revision": "rev_000001",
+                "entries": [],
+            },
+            indent=2,
+        ),
+    )
     (root / "events.jsonl").write_text('{"event_type":"exec_completed","revision":"rev_000001"}\n')
+    (root / "trace.ndjson").write_text('{"event_type":"exec_completed","revision":"rev_000001"}\n')
     export_path = root / "exports" / "qasm"
     export_path.mkdir(parents=True, exist_ok=True)
     (export_path / "main.qasm").write_text("OPENQASM 3;")
@@ -45,7 +56,9 @@ def test_inspect_pack_bundle_reports_ok_for_current_pack_shape(tmp_path: Path) -
         "plan.json",
         "report.json",
         "manifest.json",
+        "bundle_manifest.json",
         "events.jsonl",
+        "trace.ndjson",
         "exports/",
     ]
     assert inspection.present == inspection.required
@@ -62,3 +75,16 @@ def test_inspect_pack_bundle_reports_missing_required_objects(tmp_path: Path) ->
     assert inspection.status == "error"
     assert "manifest.json" in inspection.missing
     assert "exports/" not in inspection.missing
+
+
+def test_inspect_pack_bundle_requires_bundle_manifest_and_trace_snapshot(tmp_path: Path) -> None:
+    pack_module = _load_pack_module()
+    pack_root = _write_current_pack_shape(tmp_path / ".quantum" / "packs" / "rev_000001")
+    (pack_root / "bundle_manifest.json").unlink()
+    (pack_root / "trace.ndjson").unlink()
+
+    inspection = pack_module.inspect_pack_bundle(pack_root)
+
+    assert inspection.status == "error"
+    assert "bundle_manifest.json" in inspection.missing
+    assert "trace.ndjson" in inspection.missing

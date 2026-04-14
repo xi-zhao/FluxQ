@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -12,6 +13,22 @@ from quantum_runtime.workspace import acquire_workspace_lock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
+
+
+def _exec_pack_workspace(workspace: Path) -> str:
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    return json.loads(result.stdout)["revision"]
 
 
 def test_qrun_prompt_json_returns_normalized_intent_payload() -> None:
@@ -257,18 +274,7 @@ def test_qrun_export_json_supports_named_profiles(tmp_path: Path) -> None:
 def test_qrun_pack_json_writes_portable_revision_bundle(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
-    exec_result = RUNNER.invoke(
-        app,
-        [
-            "exec",
-            "--workspace",
-            str(workspace),
-            "--intent-file",
-            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
-            "--json",
-        ],
-    )
-    assert exec_result.exit_code == 0, exec_result.stdout
+    _exec_pack_workspace(workspace)
 
     compare_result = RUNNER.invoke(
         app,
@@ -329,7 +335,9 @@ def test_qrun_pack_json_writes_portable_revision_bundle(tmp_path: Path) -> None:
     assert (pack_root / "plan.json").exists()
     assert (pack_root / "report.json").exists()
     assert (pack_root / "manifest.json").exists()
+    assert (pack_root / "bundle_manifest.json").exists()
     assert (pack_root / "events.jsonl").exists()
+    assert (pack_root / "trace.ndjson").exists()
     assert (pack_root / "exports" / "qasm" / "main.qasm").exists()
     assert (pack_root / "bench.json").exists()
     assert (pack_root / "doctor.json").exists()
@@ -355,18 +363,7 @@ def test_qrun_schema_json_supports_intent_contract() -> None:
 
 def test_qrun_pack_inspect_json_reports_bundle_health(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
-    exec_result = RUNNER.invoke(
-        app,
-        [
-            "exec",
-            "--workspace",
-            str(workspace),
-            "--intent-file",
-            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
-            "--json",
-        ],
-    )
-    assert exec_result.exit_code == 0, exec_result.stdout
+    _exec_pack_workspace(workspace)
 
     pack_result = RUNNER.invoke(
         app,
@@ -396,22 +393,116 @@ def test_qrun_pack_inspect_json_reports_bundle_health(tmp_path: Path) -> None:
     payload = json.loads(inspect_result.stdout)
     assert payload["status"] == "ok"
     assert "exports/" in payload["present"]
+    assert "bundle_manifest.json" in payload["present"]
+    assert "trace.ndjson" in payload["present"]
+
+
+def test_qrun_pack_json_rejects_invalid_revision_format(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    _exec_pack_workspace(workspace)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "not-a-rev",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "invalid_revision"
+    assert payload["error_code"] == "invalid_revision"
+
+
+def test_qrun_pack_rebuild_keeps_last_good_bundle_when_staged_verification_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    pack_runtime = importlib.import_module("quantum_runtime.runtime.pack")
+    workspace = tmp_path / ".quantum"
+    revision = _exec_pack_workspace(workspace)
+
+    first_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+    assert first_result.exit_code == 0, first_result.stdout
+    pack_root = Path(json.loads(first_result.stdout)["pack_root"])
+    original_manifest = pack_root / "manifest.json"
+    original_payload = original_manifest.read_text()
+
+    monkeypatch.setattr(
+        pack_runtime,
+        "PACK_BUNDLE_REQUIRED_ENTRIES",
+        pack_runtime.PACK_BUNDLE_REQUIRED_ENTRIES + ("bundle_manifest.json", "trace.ndjson"),
+    )
+
+    second_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+
+    assert second_result.exit_code == 3, second_result.stdout
+    assert pack_root.exists()
+    assert original_manifest.exists()
+    assert original_manifest.read_text() == original_payload
+
+
+def test_qrun_pack_json_fails_when_required_history_artifacts_are_missing(tmp_path: Path) -> None:
+    cases = [
+        ("intents/history/rev_000001.json", "pack_intent_history_missing"),
+        ("plans/history/rev_000001.json", "pack_plan_history_missing"),
+        ("events/history/rev_000001.jsonl", "pack_events_history_missing"),
+        ("trace/history/rev_000001.ndjson", "pack_trace_history_missing"),
+    ]
+
+    for relative_path, expected_reason in cases:
+        workspace = tmp_path / expected_reason / ".quantum"
+        revision = _exec_pack_workspace(workspace)
+        target = workspace / relative_path
+        assert target.exists()
+        target.unlink()
+
+        result = RUNNER.invoke(
+            app,
+            [
+                "pack",
+                "--workspace",
+                str(workspace),
+                "--revision",
+                revision,
+                "--json",
+            ],
+        )
+
+        assert result.exit_code == 3, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["reason"] == expected_reason
+        assert payload["error_code"] == expected_reason
 
 
 def test_qrun_pack_json_reports_workspace_conflict_when_pack_persistence_is_locked(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
-    exec_result = RUNNER.invoke(
-        app,
-        [
-            "exec",
-            "--workspace",
-            str(workspace),
-            "--intent-file",
-            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
-            "--json",
-        ],
-    )
-    assert exec_result.exit_code == 0, exec_result.stdout
+    _exec_pack_workspace(workspace)
 
     with acquire_workspace_lock(workspace, command="pytest pack lock holder"):
         result = RUNNER.invoke(
@@ -433,18 +524,7 @@ def test_qrun_pack_json_reports_workspace_conflict_when_pack_persistence_is_lock
 
 def test_qrun_pack_json_reports_workspace_recovery_required_for_pending_history_backfill_temp(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
-    exec_result = RUNNER.invoke(
-        app,
-        [
-            "exec",
-            "--workspace",
-            str(workspace),
-            "--intent-file",
-            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
-            "--json",
-        ],
-    )
-    assert exec_result.exit_code == 0, exec_result.stdout
+    _exec_pack_workspace(workspace)
 
     intent_history = workspace / "intents" / "history" / "rev_000001.json"
     intent_history.unlink()
