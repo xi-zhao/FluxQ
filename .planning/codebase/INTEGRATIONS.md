@@ -1,91 +1,88 @@
 # External Integrations
 
-**Analysis Date:** 2026-04-12
+**Analysis Date:** 2026-04-14
 
 ## APIs & External Services
 
-**Quantum SDKs:**
-- Qiskit - Local circuit generation, transpilation, simulation, and QASM export
-  - SDK/Client: `qiskit` plus `qiskit-aer` from `pyproject.toml` and `uv.lock`
-  - Auth: none; the code paths in `src/quantum_runtime/lowering/qiskit_emitter.py`, `src/quantum_runtime/diagnostics/simulate.py`, and `src/quantum_runtime/diagnostics/transpile_validate.py` run locally
-- Classiq - Optional synthesis/export backend when a `QSpec` requests `classiq`
-  - SDK/Client: `classiq` optional dependency from `pyproject.toml`; runtime entry points in `src/quantum_runtime/backends/classiq_backend.py` and `src/quantum_runtime/lowering/classiq_emitter.py`
-  - Auth: not handled in the Python repo; `src/quantum_runtime/backends/classiq_backend.py` imports the installed SDK and delegates any authentication/session handling to that SDK
+**Quantum SDKs and providers:**
+- Qiskit local toolchain - Primary execution path for circuit building, transpilation, simulation, and QASM export in `src/quantum_runtime/lowering/qiskit_emitter.py`, `src/quantum_runtime/diagnostics/simulate.py`, and `src/quantum_runtime/diagnostics/transpile_validate.py`
+  - SDK/Client: `qiskit`, `qiskit-aer`
+  - Auth: None
+- Classiq - Optional synthesis/export backend used only when requested by the active `QSpec` or export format in `src/quantum_runtime/runtime/executor.py` and `src/quantum_runtime/runtime/export.py`
+  - SDK/Client: `classiq`
+  - Auth: Not configured in-repo; the Python runtime only imports the SDK and calls `classiq.create_model()` and `classiq.synthesize()` in `src/quantum_runtime/backends/classiq_backend.py`, so endpoint and credential handling are SDK-managed
 
-**Agent Host / Sidecar Integration:**
-- aionrs file-based host integration - FluxQ documents shell/file orchestration for an external agent host in `docs/aionrs-integration.md` and sample files under `integrations/aionrs/`
-  - SDK/Client: shell calls to `qrun`; no Python import dependency from `src/quantum_runtime/`
-  - Auth: none in the FluxQ integration path; the sample hook in `integrations/aionrs/hooks.example.toml` runs a local shell command
-- Bundled `aionrs/` sidecar - Separate Rust CLI present in the workspace and ignored by root `.gitignore`; it integrates with multiple remote AI providers and MCP servers from `aionrs/src/provider/` and `aionrs/src/mcp/`
-  - SDK/Client: `reqwest`, `aws-sigv4`, `aws-config`, `aws-sdk-sts`, and provider modules in `aionrs/Cargo.toml`
-  - Auth: provider/OAuth config in `aionrs/src/config.rs` and `aionrs/src/auth.rs`
+**Agent and host integration:**
+- aionrs sidecar - File-and-shell integration documented in `docs/aionrs-integration.md` and sample host rules in `integrations/aionrs/CLAUDE.md.example`
+  - SDK/Client: shell `qrun` invocations plus `.quantum/intents/latest.md`, `.quantum/reports/latest.json`, and `.quantum/manifests/latest.json`
+  - Auth: None on the FluxQ side; if the adjacent `aionrs/` tool is used, its own provider auth is configured in `aionrs/src/config.rs` and `aionrs/src/auth.rs`
 
 ## Data Storage
 
 **Databases:**
-- None detected in the main Python runtime; no ORM or database client imports appear in `src/quantum_runtime/`
+- None
+  - Connection: Not applicable
+  - Client: Not applicable
 
 **File Storage:**
 - Local filesystem only
-  - Workspace state is stored under `.quantum/`-style directories via `src/quantum_runtime/workspace/paths.py`
-  - Generated artifacts land in `artifacts/qiskit/`, `artifacts/classiq/`, `artifacts/qasm/`, `figures/`, `reports/`, and `manifests/` from `src/quantum_runtime/workspace/paths.py`
-  - Portable revision bundles are copied into `packs/<revision>/` by `src/quantum_runtime/runtime/pack.py`
+  - Workspace state: `.quantum/workspace.json`, `.quantum/qrun.toml`, `.quantum/events.jsonl`, and `.quantum/trace/events.ndjson` via `src/quantum_runtime/workspace/manager.py` and `src/quantum_runtime/workspace/trace.py`
+  - Revision history: `.quantum/specs/history/`, `.quantum/reports/history/`, `.quantum/manifests/history/`, and `.quantum/artifacts/history/` via `src/quantum_runtime/workspace/paths.py` and `src/quantum_runtime/reporters/writer.py`
+  - Portable revision bundles: `.quantum/packs/<revision>/` via `src/quantum_runtime/runtime/pack.py`
+  - Build artifacts: `dist/` via `.github/workflows/ci.yml`
 
 **Caching:**
-- Local workspace cache directory only
-  - `src/quantum_runtime/workspace/paths.py` creates `cache/`
-  - No Redis, Memcached, or remote cache client is detected in `src/quantum_runtime/`
+- Local cache directory only
+  - Service: `.quantum/cache/` created by `src/quantum_runtime/workspace/paths.py`
 
 ## Authentication & Identity
 
 **Auth Provider:**
-- Main `qrun` runtime: Custom/local only
-  - Implementation: no runtime login flow or API-key handling exists under `src/quantum_runtime/`; optional backend availability is checked by import inspection in `src/quantum_runtime/runtime/backend_registry.py`
-- Adjacent `aionrs/` sidecar: Provider-specific auth plus Claude OAuth
-  - Implementation: Claude device flow in `aionrs/src/auth.rs`; AWS Bedrock credential resolution in `aionrs/src/provider/mod.rs`; Vertex config in `aionrs/src/config.rs` and `aionrs/docs/providers.md`
+- None in the Python CLI/runtime
+  - Implementation: `src/quantum_runtime/` does not load runtime API keys or secrets from environment variables; workspace identity is local-only through `project_id` generation in `src/quantum_runtime/workspace/manifest.py`
 
 ## Monitoring & Observability
 
 **Error Tracking:**
-- None; no Sentry, OpenTelemetry, Datadog, or similar client is detected in `src/quantum_runtime/`
+- None
 
 **Logs:**
-- Structured local JSON/JSONL events
-  - Agent-facing event envelopes are defined in `src/quantum_runtime/runtime/observability.py`
-  - Workspace traces are appended to `events.jsonl` and `trace/events.ndjson` by `src/quantum_runtime/workspace/trace.py`
-  - Health/dependency reports are written locally by `src/quantum_runtime/runtime/doctor.py`
+- Schema-versioned JSON payloads are emitted by `src/quantum_runtime/runtime/contracts.py`
+- Workspace NDJSON event logs are appended by `src/quantum_runtime/workspace/trace.py`
+- Revisioned reports and provenance payloads are written by `src/quantum_runtime/reporters/writer.py`
+- CI logs come from GitHub Actions workflows in `.github/workflows/ci.yml` and `.github/workflows/classiq.yml`
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- Not detected for the main runtime; this repo builds a distributable CLI package rather than a deployed web service
+- Local CLI/package delivery only; no deployed service target is defined in the repo
 
 **CI Pipeline:**
 - GitHub Actions
-  - `.github/workflows/ci.yml` runs lint, type-checks, tests, and `python -m build`
-  - `.github/workflows/classiq.yml` runs the optional Classiq-only test path with `.[dev,classiq]`
+  - `.github/workflows/ci.yml` runs lint, type-check, Qiskit-focused pytest, and `python -m build`
+  - `.github/workflows/classiq.yml` is a manual Classiq-only workflow using `.[dev,classiq]`
+- No publish-to-PyPI or service deployment workflow is detected under `.github/workflows/`
 
 ## Environment Configuration
 
 **Required env vars:**
-- Main runtime: none required by code under `src/quantum_runtime/`
-- Optional developer/bootstrap vars: `PYTHON_BIN`, `PIP_TIMEOUT`, and `PIP_INDEX_URL` in `scripts/dev-bootstrap.sh`
-- Optional `aionrs/` sidecar vars: `AWS_REGION` and `AWS_DEFAULT_REGION` in `aionrs/src/provider/mod.rs`; Bedrock docs in `aionrs/docs/providers.md` also reference `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
+- None for normal `qrun` runtime operation inside `src/quantum_runtime/`
+- `PYTHON_BIN`, `PIP_TIMEOUT`, and `PIP_INDEX_URL` are optional bootstrap overrides in `scripts/dev-bootstrap.sh`
+- If the adjacent `aionrs/` tool is used, provider secrets may come from CLI flags, config, or env such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` according to `aionrs/src/config.rs` and `aionrs/docs/getting-started.md`; that surface is separate from FluxQ's Python runtime
 
 **Secrets location:**
-- Main runtime: not detected; runtime state is file-based and local in `.quantum/` via `src/quantum_runtime/workspace/manager.py`
-- `aionrs/` sidecar: config and tokens are stored outside the repo in `~/.config/aionrs/config.toml` and `~/.config/aionrs/auth.json`, as documented in `aionrs/README.md` and implemented in `aionrs/src/auth.rs`
+- Not detected for the Python package; this refresh found no repo-local `.env` files, and `src/quantum_runtime/` does not read runtime secrets directly
+- Optional sidecar/provider secrets live outside the Python package in user environment or sidecar config; Classiq credentials are not configured anywhere under `src/quantum_runtime/`
 
 ## Webhooks & Callbacks
 
 **Incoming:**
-- None; no HTTP server, webhook receiver, or callback endpoint is implemented in `src/quantum_runtime/`
+- None
 
 **Outgoing:**
-- Main runtime: none required for default `qiskit-local` flows; all core execution paths are local
-- Optional Classiq path: outbound behavior is delegated to the installed `classiq` SDK through `src/quantum_runtime/backends/classiq_backend.py`
-- `aionrs/` sidecar: outbound HTTP requests exist for Claude OAuth in `aionrs/src/auth.rs`, LLM providers in `aionrs/src/provider/`, and configurable MCP SSE/streamable HTTP endpoints in `aionrs/src/mcp/manager.rs`
+- None from the Python runtime
+- The only callback-like example is a local shell hook in `integrations/aionrs/hooks.example.toml` that runs `qrun doctor`; it is not an HTTP webhook integration
 
 ---
 
-*Integration audit: 2026-04-12*
+*Integration audit: 2026-04-14*

@@ -1,112 +1,108 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-04-12
+**Analysis Date:** 2026-04-14
 
 ## Test Framework
 
 **Runner:**
-- `pytest` is the test runner. The dev extra in `pyproject.toml` declares `pytest>=8.0`.
-- Config lives in `pyproject.toml` under `[tool.pytest.ini_options]` with `testpaths = ["tests"]`.
+- Use `pytest` as the test runner. The repository config is `[tool.pytest.ini_options]` in `pyproject.toml`, with `testpaths = ["tests"]`.
+- Run the default CI pytest job from `.github/workflows/ci.yml` after installing `.[dev,qiskit]`.
+- Run Classiq-only tests from `.github/workflows/classiq.yml` after installing `.[dev,classiq]`.
 
 **Assertion Library:**
-- Built-in `pytest` assertions and `pytest.raises(...)` are used throughout `tests/test_workspace_manager.py`, `tests/test_qspec_validation.py`, `tests/test_runtime_imports.py`, and `tests/test_cli_control_plane.py`.
+- Use plain `assert` statements plus `pytest.raises(...)` for exceptions. Representative files include `tests/test_cli_exec.py`, `tests/test_qspec_validation.py`, `tests/test_runtime_workspace_safety.py`, and `tests/test_target_validation.py`.
 
 **Run Commands:**
 ```bash
 uv run --python 3.11 --extra dev --extra qiskit pytest -q
-pytest -q tests/test_cli_exec.py
-# No dedicated watch-mode or coverage command is configured in `pyproject.toml`,
-# `README.md`, `CONTRIBUTING.md`, or `.github/workflows/ci.yml`.
+./scripts/dev-bootstrap.sh verify
+python -m pip install -e '.[dev,classiq]' && pytest -q tests/test_classiq_backend.py tests/test_classiq_emitter.py
 ```
 
-The canonical local gate comes from `CONTRIBUTING.md`. CI runs `pytest -q --ignore tests/test_classiq_backend.py --ignore tests/test_classiq_emitter.py --ignore tests/test_qspec_validation.py` in `.github/workflows/ci.yml`, while `.github/workflows/classiq.yml` separately runs `tests/test_classiq_backend.py` and `tests/test_classiq_emitter.py`.
+Coverage command:
+```bash
+# Not configured in repo
+```
 
 ## Test File Organization
 
 **Location:**
-- Tests are stored in a separate top-level `tests/` directory, not co-located with source.
-- The suite currently contains 33 top-level `tests/test_*.py` modules.
-- Snapshot and golden artifacts live under `tests/golden/`.
-- There is no `tests/conftest.py` and no shared fixture package.
+- Keep tests in the top-level `tests/` directory rather than colocated with `src/`.
+- Reuse checked-in example inputs from `examples/` and documentation files from the repo root or `docs/` when a test is about release or integration contracts.
 
 **Naming:**
-- Use `tests/test_<feature>.py`, for example `tests/test_cli_exec.py`, `tests/test_runtime_compare.py`, `tests/test_pack_bundle.py`, and `tests/test_release_docs.py`.
-- Use `tests/golden/<artifact>` for literal expected outputs, for example `tests/golden/qiskit_ghz_main.py`, `tests/golden/qasm_ghz_main.qasm`, `tests/golden/qspec_qaoa_maxcut.json`, and `tests/golden/report_summary_ghz.txt`.
+- Use `tests/test_<area>.py` for canonical test modules, for example `tests/test_cli_compare.py`, `tests/test_runtime_compare.py`, `tests/test_workspace_locking.py`, `tests/test_qasm_export.py`, and `tests/test_release_docs.py`.
+- Keep golden files in `tests/golden/`, for example `tests/golden/qspec_ghz.json`, `tests/golden/qspec_qaoa_maxcut.json`, `tests/golden/qasm_ghz_main.qasm`, `tests/golden/qiskit_ghz_main.py`, and `tests/golden/report_summary_ghz.txt`.
+- Do not copy the `-NSConflict-...` filenames in `tests/test_cli_bench-NSConflict-BlovedSwami-mac26.4.1.py` and `tests/test_runtime_imports-NSConflict-BlovedSwami-mac26.4.1.py`; those are conflict artifacts, not the suite pattern.
 
 **Structure:**
 ```text
 tests/
-├── test_cli_*.py              # Typer command and machine-output integration tests
-├── test_runtime_*.py          # Runtime import/compare contract tests
-├── test_qspec_validation.py   # Validation and normalization edge cases
-├── test_qiskit_emitter.py     # Generated-code and golden snapshot tests
-├── test_classiq_backend.py    # Optional backend behavior with monkeypatch fakes
-├── test_release_docs.py       # Documentation and release contract checks
-└── golden/                    # Snapshot fixtures and golden expected outputs
+├── test_cli_*.py              # CLI commands and output contracts
+├── test_runtime_*.py          # Runtime orchestration and comparison logic
+├── test_workspace_*.py        # Workspace manifest, locking, and baseline behavior
+├── test_*_release.py          # Packaging, docs, and release-contract checks
+└── golden/                    # Snapshot fixtures for QSpec, source, and summaries
 ```
+
+- The repository contains 43 canonical `tests/test_*.py` files and 318 `def test_...` functions.
+- No `conftest.py` file is present under `tests/`.
 
 ## Test Structure
 
 **Suite Organization:**
 ```python
-from __future__ import annotations
-
-import json
-from pathlib import Path
-
-from typer.testing import CliRunner
-
-from quantum_runtime.cli import app
-
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
 
+def _write_intent(path: Path, *, title: str, goal: str) -> Path:
+    ...
 
-def test_qrun_init_json_creates_manifest_layout_and_schema_version(tmp_path: Path) -> None:
-    workspace = tmp_path / ".quantum"
-    result = RUNNER.invoke(app, ["init", "--workspace", str(workspace), "--json"])
-
+def test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path) -> None:
+    result = RUNNER.invoke(app, ["exec", "--workspace", str(workspace), "--json"])
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
-    assert payload["schema_version"] == "0.3.0"
+    assert payload["status"] == "ok"
 ```
 
-This pattern is taken directly from `tests/test_cli_control_plane.py`.
-
 **Patterns:**
-- Prefer file-local setup over shared fixtures. Most tests construct their own workspace root with `tmp_path / ".quantum"` and call `WorkspaceManager.load_or_init(...)`, as in `tests/test_workspace_manager.py`, `tests/test_report_writer.py`, and `tests/test_cli_bench.py`.
-- Use module constants for shared paths and runners, such as `PROJECT_ROOT` and `RUNNER` in `tests/test_cli_exec.py`, `tests/test_cli_doctor.py`, and `tests/test_qiskit_emitter.py`.
-- Parse CLI output as JSON and assert a mix of exit code, payload schema, and filesystem side effects. This is the dominant style in `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_export.py`, and `tests/test_cli_observability.py`.
-- Teardown is implicit through `tmp_path`; no explicit cleanup hooks are used.
-- Parametrization exists but is limited. `tests/test_planner.py` uses `@pytest.mark.parametrize(...)` to cover multiple supported pattern families.
+- Keep setup helpers local to the test module. Examples include `_write_intent()` in `tests/test_cli_exec.py`, `_doctor_capabilities()` in `tests/test_cli_doctor.py`, `_load_pack_module()` in `tests/test_pack_bundle.py`, `_make_qspec()` in `tests/test_qspec_validation.py`, and `_history_paths()` in `tests/test_runtime_workspace_safety.py`.
+- Use `tmp_path` as the default isolation mechanism for filesystem-heavy tests. This pattern is pervasive across `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_runtime_imports.py`, `tests/test_workspace_manager.py`, and `tests/test_pack_bundle.py`.
+- Use `CliRunner()` for CLI behavior unless a real process boundary matters. `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_observability.py`, and `tests/test_cli_doctor.py` use `CliRunner`; `tests/test_cli_init.py` uses `subprocess.run()` and `subprocess.Popen()` because it needs process-level lock behavior.
+- Assert full JSON payload shape, exit code, and persisted files together. `tests/test_cli_control_plane.py`, `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, and `tests/test_cli_observability.py` all read the workspace files back from disk after the command returns.
+- Seed failure modes by mutating on-disk JSON or deleting authoritative files rather than by mocking everything. Examples appear in `tests/test_cli_control_plane.py`, `tests/test_cli_inspect.py`, `tests/test_workspace_baseline.py`, and `tests/test_runtime_imports.py`.
+- Use `pytest.mark.parametrize(...)` sparingly for compact input matrices. The main example is `tests/test_planner.py`.
 
 ## Mocking
 
-**Framework:** `pytest` built-ins, primarily `monkeypatch`
+**Framework:** `pytest` `monkeypatch` with small inline fakes and lambdas. No dedicated mocking library is configured.
 
 **Patterns:**
 ```python
-def test_run_classiq_backend_returns_dependency_missing_when_sdk_unavailable(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "quantum_runtime.backends.classiq_backend._load_classiq_module",
-        raise_missing,
-    )
+monkeypatch.setattr(
+    "quantum_runtime.backends.classiq_backend._load_classiq_module",
+    raise_missing,
+)
+
+with pytest.raises(ImportSourceError) as excinfo:
+    resolve_report_file(tmp_path / "missing-report.json")
 ```
 
-This is the standard mocking shape in `tests/test_classiq_backend.py`. Similar `monkeypatch.setattr(...)` usage appears in `tests/test_cli_doctor.py`, `tests/test_cli_backend_list.py`, and `tests/test_runtime_imports.py`. `monkeypatch.chdir(...)` is used when a test needs relative-path behavior, for example in `tests/test_runtime_imports.py`.
+```python
+monkeypatch.setattr(
+    "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+    lambda: _doctor_capabilities(classiq_available=False),
+)
+```
 
 **What to Mock:**
-- Optional dependency loaders and environment-sensitive integration points, especially Classiq-related code in `tests/test_classiq_backend.py` and backend capability discovery in `tests/test_cli_doctor.py` or `tests/test_cli_backend_list.py`.
-- Current working directory changes when path resolution is under test, as in `tests/test_runtime_imports.py`.
+- Optional dependency probes and backend capability discovery, for example in `tests/test_classiq_backend.py`, `tests/test_cli_backend_list.py`, and `tests/test_cli_doctor.py`.
+- Expensive or concurrency-sensitive runtime boundaries, for example `run_local_simulation`, `write_diagrams`, and `write_run_manifest` in `tests/test_runtime_workspace_safety.py`.
+- Backend synthesis and benchmark integration points, for example `run_classiq_backend` in `tests/test_benchmark.py` and `tests/test_cli_bench.py`.
 
 **What NOT to Mock:**
-- Core JSON payloads and filesystem artifacts. Most integration tests write real files and then inspect `workspace.json`, `reports/latest.json`, `manifests/latest.json`, or trace logs directly.
-- Generated code paths. `tests/test_qiskit_emitter.py` imports emitted Python from disk and executes it instead of stubbing the emitter output.
-- CLI behavior. Most command tests use `CliRunner.invoke(...)` against the real Typer app in `src/quantum_runtime/cli.py`.
+- Workspace file writes and read-backs when the behavior under test is the workspace contract. `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_runtime_imports.py`, `tests/test_runtime_revision_artifacts.py`, and `tests/test_workspace_manager.py` all prefer real files.
+- Golden snapshot emitters when verifying canonical output. `tests/test_planner.py`, `tests/test_qasm_export.py`, `tests/test_qiskit_emitter.py`, `tests/test_classiq_emitter.py`, and `tests/test_report_writer.py` compare real generated outputs against checked-in fixtures.
 
 ## Fixtures and Factories
 
@@ -115,60 +111,87 @@ This is the standard mocking shape in `tests/test_classiq_backend.py`. Similar `
 def _make_qspec() -> QSpec:
     return QSpec(
         program_id="  prog_ghz_4  ",
-        goal="  Generate a 4-qubit GHZ circuit and measure all qubits.  ",
         ...
+        backend_preferences=[" qiskit-local ", "", "classiq", "qiskit-local"],
     )
 ```
 
-This local helper style is used in `tests/test_qspec_validation.py`. Other examples include `_binding_only_qaoa_qspec()` in `tests/test_cli_exec.py`, `_seed_workspace()` in `tests/test_runtime_imports.py`, `_load_pack_module()` in `tests/test_pack_bundle.py`, and `_write_current_pack_shape()` in `tests/test_pack_bundle.py`.
+```python
+def _write_intent(path: Path, *, title: str, goal: str) -> Path:
+    path.write_text(
+        f"""---
+title: {title}
+---
+
+{goal}
+"""
+    )
+    return path
+```
 
 **Location:**
-- Helpers live inside the test module that uses them.
-- Example input files under `examples/` are reused directly by tests such as `tests/test_cli_exec.py`, `tests/test_qiskit_emitter.py`, and `tests/test_classiq_backend.py`.
-- Golden fixtures live under `tests/golden/`.
-- No shared fixture registry is detected because there is no `tests/conftest.py`.
+- Use module-local helpers rather than shared fixtures. No `@pytest.fixture` decorators are present in `tests/`.
+- Reuse example input files such as `examples/intent-ghz.md` and `examples/intent-qaoa-maxcut.md` in parser, planner, CLI, benchmark, and export tests.
+- Keep golden fixtures in `tests/golden/`:
+  - `tests/golden/qspec_ghz.json` and `tests/golden/qspec_qaoa_maxcut.json` for planner output.
+  - `tests/golden/qspec_hardware_efficient_ansatz.json` for parameterized HEA planning.
+  - `tests/golden/qasm_ghz_main.qasm` and `tests/golden/qiskit_ghz_main.py` for source emitters.
+  - `tests/golden/classiq_ghz_main.py` for Classiq source emission.
+  - `tests/golden/report_summary_ghz.txt` for summary compression.
 
 ## Coverage
 
-**Requirements:** No coverage threshold or coverage collection command is enforced.
-- No `coverage` or `pytest-cov` dependency is declared in `pyproject.toml`.
-- No coverage report command is documented in `README.md`, `CONTRIBUTING.md`, or `.github/workflows/ci.yml`.
-- CI focuses on pass/fail behavior rather than measured coverage percentage.
+**Requirements:** No coverage target or coverage threshold is enforced. No `pytest-cov` dependency, `--cov` command, or coverage report config is present in `pyproject.toml`, `README.md`, `CONTRIBUTING.md`, or the GitHub workflows.
 
 **View Coverage:**
 ```bash
-# Not configured. Add a local `pytest --cov ...` invocation manually if you need coverage data.
+# Not configured in repo
 ```
-
-**Coverage Shape:**
-- The suite is broad in behavior coverage, especially around CLI commands and workspace-state transitions.
-- `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_export.py`, `tests/test_cli_control_plane.py`, and `tests/test_cli_observability.py` cover most of the command surface in `src/quantum_runtime/cli.py`.
-- `tests/test_runtime_imports.py`, `tests/test_runtime_compare.py`, `tests/test_workspace_manager.py`, and `tests/test_workspace_baseline.py` cover the workspace and runtime state model.
-- `tests/test_release_docs.py` and `tests/test_packaging_release.py` treat docs and packaging metadata as testable release contracts.
-- Optional backend coverage is split out: `.github/workflows/classiq.yml` runs `tests/test_classiq_backend.py` and `tests/test_classiq_emitter.py` separately from the default CI job.
 
 ## Test Types
 
 **Unit Tests:**
-- Model parsing, validation, and normalization in `tests/test_intent_parser.py`, `tests/test_planner.py`, and `tests/test_qspec_validation.py`.
-- Workspace and helper modules in `tests/test_workspace_manager.py`, `tests/test_workspace_baseline.py`, `tests/test_artifact_provenance.py`, and `tests/test_pack_bundle.py`.
-- Lowering and diagnostics modules in `tests/test_qiskit_emitter.py`, `tests/test_classiq_emitter.py`, `tests/test_diagnostics.py`, and `tests/test_benchmark.py`.
+- Parser, planner, semantics, validation, lowering, and diagnostics logic are covered in focused modules such as `tests/test_intent_parser.py`, `tests/test_planner.py`, `tests/test_qspec_validation.py`, `tests/test_qasm_export.py`, `tests/test_qiskit_emitter.py`, `tests/test_classiq_emitter.py`, `tests/test_diagnostics.py`, and `tests/test_target_validation.py`.
 
 **Integration Tests:**
-- Typer command tests with real filesystem effects in `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_doctor.py`, `tests/test_cli_export.py`, and `tests/test_cli_inspect.py`.
-- Runtime import and replay-integrity tests in `tests/test_runtime_imports.py` and `tests/test_runtime_compare.py`.
-- Release and packaging contract checks in `tests/test_release_docs.py`, `tests/test_open_source_release.py`, and `tests/test_packaging_release.py`.
+- CLI and workspace contract coverage dominates the suite. Representative modules include `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_control_plane.py`, `tests/test_cli_observability.py`, `tests/test_cli_export.py`, `tests/test_cli_doctor.py`, `tests/test_runtime_imports.py`, `tests/test_runtime_workspace_safety.py`, and `tests/test_runtime_revision_artifacts.py`.
+- Release and packaging contracts are also tested as integration surfaces through `tests/test_release_docs.py`, `tests/test_packaging_release.py`, and `tests/test_aionrs_assets.py`.
 
 **E2E Tests:**
-- No dedicated E2E framework is used.
-- The closest E2E-style coverage is the CLI flow exercised through `CliRunner` plus subprocess-based smoke tests in `tests/test_cli_init.py` and `tests/test_qiskit_emitter.py`.
+- No separate browser or service-level E2E framework is configured.
+- The closest end-to-end tests are command-line flows that exercise real workspace state, subprocesses, or concurrency, especially `tests/test_cli_init.py`, `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, and `tests/test_runtime_workspace_safety.py`.
+
+## Known Gaps
+
+**CI Scope:**
+- The default PR pytest job in `.github/workflows/ci.yml` skips `tests/test_classiq_backend.py`, `tests/test_classiq_emitter.py`, and `tests/test_qspec_validation.py`.
+- Classiq-only tests run only in `.github/workflows/classiq.yml`, and that workflow is gated behind manual `workflow_dispatch` input `run_classiq`.
+
+**Coverage Tooling:**
+- Coverage reporting is absent. The repository has no built-in way to answer line or branch coverage questions.
+
+**Static Analysis Scope:**
+- MyPy checks `src/` only. Tests in `tests/` are not type-checked.
+- Ruff excludes `tests/golden/` and `tests/test_qspec_validation.py`, so those paths rely on manual review and execution rather than the main lint gate.
+
+**Suite Structure:**
+- No shared fixture layer exists. Setup duplication across CLI modules such as `tests/test_cli_exec.py`, `tests/test_cli_compare.py`, `tests/test_cli_observability.py`, and `tests/test_cli_doctor.py` increases drift risk when the workspace contract changes.
+- Conflict-artifact files remain in the tree under `tests/`; do not extend them when adding new tests.
 
 ## Common Patterns
 
 **Async Testing:**
 ```python
-# Not used. No `async def` tests, `pytest-asyncio`, or event-loop fixtures were detected.
+first_thread = threading.Thread(target=_run_exec, args=(workspace, ghz_intent, first_outcome))
+second_thread = threading.Thread(target=_run_exec, args=(workspace, bell_intent, second_outcome))
+
+first_thread.start()
+assert first_simulation_started.wait(timeout=5)
+second_thread.start()
 ```
+
+- The suite does not use `asyncio` or async pytest plugins.
+- Concurrency tests use `threading`, blocking events, subprocesses, and workspace locks in `tests/test_runtime_workspace_safety.py` and `tests/test_cli_init.py`.
 
 **Error Testing:**
 ```python
@@ -178,37 +201,16 @@ with pytest.raises(QSpecValidationError) as exc:
 assert exc.value.code == "invalid_qspec"
 ```
 
-This is the standard error assertion pattern in `tests/test_qspec_validation.py`. CLI error tests follow the same shape at the process boundary by checking exit codes plus JSON reason fields, for example in `tests/test_cli_control_plane.py`, `tests/test_cli_compare.py`, and `tests/test_cli_export.py`.
-
-**Golden and Generated Artifact Testing:**
 ```python
-source = emit_qiskit_source(qspec)
-golden = (PROJECT_ROOT / "tests" / "golden" / "qiskit_ghz_main.py").read_text()
-
-assert source == golden
+result = RUNNER.invoke(app, ["compare", "--workspace", str(workspace), "--json"])
+assert result.exit_code == 2, result.stdout
+payload = json.loads(result.stdout)
+assert payload["gate"]["ready"] is False
 ```
 
-This snapshot style appears in `tests/test_qiskit_emitter.py`, `tests/test_classiq_emitter.py`, `tests/test_planner.py`, and `tests/test_report_writer.py`.
-
-**Generated Code Execution:**
-```python
-spec = importlib.util.spec_from_file_location("generated_qiskit_program", output_path)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-```
-
-`tests/test_qiskit_emitter.py` and `tests/test_pack_bundle.py` load generated modules from disk instead of mocking import-time behavior.
-
-**CLI Subprocess Smoke Testing:**
-```python
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(SRC_ROOT)
-    return subprocess.run([sys.executable, "-m", "quantum_runtime.cli", *args], ...)
-```
-
-`tests/test_cli_init.py` uses this pattern to validate the package entrypoint outside `CliRunner`.
+- Error-path tests check both structured exception codes and CLI exit codes.
+- Degraded runtime states are asserted through `reason_codes`, `next_actions`, `decision`, and `gate` blocks in `tests/test_cli_observability.py`, `tests/test_cli_control_plane.py`, `tests/test_cli_compare.py`, and `tests/test_cli_doctor.py`.
 
 ---
 
-*Testing analysis: 2026-04-12*
+*Testing analysis: 2026-04-14*
