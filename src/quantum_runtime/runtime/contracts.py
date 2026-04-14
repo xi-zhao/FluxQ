@@ -29,6 +29,8 @@ REMEDIATIONS: dict[str, str] = {
     "workspace_root_required_for_report_file": "Pass `--workspace` or use a report file that still carries recoverable workspace provenance.",
     "workspace_conflict": "Wait for the current workspace lease holder to finish, then retry the command or use a different workspace.",
     "workspace_recovery_required": "Run `qrun doctor --fix` or clear the interrupted-write leftovers after validating the last known good revision.",
+    "pack_bundle_invalid": "Run `qrun pack-inspect --pack-root <bundle> --json`, fix the reported bundle verification issues, then retry the import.",
+    "pack_revision_conflict": "Import into an empty workspace or remove the conflicting revision history before retrying `qrun pack-import`.",
 }
 
 

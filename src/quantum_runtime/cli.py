@@ -32,6 +32,7 @@ from quantum_runtime.runtime import (
     execute_report,
     export_artifact,
     export_artifact_from_resolution,
+    import_pack_bundle,
     inspect_workspace,
     inspect_pack_bundle,
     pack_revision,
@@ -1181,6 +1182,49 @@ def pack_inspect_command(
         raise typer.Exit(code=0 if inspection.status == "ok" else 3)
     typer.echo(f"pack inspection: {inspection.status}")
     raise typer.Exit(code=0 if inspection.status == "ok" else 3)
+
+
+@app.command("pack-import")
+def pack_import_command(
+    pack_root: Path = typer.Option(
+        ...,
+        "--pack-root",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Pack bundle directory to import into a workspace.",
+    ),
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that will receive the imported revision.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    """Import one verified portable runtime bundle into a workspace."""
+    try:
+        result = import_pack_bundle(pack_root=pack_root, workspace_root=workspace)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_import_source_error(exc)
+        raise typer.BadParameter(f"Invalid pack import input: {exc.code}") from exc
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
+
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=0 if result.status == "ok" else 3)
+    typer.echo(result.revision)
+    raise typer.Exit(code=0 if result.status == "ok" else 3)
 
 
 @app.command("exec")

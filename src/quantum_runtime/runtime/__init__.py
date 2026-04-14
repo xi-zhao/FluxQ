@@ -44,7 +44,7 @@ from .imports import (
     resolve_workspace_baseline,
 )
 from .inspect import InspectReport, inspect_workspace
-from .pack import PackInspectionResult, PackResult, inspect_pack_bundle, pack_revision
+from .pack import PackImportResult, PackInspectionResult, PackResult, import_pack_bundle, inspect_pack_bundle, pack_revision
 from .resolve import IntentResolution, intent_resolution_from_prompt, resolve_runtime_input
 from .run_manifest import RunManifestArtifact, RunReportArtifact
 
@@ -62,6 +62,7 @@ __all__ = [
     "IntentResolution",
     "InspectReport",
     "PackResult",
+    "PackImportResult",
     "PackInspectionResult",
     "PlanResult",
     "ReportImportError",
@@ -90,6 +91,7 @@ __all__ = [
     "list_backends",
     "load_qspec_from_report",
     "pack_revision",
+    "import_pack_bundle",
     "inspect_pack_bundle",
     "resolve_runtime_input",
     "resolve_runtime_object",
