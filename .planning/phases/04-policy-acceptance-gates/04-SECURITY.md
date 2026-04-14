@@ -57,6 +57,7 @@ created: 2026-04-14T12:39:19Z
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-04-14 | 10 | 10 | 0 | Codex + `gsd-security-auditor` |
+| 2026-04-14 | 10 | 10 | 0 | Codex re-audit |
 
 ---
 
