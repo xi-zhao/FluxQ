@@ -763,7 +763,12 @@ def _import_bundle_history(
     }
 
     _ensure_non_conflicting_bundle_pairs(
-        core_pairs + export_pairs,
+        core_pairs,
+        revision=revision,
+        rewritten_payloads=rewritten_payloads,
+    )
+    _ensure_non_conflicting_bundle_pairs(
+        export_pairs,
         revision=revision,
         rewritten_payloads=rewritten_payloads,
     )
