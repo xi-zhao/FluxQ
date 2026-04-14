@@ -14,7 +14,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - [x] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
 - [x] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
 - [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
-- [ ] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
+- [x] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
 - [ ] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
 
 ## Phase Details
@@ -93,9 +93,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Harden `qrun pack` into a path-safe, non-destructive bundle producer with bundle-local trust metadata
-- [ ] 05-02-PLAN.md — Verify copied bundles outside the source workspace with digest-backed `qrun pack-inspect`
-- [ ] 05-03-PLAN.md — Re-import a verified bundle into a downstream workspace and continue from the same revision evidence
+- [x] 05-01-PLAN.md — Harden `qrun pack` into a path-safe, non-destructive bundle producer with bundle-local trust metadata
+- [x] 05-02-PLAN.md — Verify copied bundles outside the source workspace with digest-backed `qrun pack-inspect`
+- [x] 05-03-PLAN.md — Re-import a verified bundle into a downstream workspace and continue from the same revision evidence
 
 ### Phase 6: Runtime Adoption Surface
 **Goal**: The repository explains FluxQ as a runtime/control-plane product and shows how agents or CI should adopt it.
@@ -115,5 +115,5 @@ Plans:
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
-| 5. Verified Delivery Bundles | 0/3 | Not started | - |
+| 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 0/TBD | Not started | - |

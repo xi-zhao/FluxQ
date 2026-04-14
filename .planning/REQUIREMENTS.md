@@ -27,9 +27,9 @@ Requirements for the next milestone of FluxQ’s runtime-first product surface.
 
 ### Delivery
 
-- [ ] **DELV-01**: Agent can package one revision into a portable delivery bundle that includes the core runtime objects and export outputs
-- [ ] **DELV-02**: Agent can inspect and verify a delivery bundle outside the original workspace
-- [ ] **DELV-03**: Agent can unpack or re-import a verified delivery bundle into downstream workflows
+- [x] **DELV-01**: Agent can package one revision into a portable delivery bundle that includes the core runtime objects and export outputs
+- [x] **DELV-02**: Agent can inspect and verify a delivery bundle outside the original workspace
+- [x] **DELV-03**: Agent can unpack or re-import a verified delivery bundle into downstream workflows
 
 ### Integrations And Product Surface
 
@@ -80,9 +80,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | POLC-01 | Phase 4 | Complete |
 | POLC-02 | Phase 4 | Complete |
 | POLC-03 | Phase 4 | Complete |
-| DELV-01 | Phase 5 | Pending |
-| DELV-02 | Phase 5 | Pending |
-| DELV-03 | Phase 5 | Pending |
+| DELV-01 | Phase 5 | Complete |
+| DELV-02 | Phase 5 | Complete |
+| DELV-03 | Phase 5 | Complete |
 | SURF-01 | Phase 6 | Pending |
 | SURF-02 | Phase 6 | Pending |
 | SURF-03 | Phase 6 | Pending |
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-12 after Phase 3 completion*
+*Last updated: 2026-04-14 after Phase 5 completion*
