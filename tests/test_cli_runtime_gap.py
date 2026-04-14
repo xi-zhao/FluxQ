@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -395,6 +396,126 @@ def test_qrun_pack_inspect_json_reports_bundle_health(tmp_path: Path) -> None:
     assert "exports/" in payload["present"]
     assert "bundle_manifest.json" in payload["present"]
     assert "trace.ndjson" in payload["present"]
+
+
+def test_qrun_pack_inspect_json_verifies_copied_bundle_outside_source_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "source" / ".quantum"
+    revision = _exec_pack_workspace(workspace)
+
+    pack_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+    assert pack_result.exit_code == 0, pack_result.stdout
+
+    pack_root = Path(json.loads(pack_result.stdout)["pack_root"])
+    copied_bundle = tmp_path / "copied-bundle"
+    shutil.copytree(pack_root, copied_bundle)
+    shutil.rmtree(workspace.parent)
+
+    inspect_result = RUNNER.invoke(
+        app,
+        [
+            "pack-inspect",
+            "--pack-root",
+            str(copied_bundle),
+            "--json",
+        ],
+    )
+
+    assert inspect_result.exit_code == 0, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["revision"] == revision
+    assert payload["missing"] == []
+    assert payload["mismatched"] == []
+    assert payload["reason_codes"] == []
+    assert payload["gate"]["ready"] is True
+
+
+def test_qrun_pack_inspect_json_fails_for_bundle_digest_mismatch(tmp_path: Path) -> None:
+    workspace = tmp_path / "source" / ".quantum"
+    revision = _exec_pack_workspace(workspace)
+
+    pack_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+    assert pack_result.exit_code == 0, pack_result.stdout
+
+    copied_bundle = tmp_path / "tampered-bundle"
+    shutil.copytree(Path(json.loads(pack_result.stdout)["pack_root"]), copied_bundle)
+    (copied_bundle / "qspec.json").write_text(json.dumps({"schema_version": "0.3.0", "tampered": True}, indent=2))
+
+    inspect_result = RUNNER.invoke(
+        app,
+        [
+            "pack-inspect",
+            "--pack-root",
+            str(copied_bundle),
+            "--json",
+        ],
+    )
+
+    assert inspect_result.exit_code == 3, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "error"
+    assert "qspec.json" in payload["mismatched"]
+    assert f"bundle_digest_mismatch:qspec.json" in payload["reason_codes"]
+    assert payload["gate"]["ready"] is False
+
+
+def test_qrun_pack_inspect_json_reports_missing_bundle_manifest(tmp_path: Path) -> None:
+    workspace = tmp_path / "source" / ".quantum"
+    revision = _exec_pack_workspace(workspace)
+
+    pack_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+    assert pack_result.exit_code == 0, pack_result.stdout
+
+    copied_bundle = tmp_path / "missing-manifest-bundle"
+    shutil.copytree(Path(json.loads(pack_result.stdout)["pack_root"]), copied_bundle)
+    (copied_bundle / "bundle_manifest.json").unlink()
+
+    inspect_result = RUNNER.invoke(
+        app,
+        [
+            "pack-inspect",
+            "--pack-root",
+            str(copied_bundle),
+            "--json",
+        ],
+    )
+
+    assert inspect_result.exit_code == 3, inspect_result.stdout
+    payload = json.loads(inspect_result.stdout)
+    assert payload["status"] == "error"
+    assert "bundle_manifest.json" in payload["missing"]
+    assert "bundle_manifest_missing" in payload["reason_codes"]
+    assert payload["gate"]["ready"] is False
 
 
 def test_qrun_pack_json_rejects_invalid_revision_format(tmp_path: Path) -> None:
