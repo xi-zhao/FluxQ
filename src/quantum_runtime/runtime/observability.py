@@ -88,6 +88,10 @@ def next_actions_for_reason_codes(reason_codes: list[str]) -> list[str]:
             actions.append("review_compare")
         elif code.startswith("replay_") or code.startswith("artifact_outputs_"):
             actions.append("run_exec")
+        elif code == "bundle_manifest_missing" or code == "bundle_revision_mismatch":
+            actions.append("reject_bundle")
+        elif code.startswith("bundle_required_missing") or code.startswith("bundle_digest_mismatch"):
+            actions.append("reject_bundle")
         elif code.endswith("_dependency_missing") or code.endswith("_backend_unavailable"):
             actions.append("run_doctor")
     return normalize_reason_codes(actions)

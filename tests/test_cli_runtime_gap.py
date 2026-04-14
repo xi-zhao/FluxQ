@@ -475,7 +475,7 @@ def test_qrun_pack_inspect_json_fails_for_bundle_digest_mismatch(tmp_path: Path)
     payload = json.loads(inspect_result.stdout)
     assert payload["status"] == "error"
     assert "qspec.json" in payload["mismatched"]
-    assert f"bundle_digest_mismatch:qspec.json" in payload["reason_codes"]
+    assert "bundle_digest_mismatch:qspec.json" in payload["reason_codes"]
     assert payload["gate"]["ready"] is False
 
 

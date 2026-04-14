@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.runtime.contracts import SCHEMA_VERSION
 from quantum_runtime.runtime.imports import ImportSourceError, validate_revision
+from quantum_runtime.runtime.observability import (
+    gate_block,
+    next_actions_for_reason_codes,
+    normalize_reason_codes,
+)
 from quantum_runtime.workspace import (
     WorkspaceLockConflict,
     acquire_workspace_lock,
@@ -83,6 +88,11 @@ class PackInspectionResult(BaseModel):
     required: list[str] = Field(default_factory=lambda: list(PACK_BUNDLE_REQUIRED_ENTRIES))
     present: list[str] = Field(default_factory=list)
     missing: list[str] = Field(default_factory=list)
+    revision: str | None = None
+    mismatched: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
 
 
 BundleManifest.model_rebuild()
@@ -91,10 +101,12 @@ PackInspectionResult.model_rebuild()
 
 
 def inspect_pack_bundle(pack_root: Path) -> PackInspectionResult:
-    """Inspect one pack bundle for the required runtime objects and exports."""
+    """Inspect one pack bundle for required runtime objects and trusted bundle bytes."""
     root = pack_root.resolve()
     present: list[str] = []
     missing: list[str] = []
+    mismatched: list[str] = []
+    reason_codes: list[str] = []
 
     for entry in PACK_BUNDLE_REQUIRED_ENTRIES:
         candidate = root / entry.rstrip("/")
@@ -104,11 +116,50 @@ def inspect_pack_bundle(pack_root: Path) -> PackInspectionResult:
         else:
             missing.append(entry)
 
+    bundle_manifest = _load_bundle_manifest(root)
+    revision = bundle_manifest.revision if bundle_manifest is not None else _fallback_bundle_revision(root)
+
+    for item in missing:
+        if item == "bundle_manifest.json":
+            reason_codes.append("bundle_manifest_missing")
+            continue
+        reason_codes.append(f"bundle_required_missing:{item}")
+
+    if bundle_manifest is not None:
+        missing_from_manifest, mismatched_from_manifest = _verify_bundle_manifest_entries(
+            root=root,
+            bundle_manifest=bundle_manifest,
+        )
+        for item in missing_from_manifest:
+            if item not in missing:
+                missing.append(item)
+            reason_codes.append(f"bundle_required_missing:{item}")
+        for item in mismatched_from_manifest:
+            mismatched.append(item)
+            reason_codes.append(f"bundle_digest_mismatch:{item}")
+        if _bundle_revision_mismatch(root=root, expected_revision=bundle_manifest.revision):
+            reason_codes.append("bundle_revision_mismatch")
+
+    reason_codes = normalize_reason_codes(reason_codes)
+    next_actions = next_actions_for_reason_codes(reason_codes)
+    status: Literal["ok", "error"] = "ok" if not reason_codes else "error"
+    gate = gate_block(
+        ready=status == "ok",
+        severity="info" if status == "ok" else "error",
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+    )
+
     return PackInspectionResult(
-        status="ok" if not missing else "error",
+        status=status,
         pack_root=str(root),
         present=present,
         missing=missing,
+        revision=revision,
+        mismatched=mismatched,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+        gate=gate,
     )
 
 
@@ -352,13 +403,106 @@ def _bundle_manifest_entry_required(relative_path: str) -> bool:
     return relative_path in _BUNDLE_MANIFEST_REQUIRED_PATHS or relative_path.startswith("exports/")
 
 
+def _load_bundle_manifest(root: Path) -> BundleManifest | None:
+    bundle_manifest_path = root / "bundle_manifest.json"
+    if not bundle_manifest_path.is_file():
+        return None
+    try:
+        return BundleManifest.model_validate_json(bundle_manifest_path.read_text())
+    except ValueError:
+        return None
+
+
+def _fallback_bundle_revision(root: Path) -> str | None:
+    for relative_path in ("manifest.json", "report.json"):
+        payload = _load_json_object(root / relative_path)
+        if payload is None:
+            continue
+        revision = _revision_from_payload(payload)
+        if revision is not None:
+            return revision
+    return None
+
+
+def _verify_bundle_manifest_entries(
+    *,
+    root: Path,
+    bundle_manifest: BundleManifest,
+) -> tuple[list[str], list[str]]:
+    manifest_paths = {entry.path for entry in bundle_manifest.entries if entry.required}
+    missing: list[str] = []
+    mismatched: list[str] = []
+
+    for required_path in sorted(_BUNDLE_MANIFEST_REQUIRED_PATHS - manifest_paths):
+        missing.append(required_path)
+
+    for entry in bundle_manifest.entries:
+        if not entry.required:
+            continue
+        candidate = root / entry.path
+        if not candidate.is_file():
+            if entry.path not in missing:
+                missing.append(entry.path)
+            continue
+        actual_digest = f"sha256:{_sha256_file(candidate)}"
+        if actual_digest != entry.digest:
+            mismatched.append(entry.path)
+
+    return missing, mismatched
+
+
+def _bundle_revision_mismatch(*, root: Path, expected_revision: str) -> bool:
+    for relative_path in ("manifest.json", "report.json"):
+        payload = _load_json_object(root / relative_path)
+        if payload is None:
+            continue
+        revision = _revision_from_payload(payload)
+        if revision is None:
+            continue
+        if revision != expected_revision:
+            return True
+    return False
+
+
+def _load_json_object(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _revision_from_payload(payload: dict[str, Any]) -> str | None:
+    top_level_revision = payload.get("revision")
+    if isinstance(top_level_revision, str) and top_level_revision:
+        return top_level_revision
+    provenance = payload.get("provenance")
+    if isinstance(provenance, dict):
+        provenance_revision = provenance.get("revision")
+        if isinstance(provenance_revision, str) and provenance_revision:
+            return provenance_revision
+    return None
+
+
 def _verify_staged_bundle(*, staged_root: Path, revision: str) -> None:
     inspection = inspect_pack_bundle(staged_root)
-    if inspection.status != "ok":
+    if inspection.status != "ok" or inspection.revision != revision:
+        reason_codes = list(inspection.reason_codes)
+        if inspection.revision != revision:
+            reason_codes.append("bundle_revision_mismatch")
         raise ImportSourceError(
             "pack_bundle_verification_failed",
             source=str(staged_root),
-            details={"missing": inspection.missing, "present": inspection.present},
+            details={
+                "missing": inspection.missing,
+                "present": inspection.present,
+                "mismatched": inspection.mismatched,
+                "expected_revision": revision,
+                "actual_revision": inspection.revision,
+                "reason_codes": normalize_reason_codes(reason_codes),
+            },
         )
 
     bundle_manifest_path = staged_root / "bundle_manifest.json"

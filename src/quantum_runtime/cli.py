@@ -1174,7 +1174,7 @@ def pack_inspect_command(
         help="Emit a machine-readable JSON result.",
     ),
 ) -> None:
-    """Inspect a portable runtime bundle for required files."""
+    """Inspect and verify a portable runtime bundle."""
     inspection = inspect_pack_bundle(pack_root)
     if json_output:
         _echo_json(inspection)
