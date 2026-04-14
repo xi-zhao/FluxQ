@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from quantum_runtime.cli import app
 from quantum_runtime.runtime.executor import execute_intent
 from quantum_runtime.runtime.imports import (
     ImportReference,
@@ -21,6 +24,7 @@ from quantum_runtime.workspace import WorkspaceManager
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNNER = CliRunner()
 
 
 def test_resolve_workspace_current_returns_structured_provenance(tmp_path: Path) -> None:
@@ -37,6 +41,61 @@ def test_resolve_workspace_current_returns_structured_provenance(tmp_path: Path)
     assert resolution.provenance["workspace_source"] == "manifest"
     assert resolution.provenance["report_resolution_source"] == "workspace_history"
     assert resolution.load_qspec().program_id == resolution.qspec_summary["program_id"]
+
+
+def test_resolve_workspace_current_after_pack_import_reuses_imported_history(tmp_path: Path) -> None:
+    source_workspace = _seed_workspace(tmp_path / "source")
+    pack_result = RUNNER.invoke(
+        app,
+        [
+            "pack",
+            "--workspace",
+            str(source_workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert pack_result.exit_code == 0, pack_result.stdout
+    copied_bundle = tmp_path / "copied-bundle"
+    shutil.copytree(Path(json.loads(pack_result.stdout)["pack_root"]), copied_bundle)
+    shutil.rmtree(source_workspace)
+
+    target_workspace = tmp_path / "target" / ".quantum"
+    import_result = RUNNER.invoke(
+        app,
+        [
+            "pack-import",
+            "--pack-root",
+            str(copied_bundle),
+            "--workspace",
+            str(target_workspace),
+            "--json",
+        ],
+    )
+    assert import_result.exit_code == 0, import_result.stdout
+
+    resolution = resolve_workspace_current(target_workspace)
+
+    assert resolution.source_kind == "workspace_current"
+    assert resolution.revision == "rev_000001"
+    assert resolution.report_path == target_workspace / "reports" / "history" / "rev_000001.json"
+    assert resolution.qspec_path == target_workspace / "specs" / "history" / "rev_000001.json"
+    assert resolution.provenance["report_resolution_source"] == "workspace_history"
+    assert resolution.provenance["qspec_resolution_source"] == "artifact_provenance"
+    assert resolution.provenance["artifacts"]["paths"]["report"] == str(
+        target_workspace / "reports" / "history" / "rev_000001.json"
+    )
+    assert resolution.provenance["artifacts"]["paths"]["qspec"] == str(
+        target_workspace / "specs" / "history" / "rev_000001.json"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["report"] == str(
+        target_workspace / "reports" / "latest.json"
+    )
+    assert resolution.provenance["artifacts"]["current_aliases"]["qspec"] == str(
+        target_workspace / "specs" / "current.json"
+    )
+    assert resolution.replay_integrity["status"] == "ok"
 
 
 def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Path) -> None:
