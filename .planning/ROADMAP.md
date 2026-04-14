@@ -90,7 +90,12 @@ Plans:
   1. Agent can package one revision into a portable bundle that contains the core runtime objects, selected export outputs, and trust metadata needed downstream.
   2. Outside the original workspace, agent can inspect a bundle and determine whether its provenance and integrity checks pass before using it.
   3. Agent can unpack or re-import a verified bundle into a downstream workflow and continue from the same revision evidence.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Harden `qrun pack` into a path-safe, non-destructive bundle producer with bundle-local trust metadata
+- [ ] 05-02-PLAN.md — Verify copied bundles outside the source workspace with digest-backed `qrun pack-inspect`
+- [ ] 05-03-PLAN.md — Re-import a verified bundle into a downstream workspace and continue from the same revision evidence
 
 ### Phase 6: Runtime Adoption Surface
 **Goal**: The repository explains FluxQ as a runtime/control-plane product and shows how agents or CI should adopt it.
@@ -110,5 +115,5 @@ Plans:
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
-| 5. Verified Delivery Bundles | 0/TBD | Not started | - |
+| 5. Verified Delivery Bundles | 0/3 | Not started | - |
 | 6. Runtime Adoption Surface | 0/TBD | Not started | - |
