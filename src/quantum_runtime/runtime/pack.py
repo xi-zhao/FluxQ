@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -11,10 +12,11 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field
 
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
+from quantum_runtime.runtime.contracts import SCHEMA_VERSION
+from quantum_runtime.runtime.imports import ImportSourceError, validate_revision
 from quantum_runtime.workspace import (
     WorkspaceLockConflict,
     acquire_workspace_lock,
-    atomic_write_text,
     pending_atomic_write_files,
 )
 
@@ -27,9 +29,39 @@ PACK_BUNDLE_REQUIRED_ENTRIES = (
     "plan.json",
     "report.json",
     "manifest.json",
+    "bundle_manifest.json",
     "events.jsonl",
+    "trace.ndjson",
     "exports/",
 )
+
+_BUNDLE_MANIFEST_REQUIRED_PATHS = frozenset(
+    {
+        "intent.json",
+        "qspec.json",
+        "plan.json",
+        "report.json",
+        "manifest.json",
+        "events.jsonl",
+        "trace.ndjson",
+    },
+)
+
+
+class BundleManifestEntry(BaseModel):
+    """One bundled file recorded in bundle-local trust metadata."""
+
+    path: str
+    required: bool
+    digest: str
+
+
+class BundleManifest(BaseModel):
+    """Bundle-local digest manifest for portable runtime bundles."""
+
+    schema_version: str = SCHEMA_VERSION
+    revision: str
+    entries: list[BundleManifestEntry] = Field(default_factory=list)
 
 
 class PackResult(BaseModel):
@@ -53,6 +85,7 @@ class PackInspectionResult(BaseModel):
     missing: list[str] = Field(default_factory=list)
 
 
+BundleManifest.model_rebuild()
 PackResult.model_rebuild()
 PackInspectionResult.model_rebuild()
 
@@ -84,63 +117,101 @@ def pack_revision(*, workspace_root: Path, revision: str) -> PackResult:
     from quantum_runtime.workspace import WorkspacePaths
 
     paths = WorkspacePaths(root=workspace_root)
-    pack_root = paths.pack_revision_dir(revision)
-    staged_root = paths.packs_dir / f".{revision}.tmp"
+    revision = validate_revision(revision, source=revision)
+    pack_root, staged_root, backup_root = _pack_roots(paths=paths, revision=revision)
 
     try:
         with acquire_workspace_lock(paths.root, command=f"qrun pack {revision}"):
-            _guard_pack_backfill_paths(paths=paths, revision=revision)
-            if staged_root.exists():
-                shutil.rmtree(staged_root)
-            if pack_root.exists():
-                shutil.rmtree(pack_root)
+            _guard_pack_history_paths(paths=paths, revision=revision)
+            _reset_directory(staged_root)
+            _reset_directory(backup_root)
             staged_root.mkdir(parents=True, exist_ok=True)
 
-            core_files = {
-                "intent": _resolve_intent_json(paths=paths, revision=revision),
-                "qspec": paths.root / "specs" / "history" / f"{revision}.json",
-                "plan": _resolve_plan_json(paths=paths, revision=revision),
-                "report": paths.root / "reports" / "history" / f"{revision}.json",
-                "manifest": paths.manifest_history_json(revision),
-            }
             copied_files: dict[str, str] = {}
-            destination_names = {
-                "intent": "intent.json",
-                "qspec": "qspec.json",
-                "plan": "plan.json",
-                "report": "report.json",
-                "manifest": "manifest.json",
+            required_sources = {
+                "intent": (
+                    _required_history_file(
+                        paths.intent_history_json(revision),
+                        missing_code="pack_intent_history_missing",
+                    ),
+                    "intent.json",
+                ),
+                "qspec": (
+                    _required_history_file(
+                        _qspec_history_json(paths=paths, revision=revision),
+                        missing_code="pack_qspec_history_missing",
+                    ),
+                    "qspec.json",
+                ),
+                "plan": (
+                    _required_history_file(
+                        paths.plan_history_json(revision),
+                        missing_code="pack_plan_history_missing",
+                    ),
+                    "plan.json",
+                ),
+                "report": (
+                    _required_history_file(
+                        _report_history_json(paths=paths, revision=revision),
+                        missing_code="pack_report_history_missing",
+                    ),
+                    "report.json",
+                ),
+                "manifest": (
+                    _required_history_file(
+                        paths.manifest_history_json(revision),
+                        missing_code="pack_manifest_history_missing",
+                    ),
+                    "manifest.json",
+                ),
+                "events": (
+                    _required_history_file(
+                        paths.event_history_jsonl(revision),
+                        missing_code="pack_events_history_missing",
+                    ),
+                    "events.jsonl",
+                ),
+                "trace": (
+                    _required_history_file(
+                        paths.trace_history_ndjson(revision),
+                        missing_code="pack_trace_history_missing",
+                    ),
+                    "trace.ndjson",
+                ),
             }
-            for name, source_path in core_files.items():
-                destination_path = staged_root / destination_names[name]
+
+            for name, (source_path, destination_name) in required_sources.items():
+                destination_path = staged_root / destination_name
                 _copy_file(source_path, destination_path)
                 copied_files[name] = str(destination_path)
 
-            events_path = _write_revision_events(paths=paths, revision=revision, destination=staged_root / "events.jsonl")
-            copied_files["events"] = str(events_path)
-
-            artifact_root = paths.root / "artifacts" / "history" / revision
             exports_root = staged_root / "exports"
             exports_root.mkdir(parents=True, exist_ok=True)
-            if artifact_root.exists():
-                for child in artifact_root.iterdir():
-                    destination = exports_root / child.name
-                    if child.is_dir():
-                        shutil.copytree(child, destination, dirs_exist_ok=True)
-                    else:
-                        _copy_file(child, destination)
+            _copy_exports(paths=paths, revision=revision, exports_root=exports_root)
             copied_files["exports"] = str(exports_root)
-            _copy_optional_artifacts(paths=paths, revision=revision, pack_root=staged_root, copied_files=copied_files)
 
-            inspection = inspect_pack_bundle(staged_root)
-            if inspection.status != "ok":
-                raise RuntimeError(f"packed bundle verification failed: {inspection.missing}")
+            _copy_optional_artifacts(
+                paths=paths,
+                revision=revision,
+                pack_root=staged_root,
+                copied_files=copied_files,
+            )
 
-            os.replace(staged_root, pack_root)
-            copied_files = {
-                name: value.replace(str(staged_root), str(pack_root))
-                for name, value in copied_files.items()
-            }
+            bundle_manifest_path = _write_bundle_manifest(staged_root=staged_root, revision=revision)
+            copied_files["bundle_manifest"] = str(bundle_manifest_path)
+
+            _verify_staged_bundle(staged_root=staged_root, revision=revision)
+            _promote_verified_bundle(
+                pack_root=pack_root,
+                staged_root=staged_root,
+                backup_root=backup_root,
+            )
+            inspection = inspect_pack_bundle(pack_root)
+            copied_files = _rewrite_staged_paths(
+                copied_files=copied_files,
+                staged_root=staged_root,
+                pack_root=pack_root,
+            )
             return PackResult(
                 status="ok",
                 workspace=str(paths.root),
@@ -156,57 +227,56 @@ def pack_revision(*, workspace_root: Path, revision: str) -> PackResult:
             holder=exc.holder.model_dump(mode="json"),
         ) from exc
     finally:
-        if staged_root.exists():
-            shutil.rmtree(staged_root)
+        _reset_directory(staged_root)
+        _reset_directory(backup_root)
 
 
-def _resolve_intent_json(*, paths: WorkspacePaths, revision: str) -> Path:
-    from quantum_runtime.runtime.resolve import resolve_runtime_input
+def _pack_roots(*, paths: WorkspacePaths, revision: str) -> tuple[Path, Path, Path]:
+    validated_revision = validate_revision(revision, source=revision)
+    packs_dir = paths.packs_dir.resolve()
+    pack_root = paths.pack_revision_dir(validated_revision).resolve()
+    staged_root = (paths.packs_dir / f".{validated_revision}.tmp").resolve()
+    backup_root = (paths.packs_dir / f".{validated_revision}.bak").resolve()
 
-    candidate = paths.intent_history_json(revision)
-    if candidate.exists():
-        return candidate
-    _guard_pending_backfill_file(candidate, workspace_root=paths.root)
-    resolution = resolve_runtime_input(
-        workspace_root=paths.root,
-        report_file=paths.root / "reports" / "history" / f"{revision}.json",
-    )
-    payload = resolution.intent_resolution.model_dump_json(indent=2)
-    atomic_write_text(candidate, payload)
-    return candidate
+    for candidate in (pack_root, staged_root, backup_root):
+        if candidate.parent != packs_dir:
+            raise ImportSourceError(
+                "invalid_revision",
+                source=revision,
+                details={"expected_pattern": "rev_000001"},
+            )
 
-
-def _resolve_plan_json(*, paths: WorkspacePaths, revision: str) -> Path:
-    from quantum_runtime.runtime.control_plane import build_execution_plan
-
-    candidate = paths.plan_history_json(revision)
-    if candidate.exists():
-        return candidate
-
-    _guard_pending_backfill_file(candidate, workspace_root=paths.root)
-    payload = build_execution_plan(
-        workspace_root=paths.root,
-        report_file=paths.root / "reports" / "history" / f"{revision}.json",
-    ).model_dump_json(indent=2)
-    atomic_write_text(candidate, payload)
-    return candidate
+    return pack_root, staged_root, backup_root
 
 
-def _write_revision_events(*, paths: WorkspacePaths, revision: str, destination: Path) -> Path:
-    source = paths.events_jsonl if paths.events_jsonl.exists() else paths.trace_events
-    selected: list[str] = []
+def _required_history_file(source: Path, *, missing_code: str) -> Path:
     if source.exists():
-        for line in source.read_text().splitlines():
-            if not line.strip():
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if str(payload.get("revision")) == revision:
-                selected.append(json.dumps(payload, ensure_ascii=True))
-    atomic_write_text(destination, "\n".join(selected) + ("\n" if selected else ""))
-    return destination
+        return source
+    raise ImportSourceError(
+        missing_code,
+        source=str(source),
+        details={"path": str(source)},
+    )
+
+
+def _qspec_history_json(*, paths: WorkspacePaths, revision: str) -> Path:
+    return paths.root / "specs" / "history" / f"{revision}.json"
+
+
+def _report_history_json(*, paths: WorkspacePaths, revision: str) -> Path:
+    return paths.root / "reports" / "history" / f"{revision}.json"
+
+
+def _copy_exports(*, paths: WorkspacePaths, revision: str, exports_root: Path) -> None:
+    artifact_root = paths.root / "artifacts" / "history" / revision
+    if not artifact_root.exists():
+        return
+    for child in sorted(artifact_root.iterdir()):
+        destination = exports_root / child.name
+        if child.is_dir():
+            shutil.copytree(child, destination, dirs_exist_ok=True)
+            continue
+        _copy_file(child, destination)
 
 
 def _copy_file(source: Path, destination: Path) -> None:
@@ -256,24 +326,144 @@ def _compare_artifact_for_revision(*, paths: WorkspacePaths, revision: str) -> P
     return latest
 
 
-def _guard_pending_backfill_file(candidate: Path, *, workspace_root: Path) -> None:
-    pending_files = pending_atomic_write_files(candidate)
-    if not pending_files:
+def _write_bundle_manifest(*, staged_root: Path, revision: str) -> Path:
+    entries: list[BundleManifestEntry] = []
+    for candidate in sorted(staged_root.rglob("*")):
+        if not candidate.is_file():
+            continue
+        relative_path = candidate.relative_to(staged_root).as_posix()
+        if relative_path == "bundle_manifest.json":
+            continue
+        entries.append(
+            BundleManifestEntry(
+                path=relative_path,
+                required=_bundle_manifest_entry_required(relative_path),
+                digest=f"sha256:{_sha256_file(candidate)}",
+            ),
+        )
+
+    manifest = BundleManifest(revision=revision, entries=entries)
+    bundle_manifest_path = staged_root / "bundle_manifest.json"
+    bundle_manifest_path.write_text(manifest.model_dump_json(indent=2))
+    return bundle_manifest_path
+
+
+def _bundle_manifest_entry_required(relative_path: str) -> bool:
+    return relative_path in _BUNDLE_MANIFEST_REQUIRED_PATHS or relative_path.startswith("exports/")
+
+
+def _verify_staged_bundle(*, staged_root: Path, revision: str) -> None:
+    inspection = inspect_pack_bundle(staged_root)
+    if inspection.status != "ok":
+        raise ImportSourceError(
+            "pack_bundle_verification_failed",
+            source=str(staged_root),
+            details={"missing": inspection.missing, "present": inspection.present},
+        )
+
+    bundle_manifest_path = staged_root / "bundle_manifest.json"
+    try:
+        bundle_manifest = BundleManifest.model_validate_json(bundle_manifest_path.read_text())
+    except ValueError as exc:
+        raise ImportSourceError(
+            "pack_bundle_verification_failed",
+            source=str(bundle_manifest_path),
+            details={"error": str(exc)},
+        ) from exc
+
+    manifest_paths = {entry.path for entry in bundle_manifest.entries}
+    missing_manifest_entries = sorted(_BUNDLE_MANIFEST_REQUIRED_PATHS - manifest_paths)
+    missing_files: list[str] = []
+    digest_mismatches: list[dict[str, str]] = []
+
+    for entry in bundle_manifest.entries:
+        candidate = staged_root / entry.path
+        if not candidate.is_file():
+            missing_files.append(entry.path)
+            continue
+        actual_digest = f"sha256:{_sha256_file(candidate)}"
+        if actual_digest != entry.digest:
+            digest_mismatches.append(
+                {
+                    "path": entry.path,
+                    "expected": entry.digest,
+                    "actual": actual_digest,
+                },
+            )
+
+    if bundle_manifest.revision != revision or missing_manifest_entries or missing_files or digest_mismatches:
+        raise ImportSourceError(
+            "pack_bundle_verification_failed",
+            source=str(bundle_manifest_path),
+            details={
+                "expected_revision": revision,
+                "actual_revision": bundle_manifest.revision,
+                "missing_manifest_entries": missing_manifest_entries,
+                "missing_files": missing_files,
+                "digest_mismatches": digest_mismatches,
+            },
+        )
+
+
+def _promote_verified_bundle(*, pack_root: Path, staged_root: Path, backup_root: Path) -> None:
+    if backup_root.exists():
+        _reset_directory(backup_root)
+
+    try:
+        if pack_root.exists():
+            os.replace(pack_root, backup_root)
+        os.replace(staged_root, pack_root)
+    except OSError as exc:
+        if backup_root.exists() and not pack_root.exists():
+            os.replace(backup_root, pack_root)
+        raise ImportSourceError(
+            "pack_promotion_failed",
+            source=str(pack_root),
+            details={"error": str(exc)},
+        ) from exc
+
+    if backup_root.exists():
+        _reset_directory(backup_root)
+
+
+def _rewrite_staged_paths(*, copied_files: dict[str, str], staged_root: Path, pack_root: Path) -> dict[str, str]:
+    rewritten: dict[str, str] = {}
+    staged_root_str = str(staged_root)
+    pack_root_str = str(pack_root)
+    for name, value in copied_files.items():
+        rewritten[name] = value.replace(staged_root_str, pack_root_str)
+    return rewritten
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _reset_directory(path: Path) -> None:
+    if not path.exists():
         return
-    raise WorkspaceRecoveryRequiredError(
-        workspace=workspace_root.resolve(),
-        pending_files=pending_files,
-        last_valid_revision=candidate.stem,
-    )
+    if path.is_dir():
+        shutil.rmtree(path)
+        return
+    path.unlink()
 
 
-def _guard_pack_backfill_paths(*, paths: WorkspacePaths, revision: str) -> None:
+def _guard_pack_history_paths(*, paths: WorkspacePaths, revision: str) -> None:
     pending_files = sorted(
         {
             pending
             for candidate in (
                 paths.intent_history_json(revision),
+                _qspec_history_json(paths=paths, revision=revision),
                 paths.plan_history_json(revision),
+                _report_history_json(paths=paths, revision=revision),
+                paths.manifest_history_json(revision),
+                paths.event_history_jsonl(revision),
+                paths.trace_history_ndjson(revision),
             )
             for pending in pending_atomic_write_files(candidate)
         }

@@ -446,7 +446,7 @@ def test_qrun_pack_rebuild_keeps_last_good_bundle_when_staged_verification_fails
     monkeypatch.setattr(
         pack_runtime,
         "PACK_BUNDLE_REQUIRED_ENTRIES",
-        pack_runtime.PACK_BUNDLE_REQUIRED_ENTRIES + ("bundle_manifest.json", "trace.ndjson"),
+        pack_runtime.PACK_BUNDLE_REQUIRED_ENTRIES + ("staged-proof.json",),
     )
 
     second_result = RUNNER.invoke(

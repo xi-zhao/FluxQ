@@ -21,6 +21,7 @@ from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, Work
 
 
 ImportSourceKind = Literal["workspace_current", "report_file", "report_revision"]
+_REVISION_PATTERN = re.compile(r"rev_\d{6}")
 
 
 class ImportSourceError(ValueError):
@@ -85,6 +86,17 @@ class WorkspaceBaselineResolution(BaseModel):
     record_path: Path
     record: WorkspaceBaseline
     resolution: ImportResolution
+
+
+def validate_revision(revision: str, *, source: str | None = None) -> str:
+    """Validate one immutable revision identifier."""
+    if not _REVISION_PATTERN.fullmatch(revision):
+        raise ImportSourceError(
+            "invalid_revision",
+            source=source or revision,
+            details={"expected_pattern": "rev_000001"},
+        )
+    return revision
 
 
 def resolve_import_reference(reference: ImportReference) -> ImportResolution:
@@ -269,13 +281,7 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
 
 def resolve_report_revision(workspace_root: Path, revision: str) -> ImportResolution:
     """Resolve a report history revision inside a workspace."""
-    if not re.fullmatch(r"rev_\d{6}", revision):
-        raise ImportSourceError(
-            "invalid_revision",
-            source=revision,
-            details={"expected_pattern": "rev_000001"},
-        )
-
+    revision = validate_revision(revision, source=revision)
     paths = WorkspacePaths(root=workspace_root)
     workspace_root = paths.root.resolve()
     workspace_json = paths.workspace_json

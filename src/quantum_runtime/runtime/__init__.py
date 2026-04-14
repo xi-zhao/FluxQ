@@ -40,6 +40,7 @@ from .imports import (
     ImportSourceError,
     WorkspaceBaselineResolution,
     resolve_import_reference,
+    validate_revision,
     resolve_workspace_baseline,
 )
 from .inspect import InspectReport, inspect_workspace
@@ -97,6 +98,7 @@ __all__ = [
     "run_doctor",
     "schema_contract",
     "show_run",
+    "validate_revision",
     "workspace_status",
     "WorkspaceBaselineResolution",
 ]

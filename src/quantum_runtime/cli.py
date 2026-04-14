@@ -39,6 +39,7 @@ from quantum_runtime.runtime import (
     resolve_import_reference,
     resolve_workspace_baseline,
     run_doctor,
+    validate_revision,
     workspace_status,
 )
 from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy
@@ -99,6 +100,18 @@ def _json_error(reason: str) -> None:
             reason=reason,
             error_code=reason,
             remediation=remediation_for_error(reason),
+        ),
+        exit_code=3,
+    )
+
+
+def _json_import_source_error(error: ImportSourceError) -> None:
+    _emit_json_payload(
+        ErrorPayload(
+            reason=error.code,
+            error_code=error.code,
+            remediation=remediation_for_error(error.code),
+            details=error.details,
         ),
         exit_code=3,
     )
@@ -1111,14 +1124,21 @@ def pack_command(
     """Package one revision into a portable runtime bundle."""
     try:
         if revision is not None:
-            target_revision = revision
+            target_revision = validate_revision(revision, source=revision)
         else:
             paths = WorkspacePaths(root=workspace)
             if paths.workspace_json.exists():
                 target_revision = WorkspaceManifest.load(paths.workspace_json).current_revision
             else:
                 target_revision = WorkspaceManager.load_or_init(workspace).manifest.current_revision
+            target_revision = validate_revision(target_revision, source=target_revision)
         result = pack_revision(workspace_root=workspace, revision=target_revision)
+    except ImportSourceError as exc:
+        if json_output:
+            _json_import_source_error(exc)
+        if exc.code == "invalid_revision":
+            raise typer.BadParameter(f"Invalid pack revision: {exc.code}") from exc
+        raise typer.BadParameter(f"Invalid pack input: {exc.code}") from exc
     except WorkspaceLockConflict as exc:
         _handle_workspace_safety_error(
             WorkspaceConflictError(
