@@ -7,7 +7,20 @@ from typing import Any
 
 from quantum_runtime.errors import ManualQspecRequiredError
 from quantum_runtime.intent.structured import IntentModel
-from quantum_runtime.qspec import Constraints, MeasureNode, PatternNode, QSpec, Register
+from quantum_runtime.qspec import (
+    CanonicalObjective,
+    CanonicalParameterSpace,
+    CanonicalProblem,
+    Constraints,
+    ExportRequirements,
+    MeasureNode,
+    PatternNode,
+    PolicyHints,
+    ProvenanceHints,
+    QSpec,
+    Register,
+    RuntimeMetadata,
+)
 from quantum_runtime.qspec.observables import (
     build_maxcut_cost_observable,
     normalize_observable_specs,
@@ -50,6 +63,15 @@ def plan_to_qspec(intent: IntentModel) -> QSpec:
         ],
         constraints=constraints,
         backend_preferences=list(intent.backend_preferences),
+        runtime=_build_runtime_metadata(
+            intent=intent,
+            pattern=pattern,
+            size=size,
+            pattern_args=pattern_args,
+            parameters=parameters,
+            observables=observables,
+            metadata=metadata,
+        ),
         metadata={"source": "intent", **metadata},
     )
 
@@ -157,6 +179,104 @@ def _build_pattern_semantics(
         observables = explicit_observables
 
     return args, parameters, observables, metadata
+
+
+def _build_runtime_metadata(
+    *,
+    intent: IntentModel,
+    pattern: str,
+    size: int,
+    pattern_args: dict[str, Any],
+    parameters: list[dict[str, Any]],
+    observables: list[dict[str, Any]],
+    metadata: dict[str, Any],
+) -> RuntimeMetadata:
+    parameter_workflow = metadata.get("parameter_workflow")
+    workflow_mode = (
+        str(parameter_workflow.get("mode"))
+        if isinstance(parameter_workflow, dict) and parameter_workflow.get("mode") is not None
+        else "static"
+    )
+    objective_observable = None
+    objective_goal = None
+    for observable in observables:
+        if not isinstance(observable, dict):
+            continue
+        objective_observable = str(observable.get("name")) if observable.get("name") is not None else None
+        objective_goal = str(observable.get("objective")) if observable.get("objective") is not None else None
+        if objective_observable is not None:
+            break
+
+    return RuntimeMetadata(
+        workload_id=_workload_id(pattern=pattern, size=size, pattern_args=pattern_args),
+        algorithm_family=pattern,
+        problem=CanonicalProblem(
+            kind=_problem_kind(pattern),
+            definition=_problem_definition(pattern=pattern, pattern_args=pattern_args),
+        ),
+        parameter_space=CanonicalParameterSpace(
+            mode=workflow_mode,
+            parameters=parameters,
+            workflow=parameter_workflow if isinstance(parameter_workflow, dict) else {},
+        ),
+        objective=CanonicalObjective(
+            kind="expectation_value" if objective_observable is not None else "state_distribution",
+            observable=objective_observable,
+            goal=objective_goal,
+            evaluation_method="exact_statevector" if objective_observable is not None else "measurement_counts",
+        ),
+        export_requirements=ExportRequirements(
+            formats=list(intent.exports),
+            profiles=_default_export_profiles(intent.exports),
+        ),
+        policy_hints=PolicyHints(
+            fail_on=[],
+            compare_expectation="same-subject",
+            allow_report_drift=True,
+        ),
+        provenance=ProvenanceHints(
+            ingress_kind="intent",
+            ingress_source="planner",
+        ),
+    )
+
+
+def _workload_id(*, pattern: str, size: int, pattern_args: dict[str, Any]) -> str:
+    layers = pattern_args.get("layers")
+    if layers is None:
+        return f"{pattern}:{size}q"
+    return f"{pattern}:{size}q:{int(layers)}l"
+
+
+def _problem_kind(pattern: str) -> str:
+    if pattern == "qaoa_ansatz":
+        return "maxcut"
+    return pattern
+
+
+def _problem_definition(*, pattern: str, pattern_args: dict[str, Any]) -> dict[str, Any]:
+    if pattern == "qaoa_ansatz":
+        return {
+            "problem": str(pattern_args.get("problem", "maxcut")),
+            "cost_edges": _normalize_edge_lists(pattern_args.get("cost_edges", [])),
+        }
+    if pattern == "hardware_efficient_ansatz":
+        return {
+            "entanglement": str(pattern_args.get("entanglement", "linear")),
+            "entanglement_edges": _normalize_edge_lists(pattern_args.get("entanglement_edges", [])),
+        }
+    return {"pattern_args": dict(pattern_args)}
+
+
+def _default_export_profiles(formats: list[str]) -> list[str]:
+    profiles: list[str] = []
+    if "qiskit" in formats:
+        profiles.append("qiskit-native")
+    if "qasm3" in formats:
+        profiles.append("qasm3-generic")
+    if "classiq-python" in formats:
+        profiles.append("classiq-native")
+    return profiles
 
 
 def _infer_layer_count(intent: IntentModel, *, default: int) -> int:

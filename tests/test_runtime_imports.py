@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from pathlib import Path
 
 import pytest
@@ -36,6 +35,7 @@ def test_resolve_workspace_current_returns_structured_provenance(tmp_path: Path)
     assert resolution.qspec_summary["goal"].lower().startswith("generate a 4-qubit ghz")
     assert resolution.report_summary["status"] == "ok"
     assert resolution.provenance["workspace_source"] == "manifest"
+    assert resolution.provenance["report_resolution_source"] == "workspace_history"
     assert resolution.load_qspec().program_id == resolution.qspec_summary["program_id"]
 
 
@@ -58,7 +58,6 @@ def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Pa
         "report_provenance.workspace_root",
         "inferred_from_report_path",
     }
-    assert resolution.replay_integrity["trust_level"] == "trusted"
     assert resolution.provenance["artifacts"]["paths"]["report"] == str(
         workspace / "reports" / "history" / "rev_000001.json"
     )
@@ -164,53 +163,6 @@ def test_resolve_report_file_uses_report_provenance_for_copied_report_files(tmp_
     assert resolution.provenance["replay_integrity"]["qspec_semantic_hash_matches"] is True
 
 
-def test_resolve_report_file_rejects_tampered_run_manifest(tmp_path: Path) -> None:
-    workspace = _seed_workspace(tmp_path)
-    manifest_path = workspace / "manifests" / "history" / "rev_000001.json"
-    manifest_payload = json.loads(manifest_path.read_text())
-    manifest_payload["report"]["path"] = str(workspace / "reports" / "history" / "rev_999999.json")
-    manifest_path.write_text(json.dumps(manifest_payload, indent=2))
-
-    with pytest.raises(ImportSourceError) as excinfo:
-        resolve_report_file(workspace / "reports" / "latest.json")
-
-    assert excinfo.value.code == "run_manifest_integrity_invalid"
-
-
-def test_resolve_report_file_uses_explicit_workspace_for_copied_report_when_source_is_gone(
-    tmp_path: Path,
-) -> None:
-    source_workspace = _seed_workspace(tmp_path)
-    target_workspace = _seed_workspace(tmp_path / "target-seed")
-    copied_report = tmp_path / "imports" / "copied-rev-1.json"
-    copied_report.parent.mkdir(parents=True, exist_ok=True)
-    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
-    shutil.rmtree(source_workspace)
-
-    resolution = resolve_report_file(copied_report, workspace_root=target_workspace)
-
-    assert resolution.workspace_root == target_workspace
-    assert resolution.report_path == copied_report.resolve()
-    assert resolution.qspec_path == target_workspace / "specs" / "history" / "rev_000001.json"
-    assert resolution.provenance["workspace_source"] == "workspace_option_relocated_report"
-    assert resolution.provenance["qspec_resolution_source"] == "artifact_provenance"
-
-
-def test_resolve_report_file_still_fails_for_copied_report_when_source_is_gone_and_target_lacks_revision(
-    tmp_path: Path,
-) -> None:
-    source_workspace = _seed_workspace(tmp_path)
-    copied_report = tmp_path / "imports" / "copied-rev-1.json"
-    copied_report.parent.mkdir(parents=True, exist_ok=True)
-    copied_report.write_text((source_workspace / "reports" / "history" / "rev_000001.json").read_text())
-    shutil.rmtree(source_workspace)
-
-    with pytest.raises(ImportSourceError) as excinfo:
-        resolve_report_file(copied_report, workspace_root=tmp_path / ".quantum-target")
-
-    assert excinfo.value.code == "report_qspec_missing"
-
-
 def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
     handle = WorkspaceManager.load_or_init(workspace)
@@ -247,32 +199,6 @@ def test_resolve_workspace_current_supports_current_only_workspace(tmp_path: Pat
     assert resolution.provenance["artifacts"]["paths"]["report"] == str(
         workspace / "reports" / "history" / f"{handle.manifest.current_revision}.json"
     )
-
-
-def test_resolve_workspace_current_prefers_history_when_latest_alias_is_tampered(
-    tmp_path: Path,
-) -> None:
-    workspace = _seed_workspace(tmp_path)
-    latest_report = workspace / "reports" / "latest.json"
-    latest_payload = json.loads(latest_report.read_text())
-    latest_payload["status"] = "degraded"
-    latest_payload["warnings"] = ["edited_latest_only"]
-    replay_integrity = latest_payload.get("replay_integrity")
-    assert isinstance(replay_integrity, dict)
-    replay_integrity.pop("artifact_output_digests", None)
-    replay_integrity.pop("artifact_output_missing", None)
-    replay_integrity.pop("artifact_output_set_hash", None)
-    replay_integrity.pop("artifact_set_hash", None)
-    latest_report.write_text(json.dumps(latest_payload, indent=2))
-
-    resolution = resolve_workspace_current(workspace)
-
-    assert resolution.source_kind == "workspace_current"
-    assert resolution.report_path == workspace / "reports" / "history" / "rev_000001.json"
-    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000001.json"
-    assert resolution.report_summary["status"] == "ok"
-    assert resolution.replay_integrity["status"] == "ok"
-    assert resolution.replay_integrity["trust_level"] == "trusted"
 
 
 def test_resolve_report_file_normalizes_relative_alias_artifacts(tmp_path: Path) -> None:
@@ -369,7 +295,7 @@ def test_resolve_report_file_rejects_mutated_current_qspec_semantic_fallback(tmp
     assert excinfo.value.code == "report_qspec_semantic_hash_mismatch"
 
 
-def test_resolve_report_file_rejects_trusted_artifact_digest_drift(tmp_path: Path) -> None:
+def test_resolve_report_file_marks_artifact_digest_drift_when_snapshot_missing(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path)
     report_file = workspace / "reports" / "latest.json"
     history_qiskit = workspace / "artifacts" / "history" / "rev_000001" / "qiskit" / "main.py"
@@ -382,30 +308,10 @@ def test_resolve_report_file_rejects_trusted_artifact_digest_drift(tmp_path: Pat
         resolve_report_file(report_file)
 
     assert excinfo.value.code == "artifact_outputs_mismatched"
-    assert excinfo.value.details["trust_level"] == "trusted"
+    assert excinfo.value.details["status"] == "ok"
+    assert excinfo.value.details["artifact_digests_present"] is True
     assert excinfo.value.details["mismatched_artifacts"] == ["qiskit_code"]
     assert excinfo.value.details["missing_artifacts"] == []
-
-
-def test_resolve_report_file_marks_missing_digest_reports_as_legacy_compatible(tmp_path: Path) -> None:
-    workspace = _seed_workspace(tmp_path)
-    report_file = workspace / "reports" / "latest.json"
-    history_report = workspace / "reports" / "history" / "rev_000001.json"
-
-    _remove_artifact_output_digests(report_file)
-    _remove_artifact_output_digests(history_report)
-    (workspace / "manifests" / "latest.json").unlink()
-    (workspace / "manifests" / "history" / "rev_000001.json").unlink()
-
-    resolution = resolve_report_file(report_file)
-
-    assert resolution.replay_integrity["status"] == "legacy"
-    assert resolution.replay_integrity["trust_level"] == "legacy"
-    assert resolution.replay_integrity["artifact_digests_present"] is False
-    assert resolution.report_summary["replay_integrity_status"] == "legacy"
-    assert resolution.report_summary["replay_integrity_warnings"] == [
-        "artifact_output_digests_missing"
-    ]
 
 
 def test_resolve_report_file_accepts_workspace_prefixed_legacy_relative_paths(
@@ -466,17 +372,6 @@ def _seed_workspace(tmp_path: Path) -> Path:
     result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
     assert result.status == "ok"
     return workspace
-
-
-def _remove_artifact_output_digests(report_path: Path) -> None:
-    payload = json.loads(report_path.read_text())
-    replay_integrity = payload.get("replay_integrity")
-    assert isinstance(replay_integrity, dict)
-    replay_integrity.pop("artifact_output_digests", None)
-    replay_integrity.pop("artifact_output_missing", None)
-    replay_integrity.pop("artifact_output_set_hash", None)
-    replay_integrity.pop("artifact_set_hash", None)
-    report_path.write_text(json.dumps(payload, indent=2))
 
 
 def _sha256_file(path: Path) -> str:

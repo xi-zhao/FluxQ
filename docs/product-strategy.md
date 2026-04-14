@@ -12,9 +12,9 @@ FluxQ should become the `workspace-native quantum workflow runtime` for AI-nativ
 
 The product is not a thin circuit generator, notebook replacement, or backend router. It wins when a team can move through:
 
-`intent -> qspec -> artifacts -> diagnostics -> report -> compare -> continue`
+`prompt / resolve -> qspec -> artifacts -> diagnostics -> report -> compare -> pack -> continue`
 
-with stable workspace state, replayable history, and trustworthy machine-readable outputs.
+with stable workspace state, replayable history, trustworthy machine-readable outputs, and a canonical runtime object that agents can consume directly.
 
 ## Why Customers Need This
 
@@ -27,6 +27,8 @@ Quantum teams already know how to generate a circuit. Their harder problems are:
 - CI systems can lint code, but they usually cannot guard a quantum workflow with revision-aware semantics
 
 FluxQ solves those workflow problems by treating the quantum run as a durable runtime object rather than a one-off file emission.
+
+That runtime object now starts with prompt or structured intent ingress, normalizes through resolve, and persists revisioned `intent`, `plan`, `qspec`, `report`, `manifest`, and `events.jsonl` artifacts for later comparison, export, or packaging.
 
 ## Status Quo And Switching Trigger
 
@@ -144,11 +146,12 @@ Those users may still benefit from FluxQ, but they should not drive roadmap prio
 
 Customers hire FluxQ to:
 
-1. turn a quantum task into a revisioned, replayable workspace instead of an ephemeral script
+1. turn a prompt or quantum task into a revisioned, replayable workspace instead of an ephemeral script
 2. let agents and CI continue a workflow from trusted state without rebuilding context by hand
 3. compare quantum revisions semantically and operationally
 4. benchmark responsibly, with explicit target assumptions and fallback reasons
 5. export the same workload into multiple representations without losing provenance
+6. package one approved revision into a portable delivery boundary for downstream agents or CI
 
 ## Why FluxQ Wins
 
@@ -159,6 +162,8 @@ Its differentiation story is:
 - revisioned workspace instead of scattered files
 - replayable reports instead of one-time outputs
 - semantic compare instead of raw diff alone
+- prompt ingress and resolve normalization instead of prompt-text drift
+- canonical `qspec` and revisioned runtime objects instead of ad hoc execution state
 - policy and baseline guardrails instead of manual review only
 - benchmark honesty instead of ambiguous performance theater
 
@@ -208,6 +213,7 @@ The next product steps should keep reinforcing the beachhead use case:
 - benchmark provenance and comparability clarity
 - parameterized expectation-value workflows for `qaoa_ansatz` and `hardware_efficient_ansatz`
 - stronger schema and trust-surface stability
+- portable revision packaging and canonical workspace events for agent consumption
 
 Remote submit belongs later, after these surfaces are stable enough to carry job orchestration safely.
 

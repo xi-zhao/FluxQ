@@ -378,7 +378,6 @@ def _execute_qspec(
         backend_reports=backend_reports,
         warnings=warnings,
         errors=errors,
-        promote_latest=False,
     )
     report_history_path = handle.root / "reports" / "history" / f"{revision}.json"
     artifacts["report"] = str(report_history_path)

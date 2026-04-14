@@ -35,9 +35,11 @@ def run_classiq_backend(
     workspace: WorkspaceHandle,
     *,
     parameter_bindings: dict[str, float] | None = None,
+    output_dir: Path | None = None,
 ) -> ClassiqBackendReport:
     """Emit Classiq Python and synthesize it when the SDK is available."""
-    code_path = workspace.root / "artifacts" / "classiq" / "main.py"
+    artifacts_dir = output_dir if output_dir is not None else workspace.root / "artifacts" / "classiq"
+    code_path = artifacts_dir / "main.py"
     target_assumptions = _target_assumptions(qspec)
 
     if "classiq" not in qspec.backend_preferences:

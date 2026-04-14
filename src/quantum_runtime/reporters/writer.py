@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 from pathlib import Path
 from typing import Any
 
 from quantum_runtime.artifact_provenance import canonicalize_artifact_provenance
-from quantum_runtime.errors import WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
-from quantum_runtime.workspace import atomic_write_text, pending_atomic_write_files
 from quantum_runtime.workspace.manager import WorkspaceHandle
 
 
@@ -26,11 +25,8 @@ def write_report(
     backend_reports: dict[str, Any],
     warnings: list[str],
     errors: list[str],
-    promote_latest: bool = True,
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
-    from quantum_runtime.runtime.run_manifest import RunReportArtifact
-
     semantics = summarize_qspec_semantics(qspec)
     latest_path = workspace.root / "reports" / "latest.json"
     history_path = workspace.root / "reports" / "history" / f"{revision}.json"
@@ -56,11 +52,11 @@ def write_report(
         errors=errors,
         backend_reports=backend_reports,
     )
-    payload = RunReportArtifact(
-        status=status,
-        revision=revision,
-        input=input_data,
-        provenance=_build_provenance(
+    payload: dict[str, Any] = {
+        "status": status,
+        "revision": revision,
+        "input": input_data,
+        "provenance": _build_provenance(
             workspace=workspace,
             revision=revision,
             input_data=input_data,
@@ -68,46 +64,29 @@ def write_report(
             semantics=semantics,
             artifact_provenance=artifact_provenance,
         ),
-        qspec={
+        "qspec": {
             "path": str(canonical_qspec_path),
             "hash": qspec_hash,
             "semantic_hash": semantics["semantic_hash"],
         },
-        semantics=semantics,
-        replay_integrity=replay_integrity,
-        artifacts=artifact_payload,
-        diagnostics=diagnostics,
-        backend_reports=backend_reports,
-        warnings=warnings,
-        errors=errors,
-        suggestions=_build_suggestions(
+        "semantics": semantics,
+        "replay_integrity": replay_integrity,
+        "artifacts": artifact_payload,
+        "diagnostics": diagnostics,
+        "backend_reports": backend_reports,
+        "warnings": warnings,
+        "errors": errors,
+        "suggestions": _build_suggestions(
             warnings=warnings,
             errors=errors,
             backend_reports=backend_reports,
         ),
-    )
+    }
 
-    serialized = payload.model_dump_json(indent=2)
-    _guard_report_latest_path(workspace=workspace, latest_path=latest_path)
-    atomic_write_text(history_path, serialized)
-    if promote_latest:
-        atomic_write_text(latest_path, serialized)
-    return payload.model_dump(mode="json")
-
-
-def _guard_report_latest_path(*, workspace: WorkspaceHandle, latest_path: Path) -> None:
-    pending_files = _pending_atomic_write_files(latest_path)
-    if not pending_files:
-        return
-    raise WorkspaceRecoveryRequiredError(
-        workspace=workspace.root,
-        pending_files=pending_files,
-        last_valid_revision=None,
-    )
-
-
-def _pending_atomic_write_files(path: Path) -> list[Path]:
-    return pending_atomic_write_files(path)
+    serialized = json.dumps(payload, indent=2, ensure_ascii=True)
+    latest_path.write_text(serialized)
+    history_path.write_text(serialized)
+    return payload
 
 
 def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> None:
@@ -124,7 +103,7 @@ def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> Non
             continue
         canonical_path = Path(raw_canonical_path)
         alias_path = Path(raw_alias_path)
-        if canonical_path == alias_path or canonical_path.exists() or not alias_path.exists():
+        if canonical_path == alias_path or not alias_path.exists():
             continue
         canonical_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(alias_path, canonical_path)

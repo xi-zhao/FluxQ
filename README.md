@@ -63,6 +63,8 @@ For mainland China networks, the same helper can switch to a mirror without edit
 ## First Run
 
 ```bash
+qrun prompt "Build a 4-qubit GHZ circuit and measure all qubits." --json
+qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json
 qrun init --workspace .quantum --json
 qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json
 qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl
@@ -71,8 +73,10 @@ qrun status --workspace .quantum --json
 qrun show --workspace .quantum --json
 qrun compare --workspace .quantum --baseline --json
 qrun export --workspace .quantum --format qasm3 --json
+qrun export --workspace .quantum --format qasm3 --profile qasm3-generic --json
 qrun bench --workspace .quantum --json
 qrun doctor --workspace .quantum --json --fix
+qrun pack --workspace .quantum --revision rev_000001 --json
 ```
 
 After one GHZ run, FluxQ writes:
@@ -98,8 +102,9 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 
 - natural language or markdown intent is ingress
 - canonical `QSpec` is the truth layer for planning, compare, and export
+- normalized `intent.json` and `plan.json` are persisted per revision so agents can consume ingress and feasibility separately from execution
 - every run persists `qspec.json`, `report.json`, and immutable `manifest.json` state
-- `qrun plan`, `qrun status`, `qrun show`, and `qrun schema` are machine-first control-plane commands for agents and CI
+- `qrun prompt`, `qrun resolve`, `qrun plan`, `qrun status`, `qrun show`, and `qrun schema` are machine-first control-plane commands for agents and CI
 - `qrun exec|compare|bench|doctor --jsonl` expose event streams for incremental agent consumption
 
 ## Trust And Replay
@@ -112,6 +117,7 @@ FluxQ is designed to be orchestrated by coding agents through files plus shell c
 - all machine-readable command payloads include `schema_version`
 - `qrun status`, `qrun show`, `qrun inspect`, and `qrun compare` now expose `health`, `reason_codes`, `next_actions`, and `decision` or `gate` blocks
 - `--jsonl` event streams for `qrun exec`, `qrun compare`, `qrun bench`, and `qrun doctor` make long-running steps incrementally consumable
+- workspace event streams are also persisted at `.quantum/events.jsonl` as a canonical alias for `trace/events.ndjson`
 - report-backed imports now enforce replay integrity for QSpec identity instead of trusting path existence alone
 - baseline-backed compares also enforce stored report/QSpec identity so tampered baseline inputs fail closed
 - `qrun export --json` reports `source_kind`, `source_revision`, `source_report_path`, and `source_qspec_path`
@@ -181,11 +187,13 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 
 ```text
 .quantum/
+├─ events.jsonl
 ├─ workspace.json
 ├─ manifests/
 ├─ qrun.toml
 ├─ baselines/
 ├─ intents/history/
+├─ plans/history/
 ├─ specs/history/
 ├─ artifacts/qiskit/
 ├─ artifacts/classiq/
@@ -200,9 +208,13 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 ## Command Reference
 
 - `qrun init --workspace .quantum --json`
+- `qrun prompt "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
+- `qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json`
+- `qrun resolve --workspace .quantum --intent-json-file intent.json --json`
 - `qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --json`
 - `qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl`
+- `qrun exec --workspace .quantum --intent-json-file intent.json --json`
 - `qrun exec --workspace .quantum --qspec-file .quantum/specs/current.json --json`
 - `qrun exec --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun exec --workspace .quantum --intent-text "Generate a 4-qubit GHZ circuit and measure all qubits." --json`
@@ -213,10 +225,12 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 - `qrun show --workspace .quantum --json`
 - `qrun show --workspace .quantum --revision rev_000001 --json`
 - `qrun schema manifest`
+- `qrun schema intent`
 - `qrun inspect --workspace .quantum --json`
 - `qrun compare --workspace .quantum --baseline --expect same-subject --json`
+- `qrun compare --workspace .quantum --baseline --fail-on report_drift --detail --json`
 - `qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json`
-- `qrun export --workspace .quantum --format qiskit --json`
+- `qrun export --workspace .quantum --format qiskit --profile qiskit-native --json`
 - `qrun bench --workspace .quantum --report-file .quantum/reports/latest.json --json`
 - `qrun bench --workspace .quantum --json`
 - `qrun compare --workspace .quantum --left-revision rev_000001 --right-revision rev_000002 --expect same-subject --json`
@@ -225,6 +239,7 @@ qrun exec --workspace .quantum --intent-file examples/intent-qaoa-maxcut-sweep.m
 - `qrun doctor --workspace .quantum --json --fix`
 - `qrun doctor --workspace .quantum --jsonl --fix`
 - `qrun bench --workspace .quantum --jsonl`
+- `qrun pack --workspace .quantum --revision rev_000001 --json`
 - `qrun backend list --json`
 - `qrun version`
 
