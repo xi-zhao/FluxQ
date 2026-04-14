@@ -21,10 +21,10 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 - ✓ Agent can use `prompt`, `resolve`, and `plan` as side-effect-free ingress surfaces with canonical identity parity locked down by regression coverage — Phase 1
 - ✓ Agent can reopen trusted revisions from immutable history artifacts, and replay/import now fail closed on trusted drift while preserving explicit legacy-compatible reopen flows — Phase 2
 - ✓ Agent or CI can target one workspace from exec, compare, benchmark, doctor, baseline, export, and pack flows without silent current/history corruption, and blocked writes now surface structured conflict or recovery-required signals — Phase 3
+- ✓ Trusted delivery bundles can be packed, verified outside the source workspace, and re-imported into downstream workspaces without losing bundle-local trust signals — Phase 5
 
 ### Active
 
-- [ ] Delivery bundles can be verified, unpacked, and reused outside the original workspace without losing provenance or trust signals
 - [ ] Policy surfaces support CI-ready acceptance decisions across compare, benchmark, and doctor flows without custom wrapper logic
 - [ ] Runtime documentation, release notes, and integration examples consistently describe FluxQ as a runtime/control-plane product rather than a generator demo
 
@@ -38,9 +38,9 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 ## Context
 
 - This is a brownfield Python 3.11 CLI project built around `Typer`, `Pydantic`, `Qiskit`, optional `Classiq`, and a filesystem-backed workspace under `.quantum/`
-- Existing code already implements the runtime spine: `init -> resolve/plan -> exec -> baseline -> compare -> export -> bench -> doctor -> pack`
+- Existing code already implements the runtime spine: `init -> resolve/plan -> exec -> baseline -> compare -> export -> bench -> doctor -> pack -> pack-inspect -> pack-import`
 - A fresh codebase map exists in `.planning/codebase/`, so the current architecture, conventions, testing strategy, and known concerns are already documented
-- Recent work has already shifted the product toward the target position by adding `qrun prompt`, `qrun resolve`, persisted `intent.json` and `plan.json`, canonical runtime metadata on `QSpec`, delivery packing, and revision-scoped benchmark/doctor/compare artifacts
+- Recent work has already shifted the product toward the target position by adding `qrun prompt`, `qrun resolve`, persisted `intent.json` and `plan.json`, canonical runtime metadata on `QSpec`, digest-verified delivery bundles, downstream `pack-import`, and revision-scoped benchmark/doctor/compare artifacts
 - The adjacent `aionrs/` tree is a separate Rust-sidecar integration surface, but the project’s core runtime remains the Python package declared in `pyproject.toml`
 
 ## Constraints
@@ -79,4 +79,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after Phase 3 completion*
+*Last updated: 2026-04-14 after Phase 5 completion*
