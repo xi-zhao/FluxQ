@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- clarify stable, evolving, and optional runtime contracts for adopters
+- align packaging metadata with the runtime control plane positioning
+
 ## 0.3.1
 
 `0.3.1` is the agent-observability release for FluxQ: shared health signals, decision blocks, and JSONL event streams that make the runtime control plane easier for agents and CI to consume incrementally.

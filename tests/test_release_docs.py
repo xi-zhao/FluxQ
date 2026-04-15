@@ -145,7 +145,8 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "0.3.x" in versioning_text
     assert "Released line: `0.3.1`" in versioning_text
     assert "agent-observability surfaces" in versioning_text
-    assert "CLI/result/artifact `schema_version` is separate from `QSpec.version`." in versioning_text
+    assert "## Stable Runtime Contracts" in versioning_text
+    assert "CLI/result/artifact schema_version stays separate from QSpec.version." in versioning_text
     assert "QSpec.version" in versioning_text
 
 

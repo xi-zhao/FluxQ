@@ -17,7 +17,8 @@ def test_release_packaging_contract_is_documented_in_project_files() -> None:
     assert 'license-files = ["LICENSE"]' in pyproject
     assert 'description = "Agent-first quantum runtime CLI with a runtime control plane for reproducible quantum runs"' in pyproject
     assert "keywords = [" in pyproject
-    assert '"Topic :: Software Development :: Code Generators"' in pyproject
+    assert '"control-plane"' in pyproject
+    assert '"Topic :: Software Development :: Code Generators"' not in pyproject
     assert "[project.urls]" in pyproject
     assert 'Homepage = "https://github.com/xi-zhao/FluxQ"' in pyproject
     assert 'Repository = "https://github.com/xi-zhao/FluxQ.git"' in pyproject
