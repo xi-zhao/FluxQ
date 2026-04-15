@@ -367,13 +367,16 @@ def _execute_qspec(
                 classiq_backend_report.status,
             )
 
+    canonical_artifacts = dict(artifacts)
+    canonical_artifacts["qspec"] = str(qspec_history_path)
+
     report = write_report(
         workspace=handle,
         revision=revision,
         input_data=input_data,
         qspec=qspec,
         qspec_path=qspec_history_path,
-        artifacts=artifacts,
+        artifacts=canonical_artifacts,
         diagnostics=diagnostics,
         backend_reports=backend_reports,
         warnings=warnings,

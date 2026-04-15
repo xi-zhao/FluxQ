@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +26,6 @@ def write_report(
     errors: list[str],
 ) -> dict[str, Any]:
     """Write `reports/latest.json` and a revision history copy."""
-    semantics = summarize_qspec_semantics(qspec)
     latest_path = workspace.root / "reports" / "latest.json"
     history_path = workspace.root / "reports" / "history" / f"{revision}.json"
     artifact_payload = dict(artifacts)
@@ -38,9 +36,12 @@ def write_report(
         revision=revision,
         artifacts=artifact_payload,
     )
-    _materialize_canonical_artifacts(artifact_provenance)
+    canonical_qspec_path = qspec_path.resolve()
+    canonical_qspec = QSpec.model_validate_json(canonical_qspec_path.read_text())
+    semantics = summarize_qspec_semantics(canonical_qspec)
     artifact_payload = dict(artifact_provenance["paths"])
-    canonical_qspec_path = Path(artifact_payload["qspec"])
+    artifact_payload["qspec"] = str(canonical_qspec_path)
+    artifact_payload["report"] = str(history_path.resolve())
     qspec_hash = _sha256_file(canonical_qspec_path)
     replay_integrity = _build_replay_integrity(
         qspec_hash=qspec_hash,
@@ -87,27 +88,6 @@ def write_report(
     latest_path.write_text(serialized)
     history_path.write_text(serialized)
     return payload
-
-
-def _materialize_canonical_artifacts(artifact_provenance: dict[str, Any]) -> None:
-    paths = artifact_provenance.get("paths")
-    aliases = artifact_provenance.get("current_aliases")
-    if not isinstance(paths, dict) or not isinstance(aliases, dict):
-        return
-
-    for name, raw_canonical_path in paths.items():
-        if name == "report":
-            continue
-        raw_alias_path = aliases.get(name)
-        if not isinstance(raw_canonical_path, str) or not isinstance(raw_alias_path, str):
-            continue
-        canonical_path = Path(raw_canonical_path)
-        alias_path = Path(raw_alias_path)
-        if canonical_path == alias_path or not alias_path.exists():
-            continue
-        canonical_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(alias_path, canonical_path)
-
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
