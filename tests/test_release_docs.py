@@ -136,3 +136,62 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "agent-observability surfaces" in versioning_text
     assert "CLI/result/artifact `schema_version` is separate from `QSpec.version`." in versioning_text
     assert "QSpec.version" in versioning_text
+
+
+def test_readme_and_release_notes_share_one_runtime_quickstart() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    release_notes = (PROJECT_ROOT / "docs" / "releases" / "v0.3.1.md").read_text()
+
+    readme_commands = [
+        'qrun prompt "Build a 4-qubit GHZ circuit and measure all qubits." --json',
+        "qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json",
+        "qrun init --workspace .quantum --json",
+        "qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json",
+        "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl",
+        "qrun baseline set --workspace .quantum --revision rev_000001 --json",
+        "qrun compare --workspace .quantum --baseline --fail-on subject_drift --json",
+        "qrun doctor --workspace .quantum --json --ci",
+        "qrun pack --workspace .quantum --revision rev_000001 --json",
+        "qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json",
+        "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json",
+    ]
+    readme_indices = [readme.index(command) for command in readme_commands]
+
+    assert readme_indices == sorted(readme_indices)
+    assert (
+        readme.index("qrun baseline set --workspace .quantum --revision rev_000001 --json")
+        < readme.index("qrun compare --workspace .quantum --baseline --fail-on subject_drift --json")
+        < readme.index("qrun doctor --workspace .quantum --json --ci")
+    )
+    assert readme.index("qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json") < readme.index(
+        "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json"
+    )
+
+    release_commands = [
+        "qrun init --workspace .quantum --json",
+        "qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json",
+        'qrun prompt "Build a 4-qubit GHZ circuit and measure all qubits." --json',
+        "qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json",
+        "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl",
+        "qrun baseline set --workspace .quantum --revision rev_000001 --json",
+        "qrun compare --workspace .quantum --baseline --fail-on subject_drift --json",
+        "qrun doctor --workspace .quantum --json --ci",
+        "qrun pack --workspace .quantum --revision rev_000001 --json",
+        "qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json",
+        "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json",
+    ]
+    release_indices = [release_notes.index(command) for command in release_commands]
+
+    assert release_indices == sorted(release_indices)
+    assert (
+        release_notes.index("qrun baseline set --workspace .quantum --revision rev_000001 --json")
+        < release_notes.index("qrun compare --workspace .quantum --baseline --fail-on subject_drift --json")
+        < release_notes.index("qrun doctor --workspace .quantum --json --ci")
+    )
+    assert release_notes.index("qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json") < release_notes.index(
+        "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json"
+    )
+
+    assert "docs/fluxq-qaoa-maxcut-case-study.md" in readme
+    assert 'qrun prompt "Build a 4-qubit MaxCut QAOA ansatz with 2 layers on a ring graph" --json' not in release_notes
+    assert "qrun doctor --workspace .quantum --jsonl --fix" not in release_notes
