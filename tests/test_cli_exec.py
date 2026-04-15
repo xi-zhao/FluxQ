@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
-from quantum_runtime.runtime.executor import ExecResult
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.runtime.executor import ExecResult
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +32,25 @@ title: {title}
 """
     )
     return path
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _assert_report_matches_qspec(*, report_path: Path, qspec_path: Path) -> dict[str, object]:
+    report = json.loads(report_path.read_text())
+    qspec = QSpec.model_validate_json(qspec_path.read_text())
+    semantics = summarize_qspec_semantics(qspec)
+
+    assert report["qspec"]["path"] == str(qspec_path.resolve())
+    assert report["qspec"]["hash"] == _sha256(qspec_path)
+    assert report["qspec"]["semantic_hash"] == semantics["semantic_hash"]
+    assert report["provenance"]["qspec"]["path"] == str(qspec_path.resolve())
+    assert report["provenance"]["qspec"]["hash"] == _sha256(qspec_path)
+    assert report["provenance"]["qspec"]["semantic_hash"] == semantics["semantic_hash"]
+    return report
 
 
 def _binding_only_qaoa_qspec():
@@ -386,9 +407,105 @@ def test_qrun_exec_history_report_pins_revision_qspec_after_later_runs(tmp_path:
     )
     assert second_result.exit_code == 0, second_result.stdout
 
-    report = json.loads((workspace / "reports" / "history" / "rev_000001.json").read_text())
-    assert report["qspec"]["path"].endswith("specs/history/rev_000001.json")
-    assert report["provenance"]["qspec"]["path"].endswith("specs/history/rev_000001.json")
+    first_report = _assert_report_matches_qspec(
+        report_path=workspace / "reports" / "history" / "rev_000001.json",
+        qspec_path=workspace / "specs" / "history" / "rev_000001.json",
+    )
+
+    assert first_report["qspec"]["path"].endswith("specs/history/rev_000001.json")
+    assert first_report["provenance"]["qspec"]["path"].endswith("specs/history/rev_000001.json")
+
+
+def test_qrun_exec_second_revision_report_matches_revision_qspec_semantics(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first_result.exit_code == 0, first_result.stdout
+
+    second_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second_result.exit_code == 0, second_result.stdout
+
+    first_qspec = workspace / "specs" / "history" / "rev_000001.json"
+    second_qspec = workspace / "specs" / "history" / "rev_000002.json"
+    second_report = _assert_report_matches_qspec(
+        report_path=workspace / "reports" / "history" / "rev_000002.json",
+        qspec_path=second_qspec,
+    )
+
+    assert second_result.exit_code == 0, second_result.stdout
+    assert second_qspec.read_bytes() != first_qspec.read_bytes()
+    assert second_report["qspec"]["path"].endswith("specs/history/rev_000002.json")
+    assert second_report["artifacts"]["qspec"].endswith("specs/history/rev_000002.json")
+    assert second_report["artifacts"]["report"].endswith("reports/history/rev_000002.json")
+
+
+def test_qrun_exec_json_accepts_second_history_revision_input_after_later_runs(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first_result.exit_code == 0, first_result.stdout
+
+    second_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second_result.exit_code == 0, second_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000002",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["revision"] == "rev_000003"
+    assert payload["diagnostics"]["simulation"]["status"] == "ok"
+    assert Path(payload["artifacts"]["qspec"]).exists()
 
 
 def test_qrun_exec_json_accepts_history_revision_input(tmp_path: Path) -> None:
