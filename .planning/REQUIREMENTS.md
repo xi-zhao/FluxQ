@@ -16,12 +16,12 @@ Requirements for the next milestone of FluxQ’s runtime-first product surface.
 ### Runtime Workspace
 
 - [ ] **RUNT-01**: Each executed revision persists `intent`, `plan`, `qspec`, `report`, `manifest`, and revision-scoped events as stable runtime artifacts
-- [x] **RUNT-02**: Workspace writes are safe under concurrent agent or CI activity instead of assuming a single writer
+- [ ] **RUNT-02**: Workspace writes are safe under concurrent agent or CI activity instead of assuming a single writer
 - [ ] **RUNT-03**: Replay and import paths fail closed when provenance or integrity no longer matches the expected revision
 
 ### Policy And Comparison
 
-- [x] **POLC-01**: Agent can compare current state against baseline and fail on specific drift classes without external wrapper logic
+- [ ] **POLC-01**: Agent can compare current state against baseline and fail on specific drift classes without external wrapper logic
 - [x] **POLC-02**: Agent can use benchmark results as policy evidence, including compare-to-baseline workflows
 - [x] **POLC-03**: Agent can use doctor results in CI-oriented mode with clear blocking versus advisory outputs
 
@@ -75,9 +75,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGR-02 | Phase 1 | Complete |
 | INGR-03 | Phase 1 | Complete |
 | RUNT-01 | Phase 2 | Complete |
-| RUNT-02 | Phase 3 | Complete |
+| RUNT-02 | Phase 8 | Pending |
 | RUNT-03 | Phase 2 | Complete |
-| POLC-01 | Phase 4 | Complete |
+| POLC-01 | Phase 7 | Pending |
 | POLC-02 | Phase 4 | Complete |
 | POLC-03 | Phase 4 | Complete |
 | DELV-01 | Phase 5 | Complete |
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-15 after Phase 6 completion*
+*Last updated: 2026-04-15 after milestone gap phases 7-8 creation*

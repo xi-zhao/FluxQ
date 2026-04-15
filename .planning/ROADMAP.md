@@ -112,6 +112,20 @@ Plans:
 - [x] 06-02-PLAN.md — Document a canonical agent/CI adoption workflow across integration assets and case study
 - [x] 06-03-PLAN.md — Clarify stable/evolving/optional runtime contracts and align package metadata
 
+### Phase 7: Compare Trust Closure
+**Goal**: Restore the baseline/current compare gate so revision-to-revision policy decisions fail on drift classes instead of failing early on artifact inconsistency.
+**Depends on**: Phase 6
+**Requirements**: POLC-01
+**Gap Closure:** Closes milestone gaps `POLC-01`, `INT-01`, and `FLOW-01`
+**Plans**: TBD
+
+### Phase 8: Verification And Bookkeeping Closure
+**Goal**: Close the remaining milestone verification and bookkeeping gaps so the shipped control-plane phases can be archived consistently.
+**Depends on**: Phase 7
+**Requirements**: RUNT-02
+**Gap Closure:** Closes milestone gaps `RUNT-02`, `INT-02`, and `FLOW-02`
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -122,3 +136,5 @@ Plans:
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
+| 7. Compare Trust Closure | 0/TBD | Not started | - |
+| 8. Verification And Bookkeeping Closure | 0/TBD | Not started | - |
