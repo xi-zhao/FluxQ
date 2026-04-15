@@ -4,7 +4,12 @@ When the user asks for quantum-computing code, do not handwrite large quantum pr
 
 Workflow:
 1. Write the task into `.quantum/intents/latest.md` using the runtime intent template.
-2. Run `qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --json`.
-3. Read `.quantum/reports/latest.json`.
-4. If artifacts were generated successfully, inspect the generated code before proposing edits.
-5. Prefer updating the intent and re-running `qrun` over manually rewriting generated quantum code.
+2. Run `qrun plan --workspace .quantum --intent-file .quantum/intents/latest.md --json`.
+3. Run `qrun exec --workspace .quantum --intent-file .quantum/intents/latest.md --jsonl`.
+4. Read `.quantum/reports/latest.json` and `.quantum/manifests/latest.json`, or run `qrun show --workspace .quantum --json`.
+5. When a revision is approved, run `qrun baseline set --workspace .quantum --revision rev_000001 --json`.
+6. Run `qrun compare --workspace .quantum --baseline --fail-on subject_drift --json` and `qrun doctor --workspace .quantum --json --ci`.
+7. If compare or doctor returns a blocking gate, revise the intent and rerun FluxQ; do not hand-edit generated quantum code to bypass the gate.
+8. Only after the gates pass, run `qrun pack --workspace .quantum --revision rev_000001 --json`, `qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json`, and `qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json`.
+
+Prefer updating the intent and re-running FluxQ over manually rewriting generated quantum code.

@@ -370,6 +370,35 @@ cx q[1], q[2];
 2. 导出物是不是和实际评估过的参数点一致
 3. 后续改动是不是能和 baseline 做机器可读比较
 
+## Agent/CI continuation
+
+这条 QAOA 工作流在本地跑通以后，不应该停在“看一眼报告”这一步，而应该继续走标准 runtime gate：
+
+```bash
+qrun compare --workspace .quantum --baseline --fail-on subject_drift --json
+qrun doctor --workspace .quantum --json --ci
+```
+
+这里的重点不是让 agent 或 CI 自己理解量子线路细节，而是直接消费结构化信号：
+
+- `reason_codes` 说明为什么 compare 或 doctor 通过、降级或失败
+- `next_actions` 告诉 host 下一步是复跑、修环境，还是继续交付
+- `gate` 明确表达当前 revision 是否允许继续推进
+
+机器消费者应当读取 `reason_codes`、`next_actions`、`gate`，而不是猜测状态或直接手改生成代码来绕过 runtime contract。
+
+## Delivery handoff
+
+当 `compare` 与 `doctor --ci` 都通过后，再把这个 QAOA revision 交给下游环境：
+
+```bash
+qrun pack --workspace .quantum --revision rev_000001 --json
+qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json
+qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json
+```
+
+这个顺序必须保持不变：先 `pack-inspect`，再 `pack-import`。这样下游 workspace 接收的是一个已经被 bundle-local 证据验证过的交付包，而不是一个未经检查就直接导入的目录快照。
+
 ## 官网案例页可直接复用的版本
 
 ### 标题
