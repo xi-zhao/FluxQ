@@ -117,7 +117,12 @@ Plans:
 **Depends on**: Phase 6
 **Requirements**: POLC-01
 **Gap Closure:** Closes milestone gaps `POLC-01`, `INT-01`, and `FLOW-01`
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — 修复 canonical revision write seam，禁止 writer 把 current alias 回灌到 history
+- [ ] 07-02-PLAN.md — 恢复 baseline/current compare gate，同时保持 trusted import fail-closed
+- [ ] 07-03-PLAN.md — 加固 exec/import 跨阶段回归，提前暴露 writer/compare seam 漂移
 
 ### Phase 8: Verification And Bookkeeping Closure
 **Goal**: Close the remaining milestone verification and bookkeeping gaps so the shipped control-plane phases can be archived consistently.
@@ -136,5 +141,5 @@ Plans:
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
-| 7. Compare Trust Closure | 0/TBD | Not started | - |
+| 7. Compare Trust Closure | 0/3 | Not started | - |
 | 8. Verification And Bookkeeping Closure | 0/TBD | Not started | - |
