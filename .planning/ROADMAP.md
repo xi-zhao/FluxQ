@@ -15,7 +15,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - [x] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
 - [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
 - [x] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
-- [ ] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
+- [x] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
 
 ## Phase Details
 
@@ -108,9 +108,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Align README and release-notes quickstart around one runtime-first adoption path
-- [ ] 06-02-PLAN.md — Document a canonical agent/CI adoption workflow across integration assets and case study
-- [ ] 06-03-PLAN.md — Clarify stable/evolving/optional runtime contracts and align package metadata
+- [x] 06-01-PLAN.md — Align README and release-notes quickstart around one runtime-first adoption path
+- [x] 06-02-PLAN.md — Document a canonical agent/CI adoption workflow across integration assets and case study
+- [x] 06-03-PLAN.md — Clarify stable/evolving/optional runtime contracts and align package metadata
 
 ## Progress
 
@@ -121,4 +121,4 @@ Plans:
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
-| 6. Runtime Adoption Surface | 0/3 | Not started | - |
+| 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |

@@ -33,9 +33,9 @@ Requirements for the next milestone of FluxQ’s runtime-first product surface.
 
 ### Integrations And Product Surface
 
-- [ ] **SURF-01**: Public docs and examples consistently describe FluxQ as an agent-first quantum runtime CLI
-- [ ] **SURF-02**: Repository includes concrete CI or agent integration examples that show end-to-end runtime workflows
-- [ ] **SURF-03**: Release/versioning artifacts clearly describe what runtime contracts are stable and what is still evolving
+- [x] **SURF-01**: Public docs and examples consistently describe FluxQ as an agent-first quantum runtime CLI
+- [x] **SURF-02**: Repository includes concrete CI or agent integration examples that show end-to-end runtime workflows
+- [x] **SURF-03**: Release/versioning artifacts clearly describe what runtime contracts are stable and what is still evolving
 
 ## v2 Requirements
 
@@ -83,9 +83,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DELV-01 | Phase 5 | Complete |
 | DELV-02 | Phase 5 | Complete |
 | DELV-03 | Phase 5 | Complete |
-| SURF-01 | Phase 6 | Pending |
-| SURF-02 | Phase 6 | Pending |
-| SURF-03 | Phase 6 | Pending |
+| SURF-01 | Phase 6 | Complete |
+| SURF-02 | Phase 6 | Complete |
+| SURF-03 | Phase 6 | Complete |
 
 **Coverage:**
 - v1 requirements: 15 total
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-14 after Phase 5 completion*
+*Last updated: 2026-04-15 after Phase 6 completion*
