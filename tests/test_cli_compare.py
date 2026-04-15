@@ -875,6 +875,73 @@ def test_qrun_compare_json_baseline_fail_on_subject_drift_returns_failed_gate(tm
     assert payload["policy"]["fail_on"] == ["subject_drift"]
 
 
+def test_qrun_compare_json_baseline_preserves_fail_closed_on_tampered_current_revision(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    baseline_result = RUNNER.invoke(
+        app,
+        [
+            "baseline",
+            "set",
+            "--workspace",
+            str(workspace),
+            "--revision",
+            "rev_000001",
+            "--json",
+        ],
+    )
+    assert baseline_result.exit_code == 0, baseline_result.stdout
+
+    second = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"),
+            "--json",
+        ],
+    )
+    assert second.exit_code == 0, second.stdout
+
+    tampered_qspec = workspace / "specs" / "history" / "rev_000002.json"
+    tampered_qspec.write_text((workspace / "specs" / "history" / "rev_000001.json").read_text())
+
+    compare_result = RUNNER.invoke(
+        app,
+        [
+            "compare",
+            "--workspace",
+            str(workspace),
+            "--baseline",
+            "--json",
+        ],
+    )
+
+    assert compare_result.exit_code == 3, compare_result.stdout
+    payload = json.loads(compare_result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] in {
+        "report_qspec_hash_mismatch",
+        "report_qspec_semantic_hash_mismatch",
+    }
+    assert payload["error_code"] == payload["reason"]
+
+
 def test_qrun_compare_json_persists_compare_artifacts(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 
