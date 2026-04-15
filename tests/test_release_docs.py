@@ -194,3 +194,13 @@ def test_readme_and_release_notes_share_one_runtime_quickstart() -> None:
     assert "docs/fluxq-qaoa-maxcut-case-study.md" in readme
     assert 'qrun prompt "Build a 4-qubit MaxCut QAOA ansatz with 2 layers on a ring graph" --json' not in release_notes
     assert "qrun doctor --workspace .quantum --jsonl --fix" not in release_notes
+
+
+def test_release_notes_document_runtime_contract_stability() -> None:
+    release_notes = (PROJECT_ROOT / "docs" / "releases" / "v0.3.1.md").read_text()
+
+    assert "## Runtime Contract Stability" in release_notes
+    assert "Stable runtime contracts:" in release_notes
+    assert "Evolving runtime contracts:" in release_notes
+    assert "Optional runtime contracts:" in release_notes
+    assert "Safe consumption rule:" in release_notes

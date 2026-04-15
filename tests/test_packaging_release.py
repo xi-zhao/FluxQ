@@ -36,3 +36,32 @@ def test_release_packaging_includes_qiskit_runtime_dependencies_in_base_install(
     assert "qiskit" in dependencies
     assert "qiskit-aer" in dependencies
     assert "matplotlib>=3.8" in dependencies
+
+
+def test_runtime_contract_stability_is_documented_in_versioning_and_packaging_metadata() -> None:
+    versioning = (PROJECT_ROOT / "docs" / "versioning.md").read_text()
+    changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text()
+    pyproject = (PROJECT_ROOT / "pyproject.toml").read_text()
+
+    assert "## Stable Runtime Contracts" in versioning
+    assert "## Evolving Runtime Contracts" in versioning
+    assert "## Optional Runtime Contracts" in versioning
+    assert "## Safe Consumption Rules" in versioning
+    assert "QSpec.version" in versioning
+    assert "schema_version" in versioning
+    assert "append-only" in versioning
+    assert "pack-inspect" in versioning
+    assert "pack-import" in versioning
+    assert "reason_codes" in versioning
+    assert "next_actions" in versioning
+    assert "decision" in versioning
+    assert "gate" in versioning
+    assert "classiq" in versioning
+    assert "aionrs" in versioning
+    assert "hooks.example.toml" in versioning
+
+    assert "clarify stable, evolving, and optional runtime contracts for adopters" in changelog
+    assert "align packaging metadata with the runtime control plane positioning" in changelog
+
+    assert "control-plane" in pyproject
+    assert '"Topic :: Software Development :: Code Generators"' not in pyproject
