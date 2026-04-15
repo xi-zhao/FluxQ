@@ -105,7 +105,12 @@ Plans:
   1. A new reader sees FluxQ described consistently as an agent-first quantum runtime CLI rather than a generator demo across the main docs and examples.
   2. Repository examples show an end-to-end agent or CI runtime workflow covering ingress, execution, policy evaluation, and delivery handoff.
   3. Release and versioning notes tell adopters which runtime contracts are stable, which are still evolving, and how to consume them safely.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Align README and release-notes quickstart around one runtime-first adoption path
+- [ ] 06-02-PLAN.md — Document a canonical agent/CI adoption workflow across integration assets and case study
+- [ ] 06-03-PLAN.md — Clarify stable/evolving/optional runtime contracts and align package metadata
 
 ## Progress
 
@@ -116,4 +121,4 @@ Plans:
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
 | 4. Policy Acceptance Gates | 0/4 | Not started | - |
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
-| 6. Runtime Adoption Surface | 0/TBD | Not started | - |
+| 6. Runtime Adoption Surface | 0/3 | Not started | - |
