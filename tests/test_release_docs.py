@@ -36,10 +36,16 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "qrun baseline set --workspace .quantum --revision rev_000001 --json" in readme
     assert "qrun status --workspace .quantum --json" in readme
     assert "qrun show --workspace .quantum --json" in readme
-    assert "qrun compare --workspace .quantum --baseline --json" in readme
-    assert "qrun export --workspace .quantum --format qasm3 --json" in readme
+    assert "qrun compare --workspace .quantum --baseline --fail-on subject_drift --json" in readme
+    assert "qrun export --workspace .quantum --report-file .quantum/reports/latest.json --format qasm3 --json" in readme
     assert "qrun bench --workspace .quantum --json" in readme
-    assert "qrun doctor --workspace .quantum --json --fix" in readme
+    assert "qrun doctor --workspace .quantum --json --ci" in readme
+    assert "qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json" in readme
+    assert "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json" in readme
+    assert (
+        "This first supported path is prompt/resolve -> init/plan/exec -> baseline -> compare -> doctor --ci -> pack -> pack-inspect -> pack-import."
+        in readme
+    )
     assert "## Runtime Object" in readme
     assert "## Trust And Replay" in readme
     assert "## Decision Loop" in readme
@@ -101,11 +107,16 @@ def test_release_docs_cover_runnable_readme_and_release_assets() -> None:
     assert "This install includes the local `qiskit-local` runtime dependencies by default. `classiq` remains optional." in release_notes_text
     assert "uv pip install -e '.[dev]'" in release_notes_text
     assert "## What To Try First" in release_notes_text
+    assert 'qrun prompt "Build a 4-qubit GHZ circuit and measure all qubits." --json' in release_notes_text
+    assert "qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json" in release_notes_text
+    assert "qrun init --workspace .quantum --json" in release_notes_text
     assert "qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json" in release_notes_text
     assert "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl" in release_notes_text
-    assert "qrun status --workspace .quantum --json" in release_notes_text
-    assert "qrun show --workspace .quantum --json" in release_notes_text
-    assert "qrun doctor --workspace .quantum --jsonl --fix" in release_notes_text
+    assert "qrun baseline set --workspace .quantum --revision rev_000001 --json" in release_notes_text
+    assert "qrun compare --workspace .quantum --baseline --fail-on subject_drift --json" in release_notes_text
+    assert "qrun doctor --workspace .quantum --json --ci" in release_notes_text
+    assert "qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json" in release_notes_text
+    assert "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json" in release_notes_text
     assert "JSONL event streams" in release_notes_text
     assert "shared decision signals" in release_notes_text
 
@@ -167,19 +178,7 @@ def test_readme_and_release_notes_share_one_runtime_quickstart() -> None:
         "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json"
     )
 
-    release_commands = [
-        "qrun init --workspace .quantum --json",
-        "qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json",
-        'qrun prompt "Build a 4-qubit GHZ circuit and measure all qubits." --json',
-        "qrun resolve --workspace .quantum --intent-file examples/intent-ghz.md --json",
-        "qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl",
-        "qrun baseline set --workspace .quantum --revision rev_000001 --json",
-        "qrun compare --workspace .quantum --baseline --fail-on subject_drift --json",
-        "qrun doctor --workspace .quantum --json --ci",
-        "qrun pack --workspace .quantum --revision rev_000001 --json",
-        "qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json",
-        "qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json",
-    ]
+    release_commands = readme_commands
     release_indices = [release_notes.index(command) for command in release_commands]
 
     assert release_indices == sorted(release_indices)

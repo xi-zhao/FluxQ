@@ -69,15 +69,14 @@ qrun init --workspace .quantum --json
 qrun plan --workspace .quantum --intent-file examples/intent-ghz.md --json
 qrun exec --workspace .quantum --intent-file examples/intent-ghz.md --jsonl
 qrun baseline set --workspace .quantum --revision rev_000001 --json
-qrun status --workspace .quantum --json
-qrun show --workspace .quantum --json
-qrun compare --workspace .quantum --baseline --json
-qrun export --workspace .quantum --format qasm3 --json
-qrun export --workspace .quantum --format qasm3 --profile qasm3-generic --json
-qrun bench --workspace .quantum --json
-qrun doctor --workspace .quantum --json --fix
+qrun compare --workspace .quantum --baseline --fail-on subject_drift --json
+qrun doctor --workspace .quantum --json --ci
 qrun pack --workspace .quantum --revision rev_000001 --json
+qrun pack-inspect --pack-root .quantum/packs/rev_000001 --json
+qrun pack-import --pack-root .quantum/packs/rev_000001 --workspace downstream/.quantum --json
 ```
+
+This first supported path is prompt/resolve -> init/plan/exec -> baseline -> compare -> doctor --ci -> pack -> pack-inspect -> pack-import.
 
 After one GHZ run, FluxQ writes:
 
@@ -281,6 +280,7 @@ Or run the repository helper:
 - Product roadmap: `docs/plans/2026-04-02-product-roadmap.md`
 - Versioning: `docs/versioning.md`
 - aionrs integration: `docs/aionrs-integration.md`
+- QAOA MaxCut case study: `docs/fluxq-qaoa-maxcut-case-study.md`
 - Changelog: `CHANGELOG.md`
 - License: `LICENSE`
 - Contributing: `CONTRIBUTING.md`
