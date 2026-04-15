@@ -283,22 +283,22 @@ The existing doc already proves the file + shell shape; Phase 06 should extend i
 |---|-------|---------|---------------|
 | None | No unverified factual claims remain. [VERIFIED: repo audit 2026-04-15] | All | Low |
 
-## Open Questions
+## Resolved Questions
 
-1. **Phase 06 是否顺手修正内部 Phase 4 bookkeeping。**
+1. **RESOLVED — Phase 06 不顺手修正内部 Phase 4 bookkeeping。**
 What we know: `ROADMAP.md` 仍把 Phase 4 标成未开始，但 `REQUIREMENTS.md` 把 `POLC-01/02/03` 标为 complete，`04-VERIFICATION.md` 也已存在且验证了大部分 truth。 [VERIFIED: .planning/ROADMAP.md][VERIFIED: .planning/REQUIREMENTS.md][VERIFIED: .planning/phases/04-policy-acceptance-gates/04-VERIFICATION.md]
-What's unclear: 这是不是当前阶段的一部分，还是留到 milestone cleanup。 
-Recommendation: 如果 Phase 06 会修改 release/versioning/storytelling，顺带修一次 contributor-facing bookkeeping 成本最低。
+Resolution: 这属于 milestone bookkeeping / cleanup，不属于 SURF-01/02/03 的 adoption contract。为保持本阶段定点收敛，Phase 06 plans 不吸收该修复，显式延期到 milestone cleanup。 [VERIFIED: .planning/ROADMAP.md][VERIFIED: .planning/REQUIREMENTS.md]
+Plan impact: 无新增 Phase 06 任务；作为显式延期项记录，不再保留为未闭环研究问题。
 
-2. **最强 case study 是不是要进入顶层 docs index。**
+2. **RESOLVED — 最强 case study 进入顶层 docs index，同时保留新增 adoption doc。**
 What we know: `docs/fluxq-qaoa-maxcut-case-study.md` 已经是一份强 runtime-first 长案例，但 README docs 列表没有它，tests 也没覆盖它。 [VERIFIED: docs/fluxq-qaoa-maxcut-case-study.md][VERIFIED: README.md][VERIFIED: tests/test_release_docs.py]
-What's unclear: 维护者更想直接链接这份中文文档，还是新增一份更短的 English/CI-facing sibling doc。
-Recommendation: 计划阶段先决定“链接现有 case study”还是“新建 adoption doc”，避免 scope 在执行中漂移。
+Resolution: 采用“双轨”而不是二选一。`06-01` 继续把现有 case study 加入 README docs index；`06-02` 继续新增更短的 canonical adoption doc，并扩展 case study 的 policy/handoff 结尾。这样既不浪费现有强案例，也能提供更短的 host/CI adoption 入口。 [VERIFIED: .planning/phases/06-runtime-adoption-surface/06-01-PLAN.md][VERIFIED: .planning/phases/06-runtime-adoption-surface/06-02-PLAN.md]
+Plan impact: `06-01` Task 2 负责 README docs index 链接；`06-02` Tasks 1-2 负责 adoption doc 与 case study contract 锁定。
 
-3. **`pyproject.toml` 的 `Code Generators` classifier 是否还要保留。**
+3. **RESOLVED — 移除 `pyproject.toml` 的 `Code Generators` classifier，并在 SURF-03 中连同 release/versioning guidance 一起锁定。**
 What we know: package description 已经是 runtime-first，但 classifier 仍然指向 `Code Generators`。 [VERIFIED: pyproject.toml]
-What's unclear: 维护者是否把这个 classifier 看作仍有搜索价值，还是认为它已经与当前定位冲突。
-Recommendation: 把这个问题作为 `06-01` 的显式决策点，而不是顺手修改。
+Resolution: 该 classifier 与当前 `agent-first quantum runtime CLI` / `runtime control plane` 定位冲突，因此不保留。它不放在 `06-01`，而是作为 SURF-03 的一部分，在 `06-03` 里与 `docs/versioning.md`、`docs/releases/v0.3.1.md`、`CHANGELOG.md` 和相应 tests 一起更新，以保证“稳定性说明 + package metadata”一次性对齐。 [VERIFIED: .planning/phases/06-runtime-adoption-surface/06-03-PLAN.md][VERIFIED: docs/releases/v0.3.1.md][VERIFIED: docs/versioning.md]
+Plan impact: `06-03` Tasks 1-2 负责 release/versioning/packaging metadata 的共同收敛；不再把它保留成未决策点。
 
 ## Environment Availability
 
