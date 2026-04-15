@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime.executor import execute_intent
 from quantum_runtime.runtime.run_manifest import RunManifestIntegrityError, load_run_manifest
 from quantum_runtime.workspace.paths import WorkspacePaths
@@ -263,6 +264,38 @@ def test_revision_history_artifacts_remain_immutable_after_later_exec(tmp_path: 
     assert second_manifest["revision"] == "rev_000002"
     assert second_manifest["intent"]["path"].endswith("intents/history/rev_000002.json")  # type: ignore[index]
     assert second_manifest["plan"]["path"].endswith("plans/history/rev_000002.json")  # type: ignore[index]
+
+
+def test_second_exec_keeps_revision_report_and_qspec_semantics_aligned(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    first_result = _execute_example_intent(workspace=workspace, name="intent-ghz.md")
+    second_result = _execute_example_intent(workspace=workspace, name="intent-qaoa-maxcut.md")
+
+    first_paths = _revision_artifact_paths(workspace=workspace, revision=first_result.revision)
+    second_paths = _revision_artifact_paths(workspace=workspace, revision=second_result.revision)
+    first_report = json.loads(first_paths["report"].read_text())
+    second_report = json.loads(second_paths["report"].read_text())
+    second_qspec = QSpec.model_validate_json(second_paths["qspec"].read_text())
+    second_semantics = summarize_qspec_semantics(second_qspec)
+
+    assert second_result.revision == "rev_000002"
+    assert first_report["qspec"]["path"] == str(first_paths["qspec"])
+    assert second_report["qspec"]["path"] == str(second_paths["qspec"])
+    assert first_paths["qspec"].read_bytes() != second_paths["qspec"].read_bytes()
+    assert second_report["qspec"]["hash"] == _sha256(second_paths["qspec"])
+    assert second_report["qspec"]["semantic_hash"] == second_semantics["semantic_hash"]
+
+    manifest = load_run_manifest(
+        workspace_root=workspace,
+        revision=second_result.revision,
+        expected_qspec_path=second_paths["qspec"],
+        expected_report_path=second_paths["report"],
+    )
+
+    assert manifest is not None
+    assert manifest["qspec"]["path"] == str(second_paths["qspec"])  # type: ignore[index]
+    assert manifest["report"]["path"] == str(second_paths["report"])  # type: ignore[index]
 
 
 def _sha256(path: Path) -> str:
