@@ -21,7 +21,7 @@ Requirements for the next milestone of FluxQ’s runtime-first product surface.
 
 ### Policy And Comparison
 
-- [ ] **POLC-01**: Agent can compare current state against baseline and fail on specific drift classes without external wrapper logic
+- [x] **POLC-01**: Agent can compare current state against baseline and fail on specific drift classes without external wrapper logic
 - [x] **POLC-02**: Agent can use benchmark results as policy evidence, including compare-to-baseline workflows
 - [x] **POLC-03**: Agent can use doctor results in CI-oriented mode with clear blocking versus advisory outputs
 
@@ -77,7 +77,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RUNT-01 | Phase 2 | Complete |
 | RUNT-02 | Phase 8 | Pending |
 | RUNT-03 | Phase 2 | Complete |
-| POLC-01 | Phase 7 | Pending |
+| POLC-01 | Phase 7 | Complete |
 | POLC-02 | Phase 4 | Complete |
 | POLC-03 | Phase 4 | Complete |
 | DELV-01 | Phase 5 | Complete |
@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-15 after milestone gap phases 7-8 creation*
+*Last updated: 2026-04-15 after Phase 07 completion*
