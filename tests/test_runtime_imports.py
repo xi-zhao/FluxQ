@@ -98,6 +98,43 @@ def test_resolve_workspace_current_after_pack_import_reuses_imported_history(tmp
     assert resolution.replay_integrity["status"] == "ok"
 
 
+def test_resolve_workspace_current_after_two_execs_uses_latest_revision_history(tmp_path: Path) -> None:
+    workspace, _, second_result = _seed_two_revision_workspace(tmp_path)
+
+    resolution = resolve_workspace_current(workspace)
+
+    assert second_result.revision == "rev_000002"
+    assert resolution.source_kind == "workspace_current"
+    assert resolution.revision == "rev_000002"
+    assert resolution.report_path == workspace / "reports" / "history" / "rev_000002.json"
+    assert resolution.qspec_path == workspace / "specs" / "history" / "rev_000002.json"
+    assert resolution.report_path != workspace / "reports" / "latest.json"
+    assert resolution.qspec_path != workspace / "specs" / "current.json"
+    assert resolution.provenance["report_resolution_source"] == "workspace_history"
+    assert resolution.provenance["qspec_resolution_source"] == "artifact_provenance"
+    assert resolution.replay_integrity["status"] == "ok"
+    assert resolution.artifacts["report"] == str(workspace / "reports" / "history" / "rev_000002.json")
+    assert resolution.artifacts["qspec"] == str(workspace / "specs" / "history" / "rev_000002.json")
+
+
+def test_resolve_workspace_current_rejects_tampered_second_revision_history(tmp_path: Path) -> None:
+    workspace, first_result, second_result = _seed_two_revision_workspace(tmp_path)
+
+    second_qspec = workspace / "specs" / "history" / "rev_000002.json"
+    first_qspec = workspace / "specs" / "history" / f"{first_result.revision}.json"
+    second_qspec.write_text(first_qspec.read_text())
+
+    with pytest.raises(ImportSourceError) as excinfo:
+        resolve_workspace_current(workspace)
+
+    assert second_result.revision == "rev_000002"
+    assert excinfo.value.code in {
+        "report_qspec_hash_mismatch",
+        "report_qspec_semantic_hash_mismatch",
+    }
+    assert excinfo.value.source == str(workspace / "reports" / "history" / "rev_000002.json")
+
+
 def test_resolve_report_file_infers_workspace_and_summarizes_source(tmp_path: Path) -> None:
     workspace = _seed_workspace(tmp_path)
     report_file = workspace / "reports" / "latest.json"
@@ -431,6 +468,18 @@ def _seed_workspace(tmp_path: Path) -> Path:
     result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
     assert result.status == "ok"
     return workspace
+
+
+def _seed_two_revision_workspace(tmp_path: Path):
+    workspace = tmp_path / ".quantum"
+    first_result = execute_intent(workspace_root=workspace, intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md")
+    second_result = execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md",
+    )
+    assert first_result.status == "ok"
+    assert second_result.status == "ok"
+    return workspace, first_result, second_result
 
 
 def _sha256_file(path: Path) -> str:
