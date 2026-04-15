@@ -267,20 +267,22 @@ if expected_semantic_hash is not None and actual_semantic_hash != expected_seman
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| `A1` | Phase 07 可以只修新写入路径，不自动迁移或修复历史上已经写坏的真实用户 workspace；这类 workspace 可以通过 rerun/rebaseline 或人工清理处理。[ASSUMED] | `Open Questions`, `Recommended Plan Split` | 若错误，用户可能需要一个显式 migration/doctor repair 才能重新使用旧 workspace。 |
-| `A2` | `tests/test_cli_runtime_gap.py` 与 `tests/test_cli_compare.py` 的重复 compare gate 断言可以先保留到 Phase 07 结束，再在 Phase 8/closeout 决定是否合并。[ASSUMED] | `Validation Architecture`, `Open Questions` | 若错误，Phase 07 的测试面会过于重复，导致后续维护噪音上升。 |
+| `A1` | RESOLVED 2026-04-15：Phase 07 只修新写入路径与健康/fresh workspace 的 compare reopen，不自动迁移或修复历史上已经写坏的真实用户 workspace；这类 workspace 继续通过 rerun、rebaseline 或人工清理处理。[VERIFIED: user revision instructions][VERIFIED: .planning/ROADMAP.md][VERIFIED: .planning/REQUIREMENTS.md] | `Resolved Questions`, `Recommended Plan Split`, `07-01/07-02 plans` | 若错误，用户可能需要一个显式 migration/doctor repair 才能重新使用旧 workspace。 |
+| `A2` | RESOLVED 2026-04-15：`tests/test_cli_runtime_gap.py`、`tests/test_cli_compare.py` 与 `tests/test_runtime_compare.py` 的 compare gate coverage 在 Phase 07 保留，不在本 phase 做去重；是否合并留到 Phase 8/closeout 再决策。[VERIFIED: user revision instructions][VERIFIED: .planning/ROADMAP.md] | `Validation Architecture`, `Resolved Questions`, `07-02/07-03 plans` | 若错误，Phase 07 的测试面会过于重复，导致后续维护噪音上升。 |
 
-## Open Questions
+## Open Questions — RESOLVED (2026-04-15)
 
 1. **是否需要处理已经被旧 bug 污染的真实 workspace？**  
    What we know: 当前红测和本地复现都使用 fresh workspace；它们证明“新写入路径”有 bug，但没有回答“历史上已写坏的用户 workspace 是否必须自动修复”。[VERIFIED: local reproduction 2026-04-15][VERIFIED: local test run 2026-04-15]  
-   What's unclear: 产品是否需要一个 migration/doctor fix，还是接受“重新 exec / 重新 set baseline”作为修复方式。[ASSUMED]  
-   Recommendation: 规划时显式做出决定；若坚持 Phase 07 只做 `POLC-01` 收口，可以不做 migration，但要在计划里写清楚“旧 workspace 不会自动恢复”。[ASSUMED]
+   Decision: **RESOLVED — Phase 07 不处理已经被旧 bug 污染的真实 workspace，也不新增 migration/doctor repair。** 本 phase 的范围限定为修复 producer 新写入契约，让修复后的 revision 与 fresh/healthy workspace 重新通过 trusted reopen 和 compare gate。[VERIFIED: user revision instructions][VERIFIED: .planning/REQUIREMENTS.md]  
+   Operator consequence: **已经被污染的旧 workspace 不会因为 Phase 07 自动恢复。** 操作者仍可能在 compare/import 上看到 `report_qspec_semantic_hash_mismatch` 或同类 replay-integrity 阻断；要恢复使用，需要 rerun 受影响 revision、重新设置 baseline，或手工清理/重建该 workspace。[VERIFIED: user revision instructions][VERIFIED: src/quantum_runtime/runtime/imports.py][ASSUMED]  
+   Plan mapping: 该决策已落到 `07-01` 与 `07-02` 的 objective/success criteria，明确声明只保证修复后的健康路径恢复，不承诺历史污染 workspace 自动自愈。[VERIFIED: .planning/phases/07-compare-trust-closure/07-01-PLAN.md][VERIFIED: .planning/phases/07-compare-trust-closure/07-02-PLAN.md]
 
 2. **Phase 07 是否要顺手合并重复的 compare regression？**  
    What we know: `tests/test_cli_compare.py`、`tests/test_cli_runtime_gap.py`、`tests/test_runtime_compare.py` 都在表达同一条 cross-phase trust closure，只是层级不同。[VERIFIED: tests/test_cli_compare.py:811-876][VERIFIED: tests/test_cli_runtime_gap.py:137-189][VERIFIED: tests/test_runtime_compare.py:410-438]  
-   What's unclear: 本 phase 是否应顺便做测试去重，还是把“红测转绿”放在首位。[ASSUMED]  
-   Recommendation: 先保留三层 coverage；等 Phase 07 绿了再决定是否在 Phase 8 做去重，不要让测试重组干扰主修复路径。[ASSUMED]
+   Decision: **RESOLVED — Phase 07 保留现有三层 compare regression coverage，不在本 phase 做测试去重。** `07-02` 继续把这三层 compare 合同绿化，`07-03` 在其之上执行完整 Phase 07 gate 与 exec/import regression hardening。[VERIFIED: user revision instructions][VERIFIED: .planning/ROADMAP.md]  
+   Reason: 当前 blocker 是 trust closure 断裂，不是测试组织方式；先保留多层 coverage 能最大化锁住 producer fix、compare policy surface、以及 runtime reopen 三个边界。[VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md][VERIFIED: local test run 2026-04-15]  
+   Follow-up: 若 Phase 07 完成后仍认为 compare suites 噪音过高，再由 Phase 8/closeout 单独决策是否做去重，不让本 phase 的主修复路径被测试重组干扰。[ASSUMED]
 
 ## Environment Availability
 
