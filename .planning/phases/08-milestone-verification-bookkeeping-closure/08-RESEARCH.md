@@ -104,7 +104,7 @@ This structure keeps Phase 08 as the coordinator phase while still writing the m
 ./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py -q --maxfail=1
 ./.venv/bin/ruff check src tests
 ./.venv/bin/python -m mypy src
-./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1
+./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1
 ```
 
 These commands are the right ordering because they establish whether Phase 03 and Phase 04 are currently true before any ledger is edited. [VERIFIED: CONTRIBUTING.md][VERIFIED: local test run][ASSUMED]
@@ -121,7 +121,7 @@ These commands are the right ordering because they establish whether Phase 03 an
 # Canonical Phase 04 gate
 ./.venv/bin/ruff check src tests
 ./.venv/bin/python -m mypy src
-./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1
+./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1
 
 # Repo-wide smoke, not the same thing
 ./scripts/dev-bootstrap.sh verify
@@ -231,7 +231,7 @@ This is the smallest trustworthy Phase 03 closeout probe because it exercises bo
 ```bash
 ./.venv/bin/ruff check src tests
 ./.venv/bin/python -m mypy src
-./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1
+./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1
 ```
 
 This is the gate that currently passes and should be treated as the canonical Phase 04 closeout truth unless the script is changed to match it. [VERIFIED: CONTRIBUTING.md][VERIFIED: local test run]
@@ -266,22 +266,19 @@ This is the minimum scripted proof that Phase 08 closed both the missing verific
 | A2 | `PROJECT.md` and `v1.0-MILESTONE-AUDIT.md` should be refreshed during the final closeout if the archive workflow expects a final passed snapshot. [ASSUMED] | Summary / Recommended Plan Split | The plan could either miss a required archival artifact or spend time on a document the workflow does not actually consume. |
 | A3 | `./scripts/dev-bootstrap.sh` does not need to be changed if `CONTRIBUTING.md` is updated to describe it as full-repo smoke rather than the exact Phase 04 gate. [ASSUMED] | Documentation / Bookkeeping vs New Verification Work | The team may prefer the opposite source-of-truth choice and want the script changed instead. |
 
-## Open Questions
+## Resolved Questions (RESOLVED)
 
-1. **After closure, should `RUNT-02` stay mapped to Phase 08 or move back to Phase 03 in `REQUIREMENTS.md`?**
-   - What we know: `REQUIREMENTS.md` already maps `POLC-01` to Phase 07 after a gap-closure phase, and currently maps `RUNT-02` to Phase 08. [VERIFIED: .planning/REQUIREMENTS.md]
-   - What's unclear: whether the project wants “original implementation owner” or “terminal closure owner” as the traceability convention. [ASSUMED]
-   - Recommendation: choose one convention before editing any ledgers and apply it consistently across `ROADMAP.md`, `STATE.md`, and `REQUIREMENTS.md`. [ASSUMED]
+1. **`RUNT-02` remains mapped to Phase 08 in `REQUIREMENTS.md`.**
+   - Resolved direction: Phase 08 is the terminal closure owner for `RUNT-02`, even though the missing proof artifact is written into the Phase 03 directory. This matches the current repo precedent where a gap-closure phase can become the final traceability owner (`POLC-01 -> Phase 07`). [VERIFIED: .planning/REQUIREMENTS.md]
+   - Planning consequence: `ROADMAP.md`, `STATE.md`, and `REQUIREMENTS.md` should all preserve `RUNT-02 -> Phase 08 -> Complete` during closeout. [VERIFIED: .planning/ROADMAP.md][VERIFIED: .planning/STATE.md][VERIFIED: .planning/REQUIREMENTS.md][ASSUMED]
 
-2. **Does milestone archive policy require backfilling `03-VALIDATION.md`, or is `03-VERIFICATION.md` enough?**
-   - What we know: the current audit explicitly calls out missing `03-VERIFICATION.md` as the blocker, and this research phase itself is expected to provide `08-VALIDATION.md`. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md][VERIFIED: .planning/config.json]
-   - What's unclear: whether the archive workflow also insists on retroactive historical validation docs for earlier phases. [ASSUMED]
-   - Recommendation: keep retroactive `03-VALIDATION.md` out of scope unless a downstream planner or archive command explicitly requires it. [ASSUMED]
+2. **Retroactive `03-VALIDATION.md` backfill is out of scope.**
+   - Resolved direction: `03-VERIFICATION.md` is the required missing artifact for milestone closeout; retroactive `03-VALIDATION.md` is not required for Phase 08 unless a later archive workflow explicitly introduces that requirement. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md][VERIFIED: .planning/phases/08-milestone-verification-bookkeeping-closure/08-VALIDATION.md]
+   - Planning consequence: `08-01` should spend scope on truthful rerun evidence plus `03-VERIFICATION.md`, not on reconstructing historical validation paperwork. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md][ASSUMED]
 
-3. **Should unrelated full-suite failures block Phase 08 closeout?**
-   - What we know: `./scripts/dev-bootstrap.sh verify` currently fails on unrelated control-plane, inspect, and report-writer tests, plus one overlapping Phase 03 regression. [VERIFIED: local test run]
-   - What's unclear: whether milestone archival policy demands full-repo green or only gap-owned truth sets plus honest residual-risk recording. [ASSUMED]
-   - Recommendation: treat the overlapping Phase 03 regression as in-scope for Phase 08, and treat unrelated full-suite failures as residual repo-health debt unless the user explicitly widens scope. [VERIFIED: local test run][ASSUMED]
+3. **Unrelated full-suite failures do not block Phase 08 closeout.**
+   - Resolved direction: Only the Phase 08-owned truth sets block closure: the Phase 03 workspace-safety rerun, the canonical Phase 04 gate, and the final ledger/audit sync. Unrelated failures from `./scripts/dev-bootstrap.sh verify` remain residual repo-smoke debt once those owned proofs are green and documented honestly. [VERIFIED: local test run][VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md]
+   - Planning consequence: the overlapping Phase 03 regression is in scope, but unrelated control-plane, inspect, and report-writer failures stay recorded as residual debt instead of reopening `RUNT-02`, `INT-02`, or `FLOW-02`. [VERIFIED: local test run][ASSUMED]
 
 ## Environment Availability
 
@@ -312,14 +309,14 @@ This is the minimum scripted proof that Phase 08 closed both the missing verific
 | Framework | `pytest 9.0.2`, `ruff 0.15.8`, `mypy 1.20.0`. [VERIFIED: local test run] |
 | Config file | `pyproject.toml` and `mypy.ini`. [VERIFIED: AGENTS.md] |
 | Quick run command | `./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py -q --maxfail=1`. [VERIFIED: local test run] |
-| Full suite command | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1`. [VERIFIED: CONTRIBUTING.md][VERIFIED: local test run][ASSUMED] |
+| Full suite command | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1`. [VERIFIED: CONTRIBUTING.md][VERIFIED: local test run][ASSUMED] |
 
 ### Phase Requirements → Test Map
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | `RUNT-02` | Shared-workspace writes remain coherent under conflicts and interrupted commits. [VERIFIED: .planning/REQUIREMENTS.md] | Runtime + CLI integration. [VERIFIED: tests/test_runtime_workspace_safety.py][VERIFIED: tests/test_cli_workspace_safety.py] | `./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py tests/test_cli_compare.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_runtime_gap.py -q --maxfail=1`. [VERIFIED: local test run][ASSUMED] | ✅ [VERIFIED: directory listing] |
-| `INT-02` | Phase 04 bookkeeping reflects executed work and the canonical local gate. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md] | Tooling + doc audit. [VERIFIED: CONTRIBUTING.md][VERIFIED: scripts/dev-bootstrap.sh][VERIFIED: .planning/phases/04-policy-acceptance-gates/04-VERIFICATION.md] | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py -q --maxfail=1`. [VERIFIED: local test run] | ✅ [VERIFIED: directory listing] |
+| `INT-02` | Phase 04 bookkeeping reflects executed work and the canonical local gate. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md] | Tooling + doc audit. [VERIFIED: CONTRIBUTING.md][VERIFIED: scripts/dev-bootstrap.sh][VERIFIED: .planning/phases/04-policy-acceptance-gates/04-VERIFICATION.md] | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1`. [VERIFIED: local test run] | ✅ [VERIFIED: directory listing] |
 | `FLOW-02` | Milestone closeout has one self-consistent proof chain across verification artifacts and ledgers. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md] | Scripted ledger audit + manual review. [VERIFIED: .planning/ROADMAP.md][VERIFIED: .planning/STATE.md][VERIFIED: .planning/REQUIREMENTS.md] | `test -f .planning/phases/03-concurrent-workspace-safety/03-VERIFICATION.md && test -f .planning/phases/04-policy-acceptance-gates/04-VERIFICATION.md && rg -n "Phase 4|Phase 8|RUNT-02|POLC-01" .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/v1.0-MILESTONE-AUDIT.md`. [VERIFIED: directory listing][ASSUMED] | ⚠️ `03-VERIFICATION.md` missing in Wave 0. [VERIFIED: directory listing] |
 
 ### Sampling Rate
@@ -379,14 +376,14 @@ This is the minimum scripted proof that Phase 08 closed both the missing verific
 
 ### Tertiary (LOW confidence)
 
-- None. Remaining uncertainty is isolated in the Assumptions Log and Open Questions. [VERIFIED: local test run][ASSUMED]
+- None. The prior requirement-ownership, retroactive-validation, and full-suite-blocker questions are now resolved for planning; only archive-wording preferences remain as low-risk assumptions. [VERIFIED: local test run][ASSUMED]
 
 ## Metadata
 
 **Confidence breakdown:**
 
 - Standard stack: HIGH - all required local tools and command forms were verified in the current workspace. [VERIFIED: local test run]
-- Architecture: MEDIUM - the closeout structure is clear, but requirement-ownership convention and final archive expectations still need an explicit choice. [VERIFIED: .planning/REQUIREMENTS.md][ASSUMED]
+- Architecture: HIGH - the closeout structure, requirement ownership, retroactive validation scope, and blocker policy are now explicit for execution; only archive-wording preferences remain assumed. [VERIFIED: .planning/REQUIREMENTS.md][ASSUMED]
 - Pitfalls: HIGH - the main risks were verified directly by current audit artifacts and fresh local probes. [VERIFIED: .planning/v1.0-MILESTONE-AUDIT.md][VERIFIED: local test run]
 
 **Research date:** 2026-04-16. [VERIFIED: system date]

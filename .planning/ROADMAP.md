@@ -129,7 +129,12 @@ Plans:
 **Depends on**: Phase 7
 **Requirements**: RUNT-02
 **Gap Closure:** Closes milestone gaps `RUNT-02`, `INT-02`, and `FLOW-02`
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — Re-run the Phase 03 truth probe, fix the interrupted-commit report seam if needed, and mint truthful `03-VERIFICATION.md`
+- [ ] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
+- [ ] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
 
 ## Progress
 
@@ -142,4 +147,4 @@ Plans:
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
 | 7. Compare Trust Closure | 3/3 | Complete | 2026-04-15 |
-| 8. Verification And Bookkeeping Closure | 0/TBD | Not started | - |
+| 8. Verification And Bookkeeping Closure | 0/3 | Not started | - |
