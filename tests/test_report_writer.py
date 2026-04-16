@@ -52,6 +52,7 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
         backend_reports={},
         warnings=[],
         errors=[],
+        promote_latest=True,
     )
 
     latest_path = handle.root / "reports" / "latest.json"

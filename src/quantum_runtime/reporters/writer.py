@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from quantum_runtime.artifact_provenance import canonicalize_artifact_provenance
+from quantum_runtime.artifact_provenance import (
+    canonicalize_artifact_provenance,
+    select_accessible_artifact_paths,
+)
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.workspace.manager import WorkspaceHandle
 
@@ -24,8 +27,9 @@ def write_report(
     backend_reports: dict[str, Any],
     warnings: list[str],
     errors: list[str],
+    promote_latest: bool = False,
 ) -> dict[str, Any]:
-    """Write `reports/latest.json` and a revision history copy."""
+    """Write a revision-scoped report and optionally promote `reports/latest.json`."""
     latest_path = workspace.root / "reports" / "latest.json"
     history_path = workspace.root / "reports" / "history" / f"{revision}.json"
     artifact_payload = dict(artifacts)
@@ -36,17 +40,18 @@ def write_report(
         revision=revision,
         artifacts=artifact_payload,
     )
-    canonical_qspec_path = qspec_path.resolve()
-    canonical_qspec = QSpec.model_validate_json(canonical_qspec_path.read_text())
-    semantics = summarize_qspec_semantics(canonical_qspec)
+    canonical_qspec_path = Path(str(artifact_provenance["paths"]["qspec"]))
+    semantics = summarize_qspec_semantics(qspec)
     artifact_payload = dict(artifact_provenance["paths"])
-    artifact_payload["qspec"] = str(canonical_qspec_path)
-    artifact_payload["report"] = str(history_path.resolve())
-    qspec_hash = _sha256_file(canonical_qspec_path)
+    accessible_artifact_paths = select_accessible_artifact_paths(artifact_provenance)
+    qspec_hash = _qspec_hash(
+        qspec=qspec,
+        canonical_qspec_path=canonical_qspec_path,
+    )
     replay_integrity = _build_replay_integrity(
         qspec_hash=qspec_hash,
         qspec_semantic_hash=semantics["semantic_hash"],
-        artifact_paths=artifact_payload,
+        artifact_paths=accessible_artifact_paths,
     )
     status = _derive_report_status(
         warnings=warnings,
@@ -62,6 +67,7 @@ def write_report(
             revision=revision,
             input_data=input_data,
             qspec_path=canonical_qspec_path,
+            qspec_hash=qspec_hash,
             semantics=semantics,
             artifact_provenance=artifact_provenance,
         ),
@@ -73,7 +79,10 @@ def write_report(
         "semantics": semantics,
         "replay_integrity": replay_integrity,
         "artifacts": artifact_payload,
-        "diagnostics": diagnostics,
+        "diagnostics": _canonicalize_diagnostics(
+            diagnostics=diagnostics,
+            artifact_paths=artifact_payload,
+        ),
         "backend_reports": backend_reports,
         "warnings": warnings,
         "errors": errors,
@@ -85,13 +94,26 @@ def write_report(
     }
 
     serialized = json.dumps(payload, indent=2, ensure_ascii=True)
-    latest_path.write_text(serialized)
     history_path.write_text(serialized)
+    if promote_latest:
+        latest_path.write_text(serialized)
     return payload
+
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     return f"sha256:{digest}"
+
+
+def _sha256_bytes(data: bytes) -> str:
+    digest = hashlib.sha256(data).hexdigest()
+    return f"sha256:{digest}"
+
+
+def _qspec_hash(*, qspec: QSpec, canonical_qspec_path: Path) -> str:
+    if canonical_qspec_path.exists() and canonical_qspec_path.is_file():
+        return _sha256_file(canonical_qspec_path)
+    return _sha256_bytes(qspec.model_dump_json(indent=2).encode("utf-8"))
 
 
 def _build_provenance(
@@ -100,6 +122,7 @@ def _build_provenance(
     revision: str,
     input_data: dict[str, Any],
     qspec_path: Path,
+    qspec_hash: str,
     semantics: dict[str, Any],
     artifact_provenance: dict[str, Any],
 ) -> dict[str, Any]:
@@ -113,7 +136,7 @@ def _build_provenance(
         },
         "qspec": {
             "path": str(qspec_path),
-            "hash": _sha256_file(qspec_path),
+            "hash": qspec_hash,
             "semantic_hash": semantics["semantic_hash"],
         },
         "subject": {
@@ -124,6 +147,21 @@ def _build_provenance(
         },
         "artifacts": artifact_provenance,
     }
+
+
+def _canonicalize_diagnostics(
+    *,
+    diagnostics: dict[str, Any],
+    artifact_paths: dict[str, str],
+) -> dict[str, Any]:
+    payload = json.loads(json.dumps(diagnostics))
+    diagram = payload.get("diagram")
+    if isinstance(diagram, dict):
+        if "diagram_txt" in artifact_paths:
+            diagram["text_path"] = artifact_paths["diagram_txt"]
+        if "diagram_png" in artifact_paths:
+            diagram["png_path"] = artifact_paths["diagram_png"]
+    return payload
 
 
 def _build_replay_integrity(
