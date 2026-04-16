@@ -133,6 +133,12 @@ def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> No
     )
 
     artifact_provenance = report["provenance"]["artifacts"]
+    assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qspec"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["report"] == str(handle.root / "reports" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qiskit_code"] == str(qiskit_snapshot)
+    assert report["diagnostics"]["diagram"]["text_path"] == str(diagram_txt_snapshot)
+    assert report["diagnostics"]["diagram"]["png_path"] == str(diagram_png_snapshot)
     assert artifact_provenance["snapshot_root"] == str(snapshot_root)
     assert artifact_provenance["current_root"] == str(handle.root / "artifacts")
     assert artifact_provenance["paths"]["qiskit_code"] == str(qiskit_snapshot)
@@ -345,5 +351,6 @@ def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
     )
 
     assert report["status"] == "degraded"
+    assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
     assert any("classiq" in suggestion.lower() for suggestion in report["suggestions"])
     assert any("install" in suggestion.lower() for suggestion in report["suggestions"])
