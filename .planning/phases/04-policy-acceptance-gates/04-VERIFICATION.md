@@ -1,29 +1,17 @@
 ---
 phase: 04-policy-acceptance-gates
-verified: 2026-04-13T00:17:18Z
-status: gaps_found
-score: 11/12 must-haves verified
+verified: 2026-04-16T01:16:06Z
+status: passed
+score: 12/12 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "Phase 4 executors can run one repo-local verification path that covers Ruff, MyPy, and the targeted policy-gate pytest files."
-    status: partial
-    reason: "The exact repo-local phase gate passes, but CONTRIBUTING.md says `./scripts/dev-bootstrap.sh verify` runs the same gate while the script actually runs full `pytest -q`; the advertised one-shot path currently fails on unrelated inspect tests and does not match the documented phase-specific sequence."
-    artifacts:
-      - path: "CONTRIBUTING.md"
-        issue: "Lines 22-33 describe `./scripts/dev-bootstrap.sh verify` as the same repo-local gate as the exact Phase 4 command sequence."
-      - path: "scripts/dev-bootstrap.sh"
-        issue: "Lines 97-108 run Ruff, module-form MyPy, and full `pytest -q`, not the documented Phase 4 subset; a supplementary run exited 1 on unrelated `tests/test_cli_inspect.py` failures."
-    missing:
-      - "Align `./scripts/dev-bootstrap.sh verify` with the documented Phase 4 gate, or update CONTRIBUTING.md so it no longer claims the script runs the same phase-specific sequence."
-      - "Choose one canonical Phase 4 local gate and keep it current with the completed phase suite, including `tests/test_runtime_policy.py` if that file remains part of the owned verification set."
 ---
 
 # Phase 4: Policy Acceptance Gates Verification Report
 
 **Phase Goal:** Agents and CI can accept or reject runtime revisions directly from FluxQ policy surfaces.
-**Verified:** 2026-04-13T00:17:18Z
-**Status:** gaps_found
-**Re-verification:** No - initial verification
+**Verified:** 2026-04-16T01:16:06Z
+**Status:** passed
+**Re-verification:** Yes - refreshed after the Phase 08 gate-contract reconciliation
 
 ## Goal Achievement
 
@@ -32,9 +20,9 @@ gaps:
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
 | 1 | Agent or CI can compare a revision against baseline state and fail on selected drift classes using FluxQ output and exit behavior alone. | ✓ VERIFIED | `compare_command()` builds `ComparePolicy` only from CLI flags and baseline mode delegates to `compare_workspace_baseline()` (`src/quantum_runtime/cli.py:1461-1510`); `compare_workspace_baseline()` resolves baseline/current and returns a populated `baseline` block (`src/quantum_runtime/runtime/compare.py:110-133`); manual CLI smoke returned `exit_code=2`, `verdict=fail`, `failed_checks=["subject_drift"]`, `gate_ready=false`; regression coverage at `tests/test_cli_compare.py:811-876` and `tests/test_cli_runtime_gap.py:119-170`. |
-| 2 | Agent or CI can use benchmark results as policy evidence, including compare-to-baseline flows, without custom wrapper logic. | ✓ VERIFIED | `bench_command()` builds `BenchmarkPolicy` from explicit flags, loads saved baseline benchmark evidence, applies `apply_benchmark_policy()`, persists the augmented report, and exits through `exit_code_for_benchmark()` (`src/quantum_runtime/cli.py:879-987`); targeted Phase 4 suite passed with `68 passed in 8.15s`, including `tests/test_cli_bench.py:266-367` and `tests/test_runtime_policy.py:41-84`. |
+| 2 | Agent or CI can use benchmark results as policy evidence, including compare-to-baseline flows, without custom wrapper logic. | ✓ VERIFIED | `bench_command()` builds `BenchmarkPolicy` from explicit flags, loads saved baseline benchmark evidence, applies `apply_benchmark_policy()`, persists the augmented report, and exits through `exit_code_for_benchmark()` (`src/quantum_runtime/cli.py:879-987`); the refreshed exact Phase 4 suite passed with `70 passed in 10.70s`, including `tests/test_cli_bench.py:266-367` and `tests/test_runtime_policy.py:41-84`. |
 | 3 | Agent or CI can run doctor in CI-oriented mode and receive explicit blocking versus advisory outcomes in machine-readable form. | ✓ VERIFIED | `doctor_command()` exposes `--ci`, threads it into `run_doctor()`, emits CI-enriched JSON/JSONL, and uses verdict-driven exits (`src/quantum_runtime/cli.py:1591-1642`); `run_doctor(ci=True)` applies `DoctorPolicy` before persistence/output (`src/quantum_runtime/runtime/doctor.py:98-122`); manual CLI smoke returned `exit_code=2`, `blocking_issues=["active_report_missing"]`, `gate_ready=false`; regression coverage at `tests/test_cli_doctor.py:126-228`. |
-| 4 | Phase 4 executors can run one repo-local verification path that covers Ruff, MyPy, and the targeted policy-gate pytest files. | ✗ FAILED | The exact Phase 4 repo-local command passed (`./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1` → `68 passed in 8.15s`), but `CONTRIBUTING.md:22-33` says `./scripts/dev-bootstrap.sh verify` runs the same gate while `scripts/dev-bootstrap.sh:97-108` actually runs full `pytest -q`; a supplementary `./scripts/dev-bootstrap.sh verify` run exited 1 on unrelated `tests/test_cli_inspect.py` failures. |
+| 4 | The exact Phase 4 repo-local gate is the canonical proof path for the targeted policy-gate pytest files, and it is clearly distinguished from the broader repo smoke command. | ✓ VERIFIED | The canonical gate is `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1`, which passed on refresh with `70 passed in 10.70s`. `CONTRIBUTING.md:22-38` now names that exact Phase 4 gate explicitly and includes `tests/test_runtime_policy.py`, while `scripts/dev-bootstrap.sh:19-20,104-108` describes `./scripts/dev-bootstrap.sh verify` as the broader repo smoke command running `qrun version`, Ruff, module-form MyPy, and full `pytest -q`, not as equivalent proof for `POLC-01`, `POLC-02`, or `POLC-03`. |
 | 5 | Local verification still works when `./.venv/bin/mypy` is unusable under the current workspace path, because the repo runs MyPy through `./.venv/bin/python -m mypy`. | ✓ VERIFIED | `scripts/dev-bootstrap.sh:100-105` explicitly probes the broken direct launcher and falls back to `"$ROOT_DIR/.venv/bin/python" -m mypy src`; live run logged “Direct MyPy launcher failed...” and completed `mypy` successfully. |
 | 6 | Phase 4 plans no longer rely on pytest-only verification; lint and type checks are part of the owned validation path. | ✓ VERIFIED | `scripts/dev-bootstrap.sh:97-105` runs Ruff then module-form MyPy before pytest, and `CONTRIBUTING.md:22-33` documents repo-local Ruff/MyPy/pytest usage; live runs returned `All checks passed!` for Ruff and `Success: no issues found in 54 source files` for MyPy. |
 | 7 | Persisted compare artifacts under `.quantum/compare/` remain schema-versioned machine output, not CLI-only payloads. | ✓ VERIFIED | `persist_compare_result()` serializes `ensure_schema_payload(result)` before writing `compare/latest.json` and `compare/history/*.json` (`src/quantum_runtime/runtime/compare.py:251-269`); `tests/test_cli_compare.py:878-934` pins `schema_version == "0.3.0"` on both persisted files. |
@@ -44,14 +32,14 @@ gaps:
 | 11 | Advisory-only doctor CI results exit `0`, while blocking doctor CI findings exit `2`, without changing the existing non-`--ci` command behavior. | ✓ VERIFIED | `exit_code_for_doctor()` is verdict-first only when a CI verdict exists and falls back to legacy workspace/dependency mapping otherwise (`src/quantum_runtime/runtime/exit_codes.py:64-76`); `tests/test_cli_doctor.py:126-137` pins advisory-only `--ci` pass, `tests/test_cli_doctor.py:189-228` pins blocking `--ci` failure, and `tests/test_cli_doctor.py:173-186` keeps non-`--ci` dependency behavior at exit 7. |
 | 12 | The final `doctor_completed` JSONL payload carries the same blocking/advisory decision data as the JSON payload. | ✓ VERIFIED | `doctor_command()` emits `doctor_completed` with `report.model_dump(mode="json", exclude_none=not ci)` after policy application (`src/quantum_runtime/cli.py:1638-1640`); `tests/test_cli_observability.py:390-421` asserts `blocking_issues`, `advisory_issues`, `verdict`, and `gate` are present in the final JSONL payload. |
 
-**Score:** 11/12 truths verified
+**Score:** 12/12 truths verified
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 | --- | --- | --- | --- |
-| `scripts/dev-bootstrap.sh` | Path-safe local verify gate for Ruff, MyPy, and pytest | ✓ VERIFIED | 152 lines. Substantive `verify_project()` implementation uses module-form MyPy fallback (`scripts/dev-bootstrap.sh:89-109`). The remaining issue is semantic drift against docs, not a stub. |
-| `CONTRIBUTING.md` | Documented Phase 4 validation commands for local execution | ✓ VERIFIED | 66 lines. Documents explicit repo-local Ruff/MyPy/pytest commands and points to the bootstrap script (`CONTRIBUTING.md:22-33`), though the script no longer matches the “same gate” claim. |
+| `scripts/dev-bootstrap.sh` | Truthful broader repo smoke command for `qrun version`, Ruff, MyPy, and full pytest | ✓ VERIFIED | 152 lines. Substantive `verify_project()` implementation uses module-form MyPy fallback and now describes `verify` as the broader smoke path rather than the exact Phase 4 gate (`scripts/dev-bootstrap.sh:19-20,89-109`). |
+| `CONTRIBUTING.md` | Documented exact Phase 4 gate plus truthful guidance for the broader local smoke path | ✓ VERIFIED | 68 lines. Documents the exact repo-local Phase 4 command sequence, including `tests/test_runtime_policy.py`, and explicitly distinguishes it from `./scripts/dev-bootstrap.sh verify` (`CONTRIBUTING.md:22-38`). |
 | `src/quantum_runtime/runtime/compare.py` | Schema-versioned compare persistence for latest/history outputs | ✓ VERIFIED | 904 lines. `compare_workspace_baseline()`, `compare_import_resolutions()`, and `persist_compare_result()` are substantive and wired (`src/quantum_runtime/runtime/compare.py:110-269`). |
 | `src/quantum_runtime/cli.py` | Explicit compare, benchmark, and doctor policy surfaces | ✓ VERIFIED | 1667 lines. Contains `bench`, `compare`, and `doctor` command surfaces with explicit flag-driven policy activation and verdict-driven exits (`src/quantum_runtime/cli.py:784-1004,1440-1642`). |
 | `src/quantum_runtime/runtime/policy.py` | Shared benchmark/doctor policy primitives | ✓ VERIFIED | 422 lines. Provides `PolicyVerdict`, `BenchmarkPolicy`, `DoctorPolicy`, `apply_benchmark_policy()`, and `apply_doctor_policy()` with substantive fail-closed logic (`src/quantum_runtime/runtime/policy.py:27-422`). |
@@ -69,7 +57,7 @@ gaps:
 | From | To | Via | Status | Details |
 | --- | --- | --- | --- | --- |
 | `scripts/dev-bootstrap.sh` | `.venv/bin/python` | Module-form MyPy invocation that avoids the broken launcher path | ✓ WIRED | `scripts/dev-bootstrap.sh:100-105` probes the broken launcher and always runs `"$ROOT_DIR/.venv/bin/python" -m mypy src`. |
-| `CONTRIBUTING.md` | `scripts/dev-bootstrap.sh` | Documented repo-local verify command and exact lint/type/test sequence | ⚠️ PARTIAL | `CONTRIBUTING.md:22-33` says `./scripts/dev-bootstrap.sh verify` runs the same Phase 4 gate, but `scripts/dev-bootstrap.sh:107-108` executes full `pytest -q`, not the documented phase-specific subset; supplementary script execution failed on unrelated inspect tests. |
+| `CONTRIBUTING.md` | `scripts/dev-bootstrap.sh` | Matching wording for the exact Phase 4 gate versus the broader repo smoke command | ✓ WIRED | `CONTRIBUTING.md:22-38` names the exact Phase 4 gate and explicitly says `./scripts/dev-bootstrap.sh verify` is broader full local smoke, while `scripts/dev-bootstrap.sh:19-20,104-108` describes that same broader smoke path and its full `pytest -q` scope. |
 | `src/quantum_runtime/cli.py` | `src/quantum_runtime/runtime/compare.py` | Baseline mode delegates to compare baseline/current evaluation with explicit CLI policy flags | ✓ WIRED | `src/quantum_runtime/cli.py:1483-1510` delegates baseline mode to `compare_workspace_baseline()`. |
 | `src/quantum_runtime/runtime/compare.py` | `src/quantum_runtime/runtime/contracts.py` | Schema-versioned JSON persistence | ✓ WIRED | `src/quantum_runtime/runtime/compare.py:257` serializes `ensure_schema_payload(result)` from `runtime/contracts.py:140-150`; `gsd-tools` false-negatived this because the stored regex is invalid. |
 | `src/quantum_runtime/cli.py` | `src/quantum_runtime/runtime/policy.py` | Explicit benchmark flags build `BenchmarkPolicy` and evaluate against saved baseline evidence | ✓ WIRED | `src/quantum_runtime/cli.py:879-980` builds the policy, loads baseline evidence, and calls `apply_benchmark_policy()`. |
@@ -90,7 +78,7 @@ gaps:
 
 | Behavior | Command | Result | Status |
 | --- | --- | --- | --- |
-| Phase 4 targeted validation gate passes | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1` | `All checks passed!`, `Success: no issues found in 54 source files`, `68 passed in 8.15s` | ✓ PASS |
+| Phase 4 targeted validation gate passes | `./.venv/bin/ruff check src tests && ./.venv/bin/python -m mypy src && ./.venv/bin/python -m pytest tests/test_cli_compare.py tests/test_cli_runtime_gap.py tests/test_cli_bench.py tests/test_cli_doctor.py tests/test_cli_observability.py tests/test_runtime_policy.py -q --maxfail=1` | `All checks passed!`, `Success: no issues found in 54 source files`, `70 passed in 10.70s` | ✓ PASS |
 | Baseline compare policy fails with FluxQ-native gate output | Ad hoc `qrun exec -> qrun baseline set -> qrun exec -> qrun compare --baseline --fail-on subject_drift --json` | `exit_code=2`, `verdict=fail`, `failed_checks=["subject_drift"]`, `gate_ready=false`, `baseline_revision="rev_000001"` | ✓ PASS |
 | Doctor CI blocking path fails with machine-readable blocking/advisory fields | Ad hoc `qrun exec -> remove reports/latest.json -> qrun doctor --ci --json` | `exit_code=2`, `verdict=fail`, `blocking_issues=["active_report_missing"]`, `advisory_issues_count=1`, `gate_ready=false` | ✓ PASS |
 
@@ -112,7 +100,7 @@ No orphaned Phase 4 requirements were found. PLAN frontmatter declares exactly `
 
 ### Disconfirmation Notes
 
-- Partial requirement: the Phase 4 validation contract is split between an exact repo-local command that passes and a one-shot script that is documented as the same gate but currently is not.
+- Scope note: `./scripts/dev-bootstrap.sh verify` remains a broader repo smoke command, so it is not Phase 4 proof and can still fail outside the phase-owned compare/benchmark/doctor scope without reopening `POLC-01`, `POLC-02`, or `POLC-03`.
 - Misleading test: `tests/test_cli_observability.py:349-368` proves benchmark JSONL policy payload shape only for a passing gate; it does not show fail-case JSONL parity.
 - Uncovered error path: no regression directly exercises `benchmark_backend_incomparable:*` or `benchmark_status_regressed:*` branches in `apply_benchmark_policy()` (`src/quantum_runtime/runtime/policy.py:216-262`), so those fail-closed paths rely on code inspection rather than dedicated tests.
 
@@ -122,9 +110,11 @@ None. The Phase 4 surface is machine-readable CLI/runtime behavior and the criti
 
 ### Gaps Summary
 
-Phase 4’s core product goal is substantially implemented: compare, benchmark, and doctor all expose FluxQ-native policy surfaces, all three mapped requirements (`POLC-01`, `POLC-02`, `POLC-03`) are satisfied, and the targeted Phase 4 validation suite passes. The remaining gap is in the validation-enablement layer from plan `04-01`: `CONTRIBUTING.md` tells executors that `./scripts/dev-bootstrap.sh verify` runs the same Phase 4 repo-local gate, but the script actually runs the full pytest suite and currently fails on unrelated inspect regressions. Until the one-shot entrypoint and the documented Phase 4 gate are aligned, the phase should remain `gaps_found` rather than `passed`.
+No blocking gaps found.
+
+Phase 4’s core product goal is met: compare, benchmark, and doctor all expose FluxQ-native policy surfaces, all three mapped requirements (`POLC-01`, `POLC-02`, `POLC-03`) are satisfied, and the refreshed exact Phase 4 gate passes. The canonical local proof path is now the exact Phase 4 repo-local sequence, while `./scripts/dev-bootstrap.sh verify` is documented truthfully as a broader repo smoke command rather than equivalent proof. That preserves the warning that the one-shot script can still fail outside the phase-owned scope without creating new Phase 4 blockers.
 
 ---
 
-_Verified: 2026-04-13T00:17:18Z_  
+_Verified: 2026-04-16T01:16:06Z_  
 _Verifier: Codex (gsd-verifier)_
