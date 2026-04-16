@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-04-16T01:26:07.016Z"
-last_activity: 2026-04-16
+status: planning
+stopped_at: Planned Phase 08 gap closure after verifier gaps
+last_updated: "2026-04-16T01:45:00Z"
+last_activity: 2026-04-16 -- Phase 08 gaps identified and replanned
 progress:
   total_phases: 8
-  completed_phases: 8
-  total_plans: 27
+  completed_phases: 7
+  total_plans: 29
   completed_plans: 27
-  percent: 100
+  percent: 93
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 08 (milestone-verification-bookkeeping-closure) — COMPLETE
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-04-16
+Phase: 08 (milestone-verification-bookkeeping-closure) — GAP PLANS READY
+Plan: 3 of 5
+Status: Verification found a remaining exec alias-promotion recovery hole — gap plans ready to execute
+Last activity: 2026-04-16 -- replanned from `08-VERIFICATION.md`
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -51,7 +51,7 @@ Progress: [██████████] 100%
 | 05 | 3 | - | - |
 | 06 | 3 | - | - |
 | 07 | 3 | - | - |
-| 08 | 3 | - | - |
+| 08 | 5 | - | - |
 
 **Recent Trend:**
 
@@ -93,6 +93,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Documented ./scripts/dev-bootstrap.sh verify as a broader repo smoke command instead of shrinking it to the Phase 04 subset.
 - [Phase 08]: Kept `RUNT-02` owned by Phase 08 while citing `03-VERIFICATION.md` as the refreshed proof artifact. — Phase 08 is the terminal traceability owner in REQUIREMENTS.md, while Phase 03 now provides the current passed verification evidence used by the final milestone proof chain.
 - [Phase 08]: Treat unrelated `./scripts/dev-bootstrap.sh verify` failures as repo-smoke debt instead of milestone blockers once the exact proof chain is consistent. — The plan explicitly kept scope narrow to the owned Phase 03, Phase 04, and ledger proof chain; broader smoke failures remain documented debt and do not reopen FLOW-02.
+- [Phase 08]: Reopened Phase 08 after verifier reproduced a surviving `_promote_exec_aliases()` interruption path where `specs/current.json` can outrun `reports/latest.json` / `manifests/latest.json`.
+- [Phase 08]: Gap closure keeps `RUNT-02` under Phase 08 and adds two follow-up plans: one code/test repair plan and one proof-chain regeneration plan.
 
 ### Pending Todos
 
@@ -100,10 +102,11 @@ None yet.
 
 ### Blockers/Concerns
 
-None. Phase 03 and Phase 04 verification artifacts, milestone ledgers, and the passed audit snapshot are now synchronized.
+- Cross-phase: `_promote_exec_aliases()` can still fail after promoting `specs/current.json` and before promoting `reports/latest.json` / `manifests/latest.json`, leaving mixed active aliases that the next `exec` does not force into recovery.
+- Cross-phase: `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md` must be regenerated from the corrected alias-promotion proof before Phase 08 can honestly return to complete.
 
 ## Session Continuity
 
-Last session: 2026-04-16T01:25:57.315Z
-Stopped at: Completed 08-03-PLAN.md
+Last session: 2026-04-16T01:45:00Z
+Stopped at: Planned Phase 08 gap closure after verifier gaps
 Resume file: None

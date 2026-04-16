@@ -75,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGR-02 | Phase 1 | Complete |
 | INGR-03 | Phase 1 | Complete |
 | RUNT-01 | Phase 2 | Complete |
-| RUNT-02 | Phase 08 | Complete |
+| RUNT-02 | Phase 08 | Pending |
 | RUNT-03 | Phase 2 | Complete |
 | POLC-01 | Phase 7 | Complete |
 | POLC-02 | Phase 4 | Complete |
