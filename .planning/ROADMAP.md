@@ -13,9 +13,10 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - [x] **Phase 1: Canonical Ingress Resolution** - Normalize supported intent inputs into one side-effect-free runtime object surface.
 - [x] **Phase 2: Trusted Revision Artifacts** - Persist replayable revision evidence and fail closed on integrity drift.
 - [x] **Phase 3: Concurrent Workspace Safety** - Make shared workspace mutation safe for multiple agents and CI writers.
-- [ ] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
+- [x] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
 - [x] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
 - [x] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
+- [x] **Phase 8: Verification And Bookkeeping Closure** - Close the remaining milestone verification and bookkeeping gaps so the shipped control-plane phases can be archived consistently.
 
 ## Phase Details
 
@@ -77,10 +78,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Repair the local Phase 4 validation path so Ruff, MyPy, and the policy-gate pytest suite are executable from this workspace
-- [ ] 04-02-PLAN.md — Lock baseline/current compare fail-on behavior and schema-versioned compare persistence for POLC-01
-- [ ] 04-03-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate with provenance-safe history persistence
-- [ ] 04-04-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
+- [x] 04-01-PLAN.md — Repair the local Phase 4 validation path so Ruff, MyPy, and the policy-gate pytest suite are executable from this workspace
+- [x] 04-02-PLAN.md — Lock baseline/current compare fail-on behavior and schema-versioned compare persistence for POLC-01
+- [x] 04-03-PLAN.md — Turn benchmark evidence plus saved baselines into a FluxQ-native accept/reject gate with provenance-safe history persistence
+- [x] 04-04-PLAN.md — Add `doctor --ci` with explicit blocking/advisory outputs and verdict-driven exit behavior
 
 ### Phase 5: Verified Delivery Bundles
 **Goal**: Trusted runtime revisions can move between environments as portable bundles without losing provenance.
@@ -134,7 +135,7 @@ Plans:
 Plans:
 - [x] 08-01-PLAN.md — Re-run the Phase 03 truth probe, fix the interrupted-commit report seam if needed, and mint truthful `03-VERIFICATION.md`
 - [x] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
-- [ ] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
+- [x] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
 
 ## Progress
 
@@ -143,8 +144,8 @@ Plans:
 | 1. Canonical Ingress Resolution | 3/3 | Complete | 2026-04-12 |
 | 2. Trusted Revision Artifacts | 4/4 | Complete | 2026-04-12 |
 | 3. Concurrent Workspace Safety | 4/4 | Complete | 2026-04-12 |
-| 4. Policy Acceptance Gates | 0/4 | Not started | - |
+| 4. Policy Acceptance Gates | 4/4 | Complete | 2026-04-16 |
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
 | 7. Compare Trust Closure | 3/3 | Complete | 2026-04-15 |
-| 8. Verification And Bookkeeping Closure | 2/3 | In Progress | - |
+| 8. Verification And Bookkeeping Closure | 3/3 | Complete | 2026-04-16 |

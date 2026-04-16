@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 Phase: 08 (milestone-verification-bookkeeping-closure) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Synchronizing final milestone ledgers against passed `03-VERIFICATION.md` and `04-VERIFICATION.md`
 Last activity: 2026-04-16
 
 Progress: [██████████] 96%
@@ -97,7 +97,7 @@ None yet.
 
 ### Blockers/Concerns
 
-- Cross-phase: Phase 4 roadmap/bookkeeping still appears stale relative to executed work and should be reconciled during closeout.
+None. Phase 03 and Phase 04 now have passed verification artifacts; remaining work is the final ledger and audit sync for Phase 08 closeout.
 
 ## Session Continuity
 
