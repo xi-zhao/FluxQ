@@ -16,8 +16,8 @@ Bootstrap or verify the local FluxQ development environment.
 
 Actions:
   install    Create .venv and install editable dev dependencies.
-  verify     Run qrun version, Ruff, MyPy, and pytest with the local .venv.
-  all        Install dependencies and then run the verification gate (default).
+  verify     Run qrun version, Ruff, module-form MyPy, and full pytest -q smoke with the local .venv.
+  all        Install dependencies and then run the full local smoke (default).
 
 Options:
   --python PATH    Python interpreter to use for venv creation. Default: python3.11
@@ -101,10 +101,10 @@ verify_project() {
     log "Direct MyPy launcher failed under the current workspace path; continuing with '$ROOT_DIR/.venv/bin/python -m mypy'."
   fi
 
-  log "Running MyPy"
+  log "Running MyPy via python -m mypy"
   "$ROOT_DIR/.venv/bin/python" -m mypy src
 
-  log "Running pytest"
+  log "Running full pytest smoke (pytest -q)"
   "$ROOT_DIR/.venv/bin/pytest" -q
 }
 
