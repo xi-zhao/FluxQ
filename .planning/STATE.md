@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed Phase 07 verification
-last_updated: "2026-04-15T22:05:00Z"
-last_activity: 2026-04-15 -- Phase 07 completed
+status: executing
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-04-16T01:12:35.716Z"
+last_activity: 2026-04-16
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 24
-  completed_plans: 24
-  percent: 88
+  total_plans: 27
+  completed_plans: 25
+  percent: 93
 ---
 
 # Project State
@@ -25,18 +25,18 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 08 (milestone-verification-bookkeeping-closure) — READY TO PLAN
-Plan: Not started
-Status: Phase 07 complete — ready for planning
-Last activity: 2026-04-15 -- Phase 07 verified and closed
+Phase: 08 (milestone-verification-bookkeeping-closure) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-04-16
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 24
+- Total plans completed: 25
 - Average duration: 0 min
 - Total execution time: 0.0 hours
 
@@ -60,6 +60,7 @@ Progress: [█████████░] 88%
 | Phase 07 P01 | 5 min | 2 tasks | 4 files |
 | Phase 07 P02 | 2 min | 2 tasks | 2 files |
 | Phase 07 P03 | 5 min | 2 tasks | 3 files |
+| Phase 08 P01 | 6 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 05-verified-delivery-bundles]: `qrun pack-import` verifies first, imports immutable history into a target workspace, rewrites workspace-bound provenance paths, and then promotes aliases.
 - [Phase 07-compare-trust-closure]: report writer no longer backfills canonical history from mutable aliases, so revision history stays self-consistent across multiple execs.
 - [Phase 07-compare-trust-closure]: healthy baseline/current compare now returns the documented policy verdict path, while true canonical-history tampering still fails closed with trust errors.
+- [Phase 08]: Made report latest promotion explicit and default-off so executor owns when mutable aliases move.
+- [Phase 08]: Derived report semantics and fallback qspec hashes from the passed QSpec object instead of trusting mutable alias file contents.
 
 ### Pending Todos
 
@@ -90,11 +93,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Cross-phase: Phase 3 still has no `03-VERIFICATION.md`, so `RUNT-02` remains only summary-complete, not milestone-verified.
 - Cross-phase: Phase 4 roadmap/bookkeeping still appears stale relative to executed work and should be reconciled during closeout.
 
 ## Session Continuity
 
-Last session: 2026-04-15T22:05:00Z
-Stopped at: Completed Phase 07 verification
+Last session: 2026-04-16T01:11:59.529Z
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
