@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-04-16T01:12:35.716Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-04-16T01:18:37.941Z"
 last_activity: 2026-04-16
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 27
-  completed_plans: 25
-  percent: 93
+  completed_plans: 26
+  percent: 96
 ---
 
 # Project State
@@ -26,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 ## Current Position
 
 Phase: 08 (milestone-verification-bookkeeping-closure) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-16
 
-Progress: [█████████░] 93%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: 0 min
 - Total execution time: 0.0 hours
 
@@ -51,6 +51,7 @@ Progress: [█████████░] 93%
 | 05 | 3 | - | - |
 | 06 | 3 | - | - |
 | 07 | 3 | - | - |
+| 08 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -61,6 +62,7 @@ Progress: [█████████░] 93%
 | Phase 07 P02 | 2 min | 2 tasks | 2 files |
 | Phase 07 P03 | 5 min | 2 tasks | 3 files |
 | Phase 08 P01 | 6 min | 2 tasks | 4 files |
+| Phase 08 P02 | 5 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -86,6 +88,8 @@ Recent decisions affecting current work:
 - [Phase 07-compare-trust-closure]: healthy baseline/current compare now returns the documented policy verdict path, while true canonical-history tampering still fails closed with trust errors.
 - [Phase 08]: Made report latest promotion explicit and default-off so executor owns when mutable aliases move.
 - [Phase 08]: Derived report semantics and fallback qspec hashes from the passed QSpec object instead of trusting mutable alias file contents.
+- [Phase 08]: Kept the exact Phase 04 proof path as the targeted Ruff, module-form MyPy, and selected pytest sequence including tests/test_runtime_policy.py.
+- [Phase 08]: Documented ./scripts/dev-bootstrap.sh verify as a broader repo smoke command instead of shrinking it to the Phase 04 subset.
 
 ### Pending Todos
 
@@ -97,6 +101,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-16T01:11:59.529Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-04-16T01:18:37.939Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None

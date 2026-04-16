@@ -133,7 +133,7 @@ Plans:
 
 Plans:
 - [x] 08-01-PLAN.md — Re-run the Phase 03 truth probe, fix the interrupted-commit report seam if needed, and mint truthful `03-VERIFICATION.md`
-- [ ] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
+- [x] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
 - [ ] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
 
 ## Progress
@@ -147,4 +147,4 @@ Plans:
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
 | 7. Compare Trust Closure | 3/3 | Complete | 2026-04-15 |
-| 8. Verification And Bookkeeping Closure | 1/3 | In Progress | - |
+| 8. Verification And Bookkeeping Closure | 2/3 | In Progress | - |
