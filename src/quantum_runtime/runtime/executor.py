@@ -157,7 +157,7 @@ def _execute_runtime_input(
             handle.manifest = manifest
             _guard_exec_commit_paths(
                 handle=handle,
-                last_valid_revision=_last_valid_revision(manifest.current_revision),
+                manifest_revision=_last_valid_revision(manifest.current_revision),
             )
             previous_revision = manifest.current_revision
             revision = handle.reserve_revision(assume_locked=True)
@@ -533,7 +533,7 @@ def _promote_exec_aliases(
         atomic_copy_file(source_path, alias_path)
 
 
-def _guard_exec_commit_paths(*, handle: Any, last_valid_revision: str | None) -> None:
+def _guard_exec_commit_paths(*, handle: Any, manifest_revision: str | None) -> None:
     pending_files = sorted(
         {
             candidate
@@ -542,24 +542,27 @@ def _guard_exec_commit_paths(*, handle: Any, last_valid_revision: str | None) ->
         }
     )
     if pending_files:
+        last_valid_revision = _coherent_active_revision(handle=handle)
         raise WorkspaceRecoveryRequiredError(
             workspace=handle.root,
             pending_files=pending_files,
             last_valid_revision=last_valid_revision,
         )
 
+    last_valid_revision = _coherent_active_revision(handle=handle)
     alias_paths = _mismatched_exec_alias_paths(
         handle=handle,
+        manifest_revision=manifest_revision,
         last_valid_revision=last_valid_revision,
     )
     if alias_paths:
-        error = WorkspaceRecoveryRequiredError(
+        raise WorkspaceRecoveryRequiredError(
             workspace=handle.root,
-            pending_files=alias_paths,
+            pending_files=[],
             last_valid_revision=last_valid_revision,
+            alias_paths=alias_paths,
+            recovery_mode="alias_mismatch",
         )
-        error.details["alias_paths"] = [str(path.resolve()) for path in alias_paths]
-        raise error
 
 
 def _exec_alias_pairs(
@@ -625,7 +628,12 @@ def _exec_alias_target_paths(*, handle: Any) -> list[Path]:
     ]
 
 
-def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None) -> list[Path]:
+def _mismatched_exec_alias_paths(
+    *,
+    handle: Any,
+    manifest_revision: str | None,
+    last_valid_revision: str | None,
+) -> list[Path]:
     workspace_json = handle.paths.workspace_json
     report_alias = handle.root / "reports" / "latest.json"
     manifest_alias = handle.paths.manifests_latest_json
@@ -637,7 +645,7 @@ def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None
         manifest_alias,
     ]
 
-    if last_valid_revision is None:
+    if manifest_revision is None:
         # A fresh workspace can legitimately seed specs/current.json before the first exec.
         # The recovery hole we are guarding here is "report or manifest alias exists
         # without an authoritative committed revision", not "any active qspec exists".
@@ -645,22 +653,29 @@ def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None
             return alias_paths
         return []
 
-    expected_qspec_path = handle.root / "specs" / "history" / f"{last_valid_revision}.json"
+    if last_valid_revision == manifest_revision:
+        return []
+    return alias_paths
+
+
+def _coherent_active_revision(*, handle: Any) -> str | None:
+    report_alias = handle.root / "reports" / "latest.json"
+    manifest_alias = handle.paths.manifests_latest_json
+    qspec_alias = handle.root / "specs" / "current.json"
+
     report_revision = _load_alias_revision(report_alias)
     manifest_revision = _load_alias_revision(manifest_alias)
-    qspec_matches_revision = (
+    if report_revision is None or manifest_revision is None or report_revision != manifest_revision:
+        return None
+
+    expected_qspec_path = handle.root / "specs" / "history" / f"{report_revision}.json"
+    if not (
         expected_qspec_path.exists()
         and qspec_alias.exists()
         and qspec_alias.read_bytes() == expected_qspec_path.read_bytes()
-    )
-
-    if (
-        report_revision == last_valid_revision
-        and manifest_revision == last_valid_revision
-        and qspec_matches_revision
     ):
-        return []
-    return alias_paths
+        return None
+    return report_revision
 
 
 def _load_alias_revision(path: Path) -> str | None:

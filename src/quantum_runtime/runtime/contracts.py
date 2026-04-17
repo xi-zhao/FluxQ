@@ -75,6 +75,8 @@ class WorkspaceRecoveryRequiredDetails(BaseModel):
     workspace: str
     pending_files: list[str] = Field(default_factory=list)
     last_valid_revision: str | None = None
+    alias_paths: list[str] = Field(default_factory=list)
+    recovery_mode: str = "pending_files"
     reason_codes: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     gate: dict[str, Any] = Field(default_factory=dict)
@@ -121,6 +123,8 @@ def workspace_recovery_required_error_payload(
     workspace: str,
     pending_files: list[str],
     last_valid_revision: str | None,
+    alias_paths: list[str],
+    recovery_mode: str,
     reason_codes: list[str],
     next_actions: list[str],
     gate: dict[str, Any],
@@ -132,6 +136,8 @@ def workspace_recovery_required_error_payload(
             workspace=workspace,
             pending_files=pending_files,
             last_valid_revision=last_valid_revision,
+            alias_paths=alias_paths,
+            recovery_mode=recovery_mode,
             reason_codes=reason_codes,
             next_actions=next_actions,
             gate=gate,

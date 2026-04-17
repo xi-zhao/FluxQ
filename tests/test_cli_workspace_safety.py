@@ -149,6 +149,67 @@ def test_qrun_exec_json_reports_workspace_recovery_required_contract(
         "workspace": str(workspace),
         "pending_files": [str(item) for item in pending_files],
         "last_valid_revision": "rev_000007",
+        "alias_paths": [],
+        "recovery_mode": "pending_files",
+        "reason_codes": ["workspace_recovery_required"],
+        "next_actions": ["run_doctor_fix", "review_workspace_recovery"],
+        "gate": {
+            "ready": False,
+            "severity": "error",
+            "reason_codes": ["workspace_recovery_required"],
+            "recommended_action": "run_doctor_fix",
+        },
+    }
+
+
+def test_qrun_exec_json_reports_workspace_recovery_required_alias_mismatch_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    intent_path = tmp_path / "intent.md"
+    _write_intent(intent_path)
+    alias_paths = [
+        workspace / "workspace.json",
+        workspace / "specs" / "current.json",
+        workspace / "reports" / "latest.json",
+        workspace / "manifests" / "latest.json",
+    ]
+
+    monkeypatch.setattr(
+        cli_module,
+        "execute_intent",
+        _raise_workspace_error(
+            WorkspaceRecoveryRequiredError(
+                workspace=workspace,
+                pending_files=[],
+                alias_paths=alias_paths,
+                last_valid_revision="rev_000007",
+                recovery_mode="alias_mismatch",
+            )
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(intent_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["details"] == {
+        "workspace": str(workspace),
+        "pending_files": [],
+        "last_valid_revision": "rev_000007",
+        "alias_paths": [str(item) for item in alias_paths],
+        "recovery_mode": "alias_mismatch",
         "reason_codes": ["workspace_recovery_required"],
         "next_actions": ["run_doctor_fix", "review_workspace_recovery"],
         "gate": {

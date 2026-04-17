@@ -71,11 +71,19 @@ class WorkspaceRecoveryRequiredError(StructuredQuantumRuntimeError):
         workspace: Path,
         pending_files: list[Path],
         last_valid_revision: str | None = None,
+        alias_paths: list[Path] | None = None,
+        recovery_mode: str = "pending_files",
     ) -> None:
         pending_list = [str(item) for item in pending_files]
-        message = (
-            f"Workspace recovery required at {workspace}; pending files: {', '.join(pending_list)}"
-        )
+        alias_list = [str(item) for item in (alias_paths or [])]
+        if recovery_mode == "alias_mismatch":
+            message = (
+                f"Workspace recovery required at {workspace}; mismatched aliases: {', '.join(alias_list)}"
+            )
+        else:
+            message = (
+                f"Workspace recovery required at {workspace}; pending files: {', '.join(pending_list)}"
+            )
         if last_valid_revision:
             message = f"{message}; last valid revision: {last_valid_revision}"
         message = f"{message}. Run qrun doctor --fix before retrying."
@@ -85,6 +93,8 @@ class WorkspaceRecoveryRequiredError(StructuredQuantumRuntimeError):
                 "workspace": workspace,
                 "pending_files": pending_files,
                 "last_valid_revision": last_valid_revision,
+                "alias_paths": alias_paths or [],
+                "recovery_mode": recovery_mode,
             },
         )
 

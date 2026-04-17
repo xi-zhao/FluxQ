@@ -338,7 +338,9 @@ def test_exec_blocks_when_qspec_alias_promotion_leaves_mixed_active_aliases(
 
     error = exc_info.value
     assert error.details["workspace"] == str(workspace.resolve())
-    assert error.details["last_valid_revision"] == baseline.revision
+    assert error.details["last_valid_revision"] == "rev_000002"
+    assert error.details["pending_files"] == []
+    assert error.details["recovery_mode"] == "alias_mismatch"
     assert sorted(error.details["alias_paths"]) == sorted(
         [
             str((workspace / "workspace.json").resolve()),
@@ -359,7 +361,7 @@ def test_exec_blocks_when_plan_alias_promotion_is_interrupted_after_latest_plan_
         title="Bell intent",
         goal="Create a Bell pair and measure both qubits.",
     )
-    baseline = execute_intent(
+    execute_intent(
         workspace_root=workspace,
         intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
     )
@@ -391,7 +393,9 @@ def test_exec_blocks_when_plan_alias_promotion_is_interrupted_after_latest_plan_
         )
 
     error = exc_info.value
-    assert error.details["last_valid_revision"] == baseline.revision
+    assert error.details["last_valid_revision"] == "rev_000002"
+    assert error.details["pending_files"] == []
+    assert error.details["recovery_mode"] == "alias_mismatch"
     assert sorted(error.details["alias_paths"]) == sorted(
         [
             str((workspace / "workspace.json").resolve()),
@@ -402,7 +406,7 @@ def test_exec_blocks_when_plan_alias_promotion_is_interrupted_after_latest_plan_
     )
 
 
-def test_exec_fail_closes_when_report_alias_contains_non_object_json(tmp_path: Path) -> None:
+def test_exec_reports_last_valid_revision_from_coherent_aliases_when_workspace_manifest_is_ahead(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
     bell_intent = _write_intent(
         tmp_path / "intent-bell.md",
@@ -410,6 +414,33 @@ def test_exec_fail_closes_when_report_alias_contains_non_object_json(tmp_path: P
         goal="Create a Bell pair and measure both qubits.",
     )
     baseline = execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
+    )
+    workspace_payload = _load_json(workspace / "workspace.json")
+    workspace_payload["current_revision"] = "rev_000002"
+    (workspace / "workspace.json").write_text(json.dumps(workspace_payload, indent=2))
+
+    with pytest.raises(WorkspaceRecoveryRequiredError) as exc_info:
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    error = exc_info.value
+    assert error.details["last_valid_revision"] == baseline.revision
+    assert error.details["pending_files"] == []
+    assert error.details["recovery_mode"] == "alias_mismatch"
+
+
+def test_exec_fail_closes_when_report_alias_contains_non_object_json(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    bell_intent = _write_intent(
+        tmp_path / "intent-bell.md",
+        title="Bell intent",
+        goal="Create a Bell pair and measure both qubits.",
+    )
+    execute_intent(
         workspace_root=workspace,
         intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
     )
@@ -422,7 +453,9 @@ def test_exec_fail_closes_when_report_alias_contains_non_object_json(tmp_path: P
         )
 
     error = exc_info.value
-    assert error.details["last_valid_revision"] == baseline.revision
+    assert error.details["last_valid_revision"] is None
+    assert error.details["pending_files"] == []
+    assert error.details["recovery_mode"] == "alias_mismatch"
     assert sorted(error.details["alias_paths"]) == sorted(
         [
             str((workspace / "workspace.json").resolve()),

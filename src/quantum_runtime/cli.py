@@ -137,6 +137,8 @@ def _workspace_safety_payload(
         workspace=str(error.details["workspace"]),
         pending_files=[str(item) for item in error.details.get("pending_files", [])],
         last_valid_revision=str(last_valid_revision) if last_valid_revision is not None else None,
+        alias_paths=[str(item) for item in error.details.get("alias_paths", [])],
+        recovery_mode=str(error.details.get("recovery_mode", "pending_files")),
         reason_codes=list(observability["reason_codes"]),
         next_actions=list(observability["next_actions"]),
         gate=dict(observability["gate"]),
