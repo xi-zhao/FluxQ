@@ -1,6 +1,6 @@
 ---
 phase: 03-concurrent-workspace-safety
-verified: 2026-04-16T01:09:48Z
+verified: 2026-04-17T23:30:10Z
 status: passed
 score: 5/5 must-haves verified
 overrides_applied: 0
@@ -11,9 +11,9 @@ requirements_closed:
 # Phase 03: Concurrent Workspace Safety Verification Report
 
 **Phase Goal:** Workspace writes remain coherent under concurrent or interrupted local execution, and mutable aliases never outrun the last durable authoritative revision.
-**Verified:** 2026-04-16T01:09:48Z
+**Verified:** 2026-04-17T23:30:10Z
 **Status:** passed
-**Re-verification:** Yes - current rerun after repairing the live report/commit seam
+**Re-verification:** Yes - refreshed after the 08-04 alias-promotion recovery closure
 
 ## Goal Achievement
 
@@ -21,25 +21,24 @@ requirements_closed:
 
 | # | Truth | Status | Evidence |
 | --- | --- | --- | --- |
-| 1 | Interrupted exec commit no longer changes `reports/latest.json` when manifest persistence fails mid-commit. | `VERIFIED` | `./.venv/bin/python -m pytest tests/test_runtime_workspace_safety.py tests/test_report_writer.py -q --maxfail=1` returned `11 passed in 1.47s`, including `test_interrupted_commit_keeps_previous_current_revision_authoritative`. |
-| 2 | Exec writes the report as history-only and delays both latest report and latest manifest promotion until manifest persistence succeeds. | `VERIFIED` | `src/quantum_runtime/reporters/writer.py` now writes `reports/history/<revision>.json` first and only promotes `reports/latest.json` when `promote_latest=True`; `src/quantum_runtime/runtime/executor.py` calls `write_report(..., promote_latest=False)`, keeps `write_run_manifest(..., promote_latest=False)`, and then promotes aliases in `_promote_exec_aliases()`. |
-| 3 | Report payloads resolve `qspec`, `report`, and revision artifact provenance to canonical history paths for the evaluated revision. | `VERIFIED` | `tests/test_report_writer.py` passed the canonical-history assertions in `test_write_report_persists_latest_report`, `test_write_report_records_revision_artifact_provenance`, and `test_write_report_canonicalizes_current_alias_artifacts`. |
-| 4 | Writer suggestion generation uses the passed `QSpec` object and does not require `specs/current.json` to be a valid mutable-alias payload. | `VERIFIED` | `tests/test_report_writer.py::test_write_report_adds_backend_specific_suggestions` passed with an invalid `specs/current.json` placeholder while still producing Classiq guidance from the supplied `QSpec`. |
-| 5 | The shared writer/executor seam remains compatible with the focused Phase 07 import/exec reopen contract. | `VERIFIED` | `./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py tests/test_report_writer.py tests/test_runtime_imports.py tests/test_runtime_revision_artifacts.py tests/test_cli_exec.py -q --maxfail=1` returned `67 passed in 7.91s`. |
+| 1 | Interrupted alias-promotion after `specs/current.json` moves now forces recovery instead of letting the next exec reserve a new revision. | `VERIFIED` | `./.venv/bin/python -m pytest tests/test_runtime_workspace_safety.py tests/test_runtime_imports.py tests/test_runtime_revision_artifacts.py tests/test_cli_exec.py -q --maxfail=1` returned `57 passed in 9.04s`, including `test_exec_blocks_when_qspec_alias_promotion_leaves_mixed_active_aliases`. |
+| 2 | Exec alias promotion now advances `reports/latest.json` and `manifests/latest.json` before `specs/current.json`, so the qspec alias cannot outrun durable exec aliases. | `VERIFIED` | `src/quantum_runtime/runtime/executor.py` now builds `_exec_alias_pairs()` in report-first order: report alias, manifest alias, then `specs/current.json`. |
+| 3 | The recovery guard now treats `workspace.json`, `specs/current.json`, `reports/latest.json`, and `manifests/latest.json` as one active alias surface and raises `WorkspaceRecoveryRequiredError` on mixed-state detection. | `VERIFIED` | `_guard_exec_commit_paths()` now checks both temp files and `_mismatched_exec_alias_paths()`, and the focused regression suite passes the recovery assertion path. |
+| 4 | The focused Phase 03 and reopen/import regression bundle stays green after the alias-promotion repair. | `VERIFIED` | The same `57 passed in 9.04s` run covers `tests/test_runtime_workspace_safety.py`, `tests/test_runtime_imports.py`, `tests/test_runtime_revision_artifacts.py`, and `tests/test_cli_exec.py`. |
+| 5 | `RUNT-02` is now backed by current evidence for the corrected alias-promotion failure mode, not by the earlier premature closeout wording. | `VERIFIED` | This refreshed report replaces the earlier premature closure claim with current evidence that the alias-promotion interruption path is closed and the next exec fail-closes with `WorkspaceRecoveryRequiredError`. |
 
 ## Verification Commands
 
 | Command | Result |
 | --- | --- |
-| `./.venv/bin/python -m pytest tests/test_runtime_workspace_safety.py tests/test_report_writer.py -q --maxfail=1` | `11 passed in 1.47s` |
-| `./.venv/bin/python -m pytest tests/test_cli_workspace_safety.py tests/test_runtime_workspace_safety.py tests/test_report_writer.py tests/test_runtime_imports.py tests/test_runtime_revision_artifacts.py tests/test_cli_exec.py -q --maxfail=1` | `67 passed in 7.91s` |
+| `./.venv/bin/python -m pytest tests/test_runtime_workspace_safety.py tests/test_runtime_imports.py tests/test_runtime_revision_artifacts.py tests/test_cli_exec.py -q --maxfail=1` | `57 passed in 9.04s` |
 
 ## Requirements Coverage
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| `RUNT-02` | `SATISFIED` | Current rerun proves interrupted writes keep the prior authoritative revision readable, report/manifest alias promotion is manifest-after-history, and import/reopen regressions remain green across the shared seam. |
+| `RUNT-02` | `SATISFIED` | The corrected alias-promotion proof is green, mixed active aliases are now rejected with `WorkspaceRecoveryRequiredError`, and the next exec no longer proceeds past an interrupted alias move. |
 
 ## Gaps Summary
 
-No blocking gaps found. `RUNT-02` is now backed by current rerun evidence instead of historical summary files alone, so Phase 03 can be treated as truthfully verified.
+No blocking gaps found. Phase 03 now closes over the corrected alias-promotion proof rather than the premature claim that existed before `08-04`.
