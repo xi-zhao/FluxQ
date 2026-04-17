@@ -520,6 +520,59 @@ def _promote_exec_aliases(
     manifest_history_path: Path,
     artifacts: dict[str, str],
 ) -> None:
+    for source_path, alias_path in _exec_alias_pairs(
+        handle=handle,
+        qspec_history_path=qspec_history_path,
+        intent_markdown_history_path=intent_markdown_history_path,
+        intent_history_path=intent_history_path,
+        plan_history_path=plan_history_path,
+        report_history_path=report_history_path,
+        manifest_history_path=manifest_history_path,
+        artifacts=artifacts,
+    ):
+        atomic_copy_file(source_path, alias_path)
+
+
+def _guard_exec_commit_paths(*, handle: Any, last_valid_revision: str | None) -> None:
+    pending_files = sorted(
+        {
+            candidate
+            for path in _exec_alias_target_paths(handle=handle)
+            for candidate in pending_atomic_write_files(path)
+        }
+    )
+    if pending_files:
+        raise WorkspaceRecoveryRequiredError(
+            workspace=handle.root,
+            pending_files=pending_files,
+            last_valid_revision=last_valid_revision,
+        )
+
+    alias_paths = _mismatched_exec_alias_paths(
+        handle=handle,
+        last_valid_revision=last_valid_revision,
+    )
+    if alias_paths:
+        error = WorkspaceRecoveryRequiredError(
+            workspace=handle.root,
+            pending_files=alias_paths,
+            last_valid_revision=last_valid_revision,
+        )
+        error.details["alias_paths"] = [str(path.resolve()) for path in alias_paths]
+        raise error
+
+
+def _exec_alias_pairs(
+    *,
+    handle: Any,
+    qspec_history_path: Path,
+    intent_markdown_history_path: Path | None,
+    intent_history_path: Path,
+    plan_history_path: Path,
+    report_history_path: Path,
+    manifest_history_path: Path,
+    artifacts: dict[str, str],
+) -> list[tuple[Path, Path]]:
     alias_pairs: list[tuple[Path, Path]] = []
     if intent_markdown_history_path is not None:
         alias_pairs.append((intent_markdown_history_path, handle.root / "intents" / "latest.md"))
@@ -528,6 +581,8 @@ def _promote_exec_aliases(
         [
             (intent_history_path, handle.paths.intents_latest_json),
             (plan_history_path, handle.paths.plans_latest_json),
+            (report_history_path, handle.root / "reports" / "latest.json"),
+            (manifest_history_path, handle.paths.manifests_latest_json),
             (qspec_history_path, handle.root / "specs" / "current.json"),
         ]
     )
@@ -546,35 +601,70 @@ def _promote_exec_aliases(
             continue
         alias_pairs.append((Path(raw_source), alias_path))
 
-    alias_pairs.extend(
-        [
-            (report_history_path, handle.root / "reports" / "latest.json"),
-            (manifest_history_path, handle.paths.manifests_latest_json),
-        ]
-    )
-
-    for source_path, alias_path in alias_pairs:
-        atomic_copy_file(source_path, alias_path)
+    return alias_pairs
 
 
-def _guard_exec_commit_paths(*, handle: Any, last_valid_revision: str | None) -> None:
-    pending_files = sorted(
-        {
-            candidate
-            for path in (
-                handle.root / "reports" / "latest.json",
-                handle.paths.manifests_latest_json,
-            )
-            for candidate in pending_atomic_write_files(path)
-        }
+def _exec_alias_target_paths(*, handle: Any) -> list[Path]:
+    return [
+        handle.root / "intents" / "latest.md",
+        handle.paths.intents_latest_json,
+        handle.paths.plans_latest_json,
+        handle.root / "reports" / "latest.json",
+        handle.paths.manifests_latest_json,
+        handle.root / "specs" / "current.json",
+        handle.root / "artifacts" / "qiskit" / "main.py",
+        handle.root / "artifacts" / "qasm" / "main.qasm",
+        handle.root / "artifacts" / "classiq" / "main.py",
+        handle.root / "artifacts" / "classiq" / "synthesis.json",
+        handle.root / "figures" / "circuit.txt",
+        handle.root / "figures" / "circuit.png",
+    ]
+
+
+def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None) -> list[Path]:
+    workspace_json = handle.paths.workspace_json
+    report_alias = handle.root / "reports" / "latest.json"
+    manifest_alias = handle.paths.manifests_latest_json
+    qspec_alias = handle.root / "specs" / "current.json"
+    alias_paths = [
+        workspace_json,
+        qspec_alias,
+        report_alias,
+        manifest_alias,
+    ]
+
+    if last_valid_revision is None:
+        if any(path.exists() for path in alias_paths[1:]):
+            return alias_paths
+        return []
+
+    expected_qspec_path = handle.root / "specs" / "history" / f"{last_valid_revision}.json"
+    report_revision = _load_alias_revision(report_alias)
+    manifest_revision = _load_alias_revision(manifest_alias)
+    qspec_matches_revision = (
+        expected_qspec_path.exists()
+        and qspec_alias.exists()
+        and qspec_alias.read_bytes() == expected_qspec_path.read_bytes()
     )
-    if not pending_files:
-        return
-    raise WorkspaceRecoveryRequiredError(
-        workspace=handle.root,
-        pending_files=pending_files,
-        last_valid_revision=last_valid_revision,
-    )
+
+    if (
+        report_revision == last_valid_revision
+        and manifest_revision == last_valid_revision
+        and qspec_matches_revision
+    ):
+        return []
+    return alias_paths
+
+
+def _load_alias_revision(path: Path) -> str | None:
+    try:
+        payload = json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    revision = payload.get("revision")
+    if isinstance(revision, str):
+        return revision
+    return None
 
 
 def _workspace_conflict_error(*, workspace_root: Path, conflict: WorkspaceLockConflict) -> WorkspaceConflictError:
