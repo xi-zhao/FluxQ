@@ -282,3 +282,68 @@ def test_exec_blocks_when_interrupted_write_temp_files_require_recovery(tmp_path
     assert error.details["workspace"] == str(workspace.resolve())
     assert sorted(error.details["pending_files"]) == sorted([str(pending_manifest), str(pending_report)])
     assert error.details["last_valid_revision"] == "rev_000001"
+
+
+def test_exec_blocks_when_qspec_alias_promotion_leaves_mixed_active_aliases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    bell_intent = _write_intent(
+        tmp_path / "intent-bell.md",
+        title="Bell intent",
+        goal="Create a Bell pair and measure both qubits.",
+    )
+    baseline = execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
+    )
+    original_atomic_copy_file = executor_module.atomic_copy_file
+    saw_qspec_alias = False
+    interrupted_after_qspec_alias = False
+
+    def _fail_after_qspec_alias_promotion(source_path: Path, destination_path: Path) -> None:
+        nonlocal saw_qspec_alias, interrupted_after_qspec_alias
+        if saw_qspec_alias and not interrupted_after_qspec_alias:
+            interrupted_after_qspec_alias = True
+            raise RuntimeError("fail after qspec alias promotion")
+        original_atomic_copy_file(source_path, destination_path)
+        if destination_path == workspace / "specs" / "current.json":
+            saw_qspec_alias = True
+
+    monkeypatch.setattr(executor_module, "atomic_copy_file", _fail_after_qspec_alias_promotion)
+
+    with pytest.raises(RuntimeError, match="fail after qspec alias promotion"):
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    assert saw_qspec_alias is True
+    assert interrupted_after_qspec_alias is True
+
+    workspace_manifest = _load_json(workspace / "workspace.json")
+    last_valid_revision = str(workspace_manifest["current_revision"])
+    last_valid_qspec = (workspace / _history_paths(last_valid_revision)["qspec"]).read_text()
+    current_qspec = (workspace / "specs" / "current.json").read_text()
+
+    assert last_valid_revision == baseline.revision
+    assert current_qspec != last_valid_qspec, "expected mixed active alias state after qspec alias promotion failure"
+
+    with pytest.raises(WorkspaceRecoveryRequiredError) as exc_info:
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    error = exc_info.value
+    assert error.details["workspace"] == str(workspace.resolve())
+    assert error.details["last_valid_revision"] == baseline.revision
+    assert sorted(error.details["alias_paths"]) == sorted(
+        [
+            str((workspace / "workspace.json").resolve()),
+            str((workspace / "specs" / "current.json").resolve()),
+            str((workspace / "reports" / "latest.json").resolve()),
+            str((workspace / "manifests" / "latest.json").resolve()),
+        ]
+    )
