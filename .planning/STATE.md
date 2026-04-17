@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Planned Phase 08 gap closure after verifier gaps
-last_updated: "2026-04-16T01:45:00Z"
-last_activity: 2026-04-16 -- Phase 08 gaps identified and replanned
+status: executing
+stopped_at: Completed 08-04-PLAN.md
+last_updated: "2026-04-17T23:27:37.419Z"
+last_activity: 2026-04-17
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 29
-  completed_plans: 27
-  percent: 93
+  completed_plans: 28
+  percent: 97
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 08 (milestone-verification-bookkeeping-closure) — GAP PLANS READY
-Plan: 3 of 5
-Status: Verification found a remaining exec alias-promotion recovery hole — gap plans ready to execute
-Last activity: 2026-04-16 -- replanned from `08-VERIFICATION.md`
+Phase: 08 (milestone-verification-bookkeeping-closure) — EXECUTING
+Plan: 5 of 5
+Status: Executing Phase 08
+Last activity: 2026-04-17 -- Completed 08-04 alias-promotion recovery closure
 
-Progress: [█████████░] 93%
+Progress: [██████████] 97%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [█████████░] 93%
 | Phase 08 P01 | 6 min | 2 tasks | 4 files |
 | Phase 08 P02 | 5 min | 2 tasks | 3 files |
 | Phase 08 P03 | 6 min | 2 tasks | 4 files |
+| Phase 08 P04 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - [Phase 08]: Treat unrelated `./scripts/dev-bootstrap.sh verify` failures as repo-smoke debt instead of milestone blockers once the exact proof chain is consistent. — The plan explicitly kept scope narrow to the owned Phase 03, Phase 04, and ledger proof chain; broader smoke failures remain documented debt and do not reopen FLOW-02.
 - [Phase 08]: Reopened Phase 08 after verifier reproduced a surviving `_promote_exec_aliases()` interruption path where `specs/current.json` can outrun `reports/latest.json` / `manifests/latest.json`.
 - [Phase 08]: Gap closure keeps `RUNT-02` under Phase 08 and adds two follow-up plans: one code/test repair plan and one proof-chain regeneration plan.
+- [Phase 08]: Promoted reports/latest.json and manifests/latest.json before specs/current.json so qspec aliases cannot outrun durable exec aliases.
+- [Phase 08]: Guarded workspace.json current_revision plus report/manifest/qspec aliases as one recovery surface and fail-closed before the next exec reserves a new revision.
 
 ### Pending Todos
 
@@ -102,11 +105,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Cross-phase: `_promote_exec_aliases()` can still fail after promoting `specs/current.json` and before promoting `reports/latest.json` / `manifests/latest.json`, leaving mixed active aliases that the next `exec` does not force into recovery.
-- Cross-phase: `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md` must be regenerated from the corrected alias-promotion proof before Phase 08 can honestly return to complete.
+- Cross-phase: `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md` still need regeneration from the corrected alias-promotion proof before Phase 08 can honestly return to complete.
 
 ## Session Continuity
 
-Last session: 2026-04-16T01:45:00Z
-Stopped at: Planned Phase 08 gap closure after verifier gaps
+Last session: 2026-04-17T23:27:37.417Z
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None

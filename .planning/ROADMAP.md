@@ -136,7 +136,7 @@ Plans:
 - [x] 08-01-PLAN.md — Re-run the Phase 03 truth probe, fix the interrupted-commit report seam if needed, and mint truthful `03-VERIFICATION.md`
 - [x] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
 - [x] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
-- [ ] 08-04-PLAN.md — Close the surviving exec alias-promotion interruption hole and force recovery on the next `exec`
+- [x] 08-04-PLAN.md — Close the surviving exec alias-promotion interruption hole and force recovery on the next `exec`
 - [ ] 08-05-PLAN.md — Regenerate the Phase 03 / Phase 08 proof chain and re-close bookkeeping from corrected evidence
 
 ## Progress
