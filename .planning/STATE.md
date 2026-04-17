@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
+status: verifying
 stopped_at: Completed 08-05-PLAN.md
-last_updated: "2026-04-17T23:30:10Z"
+last_updated: "2026-04-17T23:35:12.765Z"
 last_activity: 2026-04-17
 progress:
   total_phases: 8
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 Phase: 08 (milestone-verification-bookkeeping-closure) — COMPLETE
 Plan: 5 of 5
-Status: Phase complete
-Last activity: 2026-04-17 -- Completed 08-05 and regenerated the corrected proof chain after the alias-promotion recovery closure
+Status: Phase complete — ready for verification
+Last activity: 2026-04-17
 
 Progress: [██████████] 100%
 
@@ -65,6 +65,7 @@ Progress: [██████████] 100%
 | Phase 08 P02 | 5 min | 2 tasks | 3 files |
 | Phase 08 P03 | 6 min | 2 tasks | 4 files |
 | Phase 08 P04 | 5min | 2 tasks | 2 files |
+| Phase 08 P05 | 3 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,7 @@ Recent decisions affecting current work:
 - [Phase 08]: Gap closure keeps `RUNT-02` under Phase 08 and adds two follow-up plans: one code/test repair plan and one proof-chain regeneration plan.
 - [Phase 08]: Promoted reports/latest.json and manifests/latest.json before specs/current.json so qspec aliases cannot outrun durable exec aliases.
 - [Phase 08]: Guarded workspace.json current_revision plus report/manifest/qspec aliases as one recovery surface and fail-closed before the next exec reserves a new revision.
+- [Phase 08]: Use the focused 57-test regression bundle as the corrected proof source for both Phase 03 and Phase 08 verification refreshes.
 
 ### Pending Todos
 
@@ -109,6 +111,6 @@ No blockers. The alias-promotion recovery hole is closed and the proof chain has
 
 ## Session Continuity
 
-Last session: 2026-04-17T23:30:10Z
+Last session: 2026-04-17T23:35:12.762Z
 Stopped at: Completed 08-05-PLAN.md
 Resume file: None
