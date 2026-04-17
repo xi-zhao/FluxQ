@@ -347,3 +347,87 @@ def test_exec_blocks_when_qspec_alias_promotion_leaves_mixed_active_aliases(
             str((workspace / "manifests" / "latest.json").resolve()),
         ]
     )
+
+
+def test_exec_blocks_when_plan_alias_promotion_is_interrupted_after_latest_plan_moves(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    bell_intent = _write_intent(
+        tmp_path / "intent-bell.md",
+        title="Bell intent",
+        goal="Create a Bell pair and measure both qubits.",
+    )
+    baseline = execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
+    )
+    original_atomic_copy_file = executor_module.atomic_copy_file
+    saw_plan_alias = False
+
+    def _fail_after_plan_alias(source_path: Path, destination_path: Path) -> None:
+        nonlocal saw_plan_alias
+        original_atomic_copy_file(source_path, destination_path)
+        if destination_path == workspace / "plans" / "latest.json":
+            saw_plan_alias = True
+            raise RuntimeError("fail after plan alias promotion")
+
+    monkeypatch.setattr(executor_module, "atomic_copy_file", _fail_after_plan_alias)
+
+    with pytest.raises(RuntimeError, match="fail after plan alias promotion"):
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    assert saw_plan_alias is True
+    assert (workspace / "plans" / "latest.json").exists()
+
+    with pytest.raises(WorkspaceRecoveryRequiredError) as exc_info:
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    error = exc_info.value
+    assert error.details["last_valid_revision"] == baseline.revision
+    assert sorted(error.details["alias_paths"]) == sorted(
+        [
+            str((workspace / "workspace.json").resolve()),
+            str((workspace / "specs" / "current.json").resolve()),
+            str((workspace / "reports" / "latest.json").resolve()),
+            str((workspace / "manifests" / "latest.json").resolve()),
+        ]
+    )
+
+
+def test_exec_fail_closes_when_report_alias_contains_non_object_json(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    bell_intent = _write_intent(
+        tmp_path / "intent-bell.md",
+        title="Bell intent",
+        goal="Create a Bell pair and measure both qubits.",
+    )
+    baseline = execute_intent(
+        workspace_root=workspace,
+        intent_file=PROJECT_ROOT / "examples" / "intent-ghz.md",
+    )
+    (workspace / "reports" / "latest.json").write_text("[]")
+
+    with pytest.raises(WorkspaceRecoveryRequiredError) as exc_info:
+        execute_intent(
+            workspace_root=workspace,
+            intent_file=bell_intent,
+        )
+
+    error = exc_info.value
+    assert error.details["last_valid_revision"] == baseline.revision
+    assert sorted(error.details["alias_paths"]) == sorted(
+        [
+            str((workspace / "workspace.json").resolve()),
+            str((workspace / "specs" / "current.json").resolve()),
+            str((workspace / "reports" / "latest.json").resolve()),
+            str((workspace / "manifests" / "latest.json").resolve()),
+        ]
+    )

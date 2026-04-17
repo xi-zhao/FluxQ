@@ -573,7 +573,14 @@ def _exec_alias_pairs(
     manifest_history_path: Path,
     artifacts: dict[str, str],
 ) -> list[tuple[Path, Path]]:
-    alias_pairs: list[tuple[Path, Path]] = []
+    alias_pairs: list[tuple[Path, Path]] = [
+        (report_history_path, handle.root / "reports" / "latest.json"),
+        (manifest_history_path, handle.paths.manifests_latest_json),
+        (qspec_history_path, handle.root / "specs" / "current.json"),
+    ]
+
+    # Promote the revision-bearing surface first. Convenience aliases like latest
+    # intent/plan should never outrun the coherent report/manifest/qspec set.
     if intent_markdown_history_path is not None:
         alias_pairs.append((intent_markdown_history_path, handle.root / "intents" / "latest.md"))
 
@@ -581,9 +588,6 @@ def _exec_alias_pairs(
         [
             (intent_history_path, handle.paths.intents_latest_json),
             (plan_history_path, handle.paths.plans_latest_json),
-            (report_history_path, handle.root / "reports" / "latest.json"),
-            (manifest_history_path, handle.paths.manifests_latest_json),
-            (qspec_history_path, handle.root / "specs" / "current.json"),
         ]
     )
 
@@ -634,7 +638,10 @@ def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None
     ]
 
     if last_valid_revision is None:
-        if any(path.exists() for path in alias_paths[1:]):
+        # A fresh workspace can legitimately seed specs/current.json before the first exec.
+        # The recovery hole we are guarding here is "report or manifest alias exists
+        # without an authoritative committed revision", not "any active qspec exists".
+        if report_alias.exists() or manifest_alias.exists():
             return alias_paths
         return []
 
@@ -659,7 +666,9 @@ def _mismatched_exec_alias_paths(*, handle: Any, last_valid_revision: str | None
 def _load_alias_revision(path: Path) -> str | None:
     try:
         payload = json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(payload, dict):
         return None
     revision = payload.get("revision")
     if isinstance(revision, str):
