@@ -16,7 +16,7 @@ Requirements for the next milestone of FluxQ’s runtime-first product surface.
 ### Runtime Workspace
 
 - [ ] **RUNT-01**: Each executed revision persists `intent`, `plan`, `qspec`, `report`, `manifest`, and revision-scoped events as stable runtime artifacts
-- [x] **RUNT-02**: Workspace writes are safe under concurrent agent or CI activity instead of assuming a single writer
+- [ ] **RUNT-02**: Workspace writes are safe under concurrent agent or CI activity instead of assuming a single writer
 - [ ] **RUNT-03**: Replay and import paths fail closed when provenance or integrity no longer matches the expected revision
 
 ### Policy And Comparison
