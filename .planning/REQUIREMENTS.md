@@ -94,4 +94,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-04-12*
-*Last updated: 2026-04-16 after Phase 08 Plan 03 ledger sync*
+*Last updated: 2026-04-17 after Phase 08 Plan 05 corrected proof-chain regeneration*

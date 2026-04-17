@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 08-04-PLAN.md
-last_updated: "2026-04-17T23:27:37.419Z"
+status: completed
+stopped_at: Completed 08-05-PLAN.md
+last_updated: "2026-04-17T23:30:10Z"
 last_activity: 2026-04-17
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 29
-  completed_plans: 28
-  percent: 97
+  completed_plans: 29
+  percent: 100
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-15)
 
 ## Current Position
 
-Phase: 08 (milestone-verification-bookkeeping-closure) — EXECUTING
+Phase: 08 (milestone-verification-bookkeeping-closure) — COMPLETE
 Plan: 5 of 5
-Status: Executing Phase 08
-Last activity: 2026-04-17 -- Completed 08-04 alias-promotion recovery closure
+Status: Phase complete
+Last activity: 2026-04-17 -- Completed 08-05 and regenerated the corrected proof chain after the alias-promotion recovery closure
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -105,10 +105,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- Cross-phase: `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md` still need regeneration from the corrected alias-promotion proof before Phase 08 can honestly return to complete.
+No blockers. The alias-promotion recovery hole is closed and the proof chain has been regenerated across `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `STATE.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md`.
 
 ## Session Continuity
 
-Last session: 2026-04-17T23:27:37.417Z
-Stopped at: Completed 08-04-PLAN.md
+Last session: 2026-04-17T23:30:10Z
+Stopped at: Completed 08-05-PLAN.md
 Resume file: None

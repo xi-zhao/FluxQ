@@ -16,7 +16,7 @@ FluxQ's next milestone hardens the control plane from side-effect-free ingress t
 - [x] **Phase 4: Policy Acceptance Gates** - Turn compare, benchmark, and doctor outputs into CI-ready accept or reject decisions.
 - [x] **Phase 5: Verified Delivery Bundles** - Package, verify, and re-import trusted runtime bundles outside the source workspace.
 - [x] **Phase 6: Runtime Adoption Surface** - Align docs, examples, and release notes around the runtime/control-plane contract.
-- [ ] **Phase 8: Verification And Bookkeeping Closure** - Close the remaining milestone verification and bookkeeping gaps so the shipped control-plane phases can be archived consistently.
+- [x] **Phase 8: Verification And Bookkeeping Closure** - Close the remaining milestone verification and bookkeeping gaps so the shipped control-plane phases can be archived consistently.
 
 ## Phase Details
 
@@ -137,7 +137,7 @@ Plans:
 - [x] 08-02-PLAN.md — Reconcile the canonical Phase 04 local gate, docs/script semantics, and refresh `04-VERIFICATION.md`
 - [x] 08-03-PLAN.md — Synchronize the milestone ledgers and refresh the audit proof chain for `RUNT-02`, `INT-02`, and `FLOW-02`
 - [x] 08-04-PLAN.md — Close the surviving exec alias-promotion interruption hole and force recovery on the next `exec`
-- [ ] 08-05-PLAN.md — Regenerate the Phase 03 / Phase 08 proof chain and re-close bookkeeping from corrected evidence
+- [x] 08-05-PLAN.md — Regenerate the Phase 03 / Phase 08 proof chain and re-close bookkeeping from corrected evidence
 
 ## Progress
 
@@ -150,4 +150,4 @@ Plans:
 | 5. Verified Delivery Bundles | 3/3 | Complete | 2026-04-14 |
 | 6. Runtime Adoption Surface | 3/3 | Complete | 2026-04-15 |
 | 7. Compare Trust Closure | 3/3 | Complete | 2026-04-15 |
-| 8. Verification And Bookkeeping Closure | 3/5 | In Progress | - |
+| 8. Verification And Bookkeeping Closure | 5/5 | Complete | 2026-04-17 |
