@@ -48,7 +48,12 @@
   1. User can configure IBM Quantum Platform credentials and instance selection non-interactively for local agents and CI.
   2. User can list compatible IBM remote backends before submission.
   3. Backend discovery shows readiness details that let the user decide whether a pinned backend is usable.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — IBM optional extra, non-secret profile contract, and `qrun ibm configure`
+- [ ] 09-02-PLAN.md — IBM `doctor --ci` auth/profile gate plus JSONL observability
+- [ ] 09-03-PLAN.md — IBM `backend list` inventory and target readiness surface
 
 ### Phase 10: Canonical Remote Submit & Attempt Records
 **Goal**: Users can submit canonical FluxQ runtime objects to IBM Quantum Platform and immediately receive a durable local remote attempt record.
@@ -96,7 +101,7 @@
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-8 Runtime Foundation | v1.0 | 29/29 | Complete | 2026-04-18 |
-| 9. IBM Access & Backend Readiness | v1.1 | 0/TBD | Not started | - |
+| 9. IBM Access & Backend Readiness | v1.1 | 0/3 | Not started | - |
 | 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/TBD | Not started | - |
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |
