@@ -80,13 +80,18 @@ class WorkspaceRecoveryRequiredError(StructuredQuantumRuntimeError):
             message = (
                 f"Workspace recovery required at {workspace}; mismatched aliases: {', '.join(alias_list)}"
             )
+            message = (
+                f"{message}. Review alias_paths and restore the active aliases to one coherent revision before retrying."
+            )
         else:
             message = (
                 f"Workspace recovery required at {workspace}; pending files: {', '.join(pending_list)}"
             )
-        if last_valid_revision:
+            if last_valid_revision:
+                message = f"{message}; last valid revision: {last_valid_revision}"
+            message = f"{message}. Run qrun doctor --fix before retrying."
+        if recovery_mode == "alias_mismatch" and last_valid_revision:
             message = f"{message}; last valid revision: {last_valid_revision}"
-        message = f"{message}. Run qrun doctor --fix before retrying."
         super().__init__(
             message,
             details={

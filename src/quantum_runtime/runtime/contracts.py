@@ -29,6 +29,7 @@ REMEDIATIONS: dict[str, str] = {
     "workspace_root_required_for_report_file": "Pass `--workspace` or use a report file that still carries recoverable workspace provenance.",
     "workspace_conflict": "Wait for the current workspace lease holder to finish, then retry the command or use a different workspace.",
     "workspace_recovery_required": "Run `qrun doctor --fix` or clear the interrupted-write leftovers after validating the last known good revision.",
+    "workspace_alias_mismatch": "Review alias_paths, restore the active aliases to one coherent revision, then retry the command.",
     "pack_bundle_invalid": "Run `qrun pack-inspect --pack-root <bundle> --json`, fix the reported bundle verification issues, then retry the import.",
     "pack_revision_conflict": "Import into an empty workspace or remove the conflicting revision history before retrying `qrun pack-import`.",
 }
@@ -128,10 +129,11 @@ def workspace_recovery_required_error_payload(
     reason_codes: list[str],
     next_actions: list[str],
     gate: dict[str, Any],
+    remediation: str | None = None,
 ) -> WorkspaceRecoveryRequiredErrorPayload:
     """Build a schema-versioned payload for interrupted-write recovery."""
     return WorkspaceRecoveryRequiredErrorPayload(
-        remediation=remediation_for_error("workspace_recovery_required"),
+        remediation=remediation or remediation_for_error("workspace_recovery_required"),
         details=WorkspaceRecoveryRequiredDetails(
             workspace=workspace,
             pending_files=pending_files,

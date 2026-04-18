@@ -169,3 +169,19 @@ def workspace_recovery_required_observability() -> dict[str, Any]:
             next_actions=next_actions,
         ),
     }
+
+
+def workspace_alias_mismatch_observability() -> dict[str, Any]:
+    """Build machine-readable guidance for mixed authoritative alias state."""
+    reason_codes = ["workspace_recovery_required", "workspace_alias_mismatch"]
+    next_actions = ["review_alias_paths", "restore_active_aliases"]
+    return {
+        "reason_codes": reason_codes,
+        "next_actions": next_actions,
+        "gate": gate_block(
+            ready=False,
+            severity="error",
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        ),
+    }

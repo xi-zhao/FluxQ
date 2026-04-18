@@ -65,6 +65,7 @@ from quantum_runtime.runtime.exit_codes import (
 from quantum_runtime.runtime.observability import JsonlEvent
 from quantum_runtime.runtime.observability import phase_for_event_type
 from quantum_runtime.runtime.observability import (
+    workspace_alias_mismatch_observability,
     workspace_conflict_observability,
     workspace_recovery_required_observability,
 )
@@ -131,17 +132,25 @@ def _workspace_safety_payload(
             next_actions=list(observability["next_actions"]),
             gate=dict(observability["gate"]),
         )
-    observability = workspace_recovery_required_observability()
+    recovery_mode = str(error.details.get("recovery_mode", "pending_files"))
+    observability = (
+        workspace_alias_mismatch_observability()
+        if recovery_mode == "alias_mismatch"
+        else workspace_recovery_required_observability()
+    )
     last_valid_revision = error.details.get("last_valid_revision")
     return workspace_recovery_required_error_payload(
         workspace=str(error.details["workspace"]),
         pending_files=[str(item) for item in error.details.get("pending_files", [])],
         last_valid_revision=str(last_valid_revision) if last_valid_revision is not None else None,
         alias_paths=[str(item) for item in error.details.get("alias_paths", [])],
-        recovery_mode=str(error.details.get("recovery_mode", "pending_files")),
+        recovery_mode=recovery_mode,
         reason_codes=list(observability["reason_codes"]),
         next_actions=list(observability["next_actions"]),
         gate=dict(observability["gate"]),
+        remediation=remediation_for_error("workspace_alias_mismatch")
+        if recovery_mode == "alias_mismatch"
+        else remediation_for_error("workspace_recovery_required"),
     )
 
 

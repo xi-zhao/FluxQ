@@ -204,19 +204,22 @@ def test_qrun_exec_json_reports_workspace_recovery_required_alias_mismatch_contr
 
     assert result.exit_code == 3, result.stdout
     payload = json.loads(result.stdout)
+    assert payload["remediation"] == (
+        "Review alias_paths, restore the active aliases to one coherent revision, then retry the command."
+    )
     assert payload["details"] == {
         "workspace": str(workspace),
         "pending_files": [],
         "last_valid_revision": "rev_000007",
         "alias_paths": [str(item) for item in alias_paths],
         "recovery_mode": "alias_mismatch",
-        "reason_codes": ["workspace_recovery_required"],
-        "next_actions": ["run_doctor_fix", "review_workspace_recovery"],
+        "reason_codes": ["workspace_recovery_required", "workspace_alias_mismatch"],
+        "next_actions": ["review_alias_paths", "restore_active_aliases"],
         "gate": {
             "ready": False,
             "severity": "error",
-            "reason_codes": ["workspace_recovery_required"],
-            "recommended_action": "run_doctor_fix",
+            "reason_codes": ["workspace_recovery_required", "workspace_alias_mismatch"],
+            "recommended_action": "review_alias_paths",
         },
     }
 
