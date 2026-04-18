@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Completed 08-05-PLAN.md
-last_updated: "2026-04-18T00:16:07.773Z"
-last_activity: 2026-04-18
+status: archived
+stopped_at: Archived v1.0 Runtime Foundation milestone
+last_updated: "2026-04-18T09:15:00+08:00"
+last_activity: 2026-04-18 -- v1.0 archived
 progress:
   total_phases: 8
   completed_phases: 8
@@ -18,16 +18,16 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-15)
+See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
-**Current focus:** Phase 08 — milestone-verification-bookkeeping-closure
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 08
-Plan: Not started
-Status: Phase complete — ready for verification
+Phase: v1.0 archived
+Plan: N/A
+Status: Milestone complete — ready for `/gsd-new-milestone`
 Last activity: 2026-04-18
 
 Progress: [██████████] 100%
@@ -36,7 +36,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 32
+- Total plans completed: 29
 - Average duration: 0 min
 - Total execution time: 0.0 hours
 
@@ -103,14 +103,14 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+None.
 
 ### Blockers/Concerns
 
-No blockers. The alias-promotion recovery hole is closed and the proof chain has been regenerated across `03-VERIFICATION.md`, `08-VERIFICATION.md`, `ROADMAP.md`, `STATE.md`, `REQUIREMENTS.md`, and `.planning/v1.0-MILESTONE-AUDIT.md`.
+None. The shipped v1.0 milestone is archived and the repo is ready for the next milestone definition.
 
 ## Session Continuity
 
-Last session: 2026-04-17T23:35:12.762Z
-Stopped at: Completed 08-05-PLAN.md
+Last session: 2026-04-18T09:15:00+08:00
+Stopped at: Archived v1.0 Runtime Foundation milestone
 Resume file: None

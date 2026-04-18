@@ -10,14 +10,20 @@ The product is not a chat assistant with quantum flavoring. Its product core is 
 
 An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
 
+## Current State
+
+- v1.0 Runtime Foundation shipped on 2026-04-18.
+- FluxQ now has a complete local control-plane baseline across canonical ingress, trusted revision artifacts, shared-workspace safety, CI-ready policy gates, verified delivery bundles, and runtime-first adoption guidance.
+- The v1.0 closeout repaired the surviving exec alias-promotion recovery hole and re-established a truthful verification and bookkeeping proof chain.
+
 ## Requirements
 
 ### Validated
 
-- ✓ Agent or CI can initialize a revisioned local workspace and execute supported workloads from markdown intents, prompt text, structured JSON intents, `QSpec`, or replayable report inputs — existing
-- ✓ Agent or CI can consume schema-versioned JSON and JSONL control-plane output for `plan`, `status`, `show`, `compare`, `export`, `bench`, `doctor`, and related commands — existing
-- ✓ FluxQ persists canonical `qspec`, `report`, `manifest`, artifact provenance, replay-integrity metadata, and revision history for completed runs — existing
-- ✓ FluxQ supports local parameterized workflows for `ghz`, `qaoa_ansatz`, and `hardware_efficient_ansatz`, including representative export points and target-aware diagnostics where available — existing
+- ✓ Agent or CI can initialize a revisioned local workspace and execute supported workloads from markdown intents, prompt text, structured JSON intents, `QSpec`, or replayable report inputs — v1.0
+- ✓ Agent or CI can consume schema-versioned JSON and JSONL control-plane output for `plan`, `status`, `show`, `compare`, `export`, `bench`, `doctor`, and related commands — v1.0
+- ✓ FluxQ persists canonical `qspec`, `report`, `manifest`, artifact provenance, replay-integrity metadata, and revision history for completed runs — v1.0
+- ✓ FluxQ supports local parameterized workflows for `ghz`, `qaoa_ansatz`, and `hardware_efficient_ansatz`, including representative export points and target-aware diagnostics where available — v1.0
 - ✓ Agent can use `prompt`, `resolve`, and `plan` as side-effect-free ingress surfaces with canonical identity parity locked down by regression coverage — Phase 1
 - ✓ Agent can reopen trusted revisions from immutable history artifacts, and replay/import now fail closed on trusted drift while preserving explicit legacy-compatible reopen flows — Phase 2
 - ✓ Agent or CI can target one workspace from exec, compare, benchmark, doctor, baseline, export, and pack flows without silent current/history corruption, and blocked writes now surface structured conflict or recovery-required signals — Phase 3
@@ -27,21 +33,26 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 
 ### Active
 
+- [ ] `REMT-01`: Submit canonical runs to remote quantum providers through the same control-plane abstractions
+- [ ] `REMT-02`: Track remote job lifecycle through the same runtime object surfaces and observability contracts
+- [ ] `OPTM-01`: Support optimizer-driven parameter search beyond bounded local bindings and sweeps
+- [ ] `OPTM-02`: Promote gradient or hybrid-loop workflows to first-class runtime operations
+- [ ] `ECOS-01`: Expand the provider matrix with first-party parity guarantees
+- [ ] `ECOS-02`: Support richer import/export interchange profiles across external platforms
 
 ### Out of Scope
 
-- Broad remote hardware submission and provider-matrix expansion before the local runtime contract is boringly reliable — this would dilute the core runtime wedge
 - A new quantum programming language or DSL — FluxQ should orchestrate canonical runtime objects, not replace the ecosystem language layer
 - General-purpose conversational assistant or IDE behavior — natural language is ingress, not the product center
-- Full optimizer, gradient, or remote job-orchestration platform in the near term — current focus is deterministic local runtime quality and delivery
+- Broad provider expansion before the next milestone clarifies the remote-runtime wedge — local and near-local control-plane maturity has higher leverage
+- Full optimizer platform in the immediate next milestone — remote execution and lifecycle trust come first
 
 ## Context
 
-- This is a brownfield Python 3.11 CLI project built around `Typer`, `Pydantic`, `Qiskit`, optional `Classiq`, and a filesystem-backed workspace under `.quantum/`
-- Existing code already implements the runtime spine: `init -> resolve/plan -> exec -> baseline -> compare -> export -> bench -> doctor -> pack -> pack-inspect -> pack-import`
-- A fresh codebase map exists in `.planning/codebase/`, so the current architecture, conventions, testing strategy, and known concerns are already documented
-- Recent work has already shifted the product toward the target position by adding `qrun prompt`, `qrun resolve`, persisted `intent.json` and `plan.json`, canonical runtime metadata on `QSpec`, digest-verified delivery bundles, downstream `pack-import`, a tested agent/CI adoption workflow, and explicit stable/evolving runtime contract guidance
-- The adjacent `aionrs/` tree is a separate Rust-sidecar integration surface, but the project’s core runtime remains the Python package declared in `pyproject.toml`
+- This is a brownfield Python 3.11 CLI project built around `Typer`, `Pydantic`, `Qiskit`, optional `Classiq`, and a filesystem-backed workspace under `.quantum/`.
+- The shipped v1.0 runtime spine now covers `init -> prompt/resolve/plan -> exec -> baseline -> compare -> export -> bench -> doctor -> pack -> pack-inspect -> pack-import`.
+- `.planning/codebase/` contains a fresh codebase map, so architecture, conventions, tests, and concerns are already documented for the next milestone.
+- The adjacent `aionrs/` tree remains a separate Rust-sidecar integration surface; the shipped product core is still the Python runtime package in `pyproject.toml`.
 
 ## Constraints
 
@@ -49,34 +60,42 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 - **Execution Model**: Qiskit-first local execution with OpenQASM 3 as the exchange layer — this matches the validated current product surface
 - **Compatibility**: Evolve the current `QSpec` and CLI compatibly instead of introducing a breaking IR rewrite — existing control-plane consumers already exist
 - **Observability**: Machine-readable output must remain schema-versioned, stable, and agent-friendly — this is part of the product contract, not implementation detail
-- **Product Scope**: Local runtime maturity, replay trust, policy gating, and delivery bundles come before remote-submit breadth — this is the current strategic wedge
+- **Product Scope**: Local runtime maturity, replay trust, policy gating, and delivery bundles come before remote-submit breadth — this remains the strategic wedge
+
+## Next Milestone Goals
+
+- Extend FluxQ from a trustworthy local runtime control plane to a trustworthy remote execution control plane.
+- Add remote submission and remote lifecycle tracking without weakening the durable runtime-object model.
+- Preserve fail-closed and agent-friendly machine-output contracts while broadening provider reach and interoperability.
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Position FluxQ as an agent-first quantum runtime CLI | The strongest differentiation is reproducible runtime state, not “chatty” generation | — Pending |
-| Treat prompt text as ingress, not source of truth | Agents need a canonical object to compare, re-run, and export | — Pending |
-| Keep `QSpec` as the canonical truth layer and evolve it compatibly | Existing runtime code, tests, and artifacts already depend on it | — Pending |
-| Stay Qiskit-first with OpenQASM 3 as the exchange layer | This keeps the current delivery story strong without widening the provider matrix too early | — Pending |
-| Use revisioned filesystem artifacts as the primary control plane | This keeps FluxQ easy for agents, CI, and teams to consume and audit | — Pending |
+| Position FluxQ as an agent-first quantum runtime CLI | The strongest differentiation is reproducible runtime state, not “chatty” generation | ✓ Validated in v1.0 |
+| Treat prompt text as ingress, not source of truth | Agents need a canonical object to compare, re-run, and export | ✓ Validated in v1.0 |
+| Keep `QSpec` as the canonical truth layer and evolve it compatibly | Existing runtime code, tests, and artifacts already depend on it | ✓ Validated in v1.0 |
+| Stay Qiskit-first with OpenQASM 3 as the exchange layer | This keeps the current delivery story strong without widening the provider matrix too early | ✓ Validated in v1.0 |
+| Use revisioned filesystem artifacts as the primary control plane | This keeps FluxQ easy for agents, CI, and teams to consume and audit | ✓ Validated in v1.0 |
+| Split alias-mismatch recovery from interrupted-temp-file recovery in machine output | Agents need truthful remediation instead of one generic “doctor --fix” suggestion | ✓ Established in Phase 08 |
+| Re-close bookkeeping only after the corrected proof chain is green | Milestone archives must describe what is true, not what was previously assumed | ✓ Established in Phase 08 |
 
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
 
-**After each phase transition** (via `/gsd-transition`):
+**After each phase transition**:
 1. Requirements invalidated? → Move to Out of Scope with reason
 2. Requirements validated? → Move to Validated with phase reference
 3. New requirements emerged? → Add to Active
 4. Decisions to log? → Add to Key Decisions
 5. "What This Is" still accurate? → Update if drifted
 
-**After each milestone** (via `/gsd-complete-milestone`):
-1. Full review of all sections
-2. Core Value check — still the right priority?
-3. Audit Out of Scope — reasons still valid?
-4. Update Context with current state
+**After each milestone**:
+1. Review the shipped product position against the actual codebase
+2. Re-check the core value
+3. Refresh Active / Out of Scope for the next milestone
+4. Update Current State and Next Milestone Goals
 
 ---
-*Last updated: 2026-04-15 after Phase 6 completion*
+*Last updated: 2026-04-18 after v1.0 Runtime Foundation milestone*
