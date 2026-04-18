@@ -44,10 +44,12 @@ from quantum_runtime.runtime import (
     resolve_import_reference,
     resolve_workspace_baseline,
     run_doctor,
+    submit_remote_input,
     validate_revision,
     write_ibm_profile,
     workspace_status,
 )
+from quantum_runtime.runtime.ibm_access import IbmAccessError
 from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy
 from quantum_runtime.runtime.contracts import (
     ErrorPayload,
@@ -93,9 +95,11 @@ app = typer.Typer(
 backend_app = typer.Typer(add_completion=False, help="Backend discovery helpers.")
 baseline_app = typer.Typer(add_completion=False, help="Workspace baseline helpers.")
 ibm_app = typer.Typer(add_completion=False, help="IBM Quantum Platform helpers.")
+remote_app = typer.Typer(add_completion=False, help="Remote runtime helpers.")
 app.add_typer(backend_app, name="backend")
 app.add_typer(baseline_app, name="baseline")
 app.add_typer(ibm_app, name="ibm")
+app.add_typer(remote_app, name="remote")
 
 
 def _emit_json_payload(payload: object, *, exit_code: int) -> None:
@@ -117,6 +121,34 @@ def _json_error(reason: str) -> None:
 def _cli_error(reason: str, *, json_output: bool) -> NoReturn:
     if json_output:
         _json_error(reason)
+    typer.echo(remediation_for_error(reason))
+    raise typer.Exit(code=3)
+
+
+def _structured_cli_error(
+    reason: str,
+    *,
+    json_output: bool,
+    jsonl_output: bool = False,
+    event_sink=None,
+    details: object | None = None,
+    completion_event_type: str = "run_completed",
+) -> NoReturn:
+    payload = ErrorPayload(
+        reason=reason,
+        error_code=reason,
+        remediation=remediation_for_error(reason),
+        details=details or {},
+    )
+    if json_output:
+        _emit_json_payload(payload, exit_code=3)
+    if jsonl_output and event_sink is not None:
+        event_sink(
+            completion_event_type,
+            payload.model_dump(mode="json"),
+            status="error",
+        )
+        raise typer.Exit(code=3)
     typer.echo(remediation_for_error(reason))
     raise typer.Exit(code=3)
 
@@ -1505,6 +1537,161 @@ def exec_command(
 
     typer.echo(result.summary)
     raise typer.Exit(code=exit_code_for_exec(result))
+
+
+@remote_app.command("submit")
+def remote_submit_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=False,
+        help="Workspace directory used for canonical input resolution and remote attempt persistence.",
+    ),
+    backend_name: str = typer.Option(
+        ...,
+        "--backend",
+        help="Explicit IBM backend name to submit against.",
+    ),
+    intent_file: Path | None = typer.Option(
+        None,
+        "--intent-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Markdown intent file to submit remotely.",
+    ),
+    intent_json_file: Path | None = typer.Option(
+        None,
+        "--intent-json-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Structured JSON intent file to submit remotely.",
+    ),
+    qspec_file: Path | None = typer.Option(
+        None,
+        "--qspec-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Canonical QSpec JSON file to submit remotely.",
+    ),
+    report_file: Path | None = typer.Option(
+        None,
+        "--report-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=False,
+        help="Previously generated report JSON file to re-submit remotely.",
+    ),
+    revision: str | None = typer.Option(
+        None,
+        "--revision",
+        help="Workspace report history revision to re-submit remotely.",
+    ),
+    intent_text: str | None = typer.Option(
+        None,
+        "--intent-text",
+        help="Inline intent text to submit remotely.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+    jsonl_output: bool = typer.Option(
+        False,
+        "--jsonl",
+        help="Emit newline-delimited machine-readable events instead of a single JSON payload.",
+    ),
+) -> None:
+    """Submit one canonical runtime input to the configured remote provider."""
+    _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
+    inputs_provided = sum(
+        value is not None
+        for value in (intent_file, intent_json_file, qspec_file, report_file, revision, intent_text)
+    )
+    if inputs_provided != 1:
+        if json_output:
+            _json_error("expected_exactly_one_input")
+        raise typer.BadParameter(
+            "Provide exactly one of --intent-file, --intent-json-file, --qspec-file, --report-file, --revision, or --intent-text."
+        )
+
+    event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
+    try:
+        result = submit_remote_input(
+            workspace_root=workspace,
+            backend_name=backend_name,
+            intent_file=intent_file,
+            intent_json_file=intent_json_file,
+            qspec_file=qspec_file,
+            report_file=report_file,
+            revision=revision,
+            intent_text=intent_text,
+        )
+    except ImportSourceError as exc:
+        _structured_cli_error(
+            exc.code,
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="remote_submit_completed",
+            details=exc.details,
+        )
+    except IbmAccessError as exc:
+        _structured_cli_error(
+            exc.code,
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="remote_submit_completed",
+            details=exc.details,
+        )
+    except ValueError as exc:
+        _structured_cli_error(
+            str(exc),
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="remote_submit_completed",
+        )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(
+            exc,
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="remote_submit_completed",
+        )
+
+    if json_output:
+        _echo_json(result)
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+    if jsonl_output and event_sink is not None:
+        event_sink(
+            "remote_submit_completed",
+            result.model_dump(mode="json"),
+            None,
+            result.status,
+        )
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+
+    typer.echo(
+        f"remote submit accepted: {result.attempt_id} -> {result.backend.name} job {result.job.id}"
+    )
+    raise typer.Exit(code=exit_code_for_control_plane(result))
 
 
 @app.command("inspect")

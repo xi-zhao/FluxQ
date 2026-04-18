@@ -427,6 +427,8 @@ def test_qrun_remote_submit_preserves_latest_report_and_manifest_aliases(
 
     report_latest = workspace / "reports" / "latest.json"
     manifest_latest = workspace / "manifests" / "latest.json"
+    assert str(report_latest).endswith("reports/latest.json")
+    assert str(manifest_latest).endswith("manifests/latest.json")
     report_before = report_latest.read_text(encoding="utf-8")
     manifest_before = manifest_latest.read_text(encoding="utf-8")
 

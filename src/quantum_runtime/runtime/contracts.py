@@ -21,6 +21,7 @@ REMEDIATIONS: dict[str, str] = {
         "Run `qrun bench --revision <baseline-revision>` to persist saved benchmark evidence before using `qrun bench --baseline ...`."
     ),
     "expected_exactly_one_input": "Provide exactly one supported input selector for the command.",
+    "remote_backend_required": "Pass `--backend <name>`; FluxQ requires explicit remote backend selection.",
     "invalid_benchmark_policy": (
         "Use `qrun bench --baseline` with non-negative regression thresholds and valid comparable/status policy options."
     ),
@@ -52,6 +53,9 @@ REMEDIATIONS: dict[str, str] = {
     ),
     "ibm_runtime_dependency_missing": (
         "Install the optional IBM extra with `uv sync --extra ibm` before running IBM readiness checks."
+    ),
+    "ibm_backend_lookup_failed": (
+        "Use `qrun backend list --workspace <workspace> --json` to confirm the explicit backend name and IBM instance, then retry."
     ),
     "ibm_access_unresolved": (
         "Review the `[remote.ibm]` profile, credential reference, and instance settings, then rerun `qrun doctor --ci`."
