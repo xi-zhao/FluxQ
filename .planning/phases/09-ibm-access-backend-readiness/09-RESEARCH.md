@@ -338,17 +338,15 @@ def project_backend_readiness(backend) -> dict[str, object]:
 
 如果这个表为空，表示本研究中的所有关键结论都已在本 session 验证。当前不为空，planner 需要把这些设计推断视为 implementation choice，而不是已锁定用户决策。 [VERIFIED: this document]
 
-## Open Questions
+## Resolved Questions (for planning)
 
-1. **命令命名要不要 provider-specific？**
-   - What we know: 当前 CLI 只有 `backend` 和 `baseline` 子命名空间，没有通用 config 命令。 [VERIFIED: local file `src/quantum_runtime/cli.py`]
-   - What's unclear: 团队是否想为后续 provider 扩展预留统一配置面。
-   - Recommendation: Phase 09 先用 `qrun ibm configure`，因为它是最窄变更。 [ASSUMED]
+1. **命令命名采用 provider-specific 入口：`qrun ibm configure`。**
+   - 结论：Phase 09 先用 `qrun ibm configure`，不先抽象出通用 `qrun config` 框架。
+   - 理由：当前 CLI 只有 `backend` 和 `baseline` 子命名空间；provider-specific 入口是最窄、最不易越界的增量。 [VERIFIED: local file `src/quantum_runtime/cli.py`] [ASSUMED]
 
-2. **instance 应该以值还是 env ref 持久化？**
-   - What we know: IBM 文档推荐显式提供 `instance`；instance 是 CRN 或 service name。 [CITED: https://quantum.cloud.ibm.com/docs/en/guides/initialize-account] [CITED: https://quantum.cloud.ibm.com/docs/en/api/qiskit-ibm-runtime/qiskit-runtime-service]
-   - What's unclear: 团队是否认为 instance 也需要像 token 一样通过 CI secrets 注入。
-   - Recommendation: 支持两种输入，但 workspace 默认写明显式 `instance`；仅当用户主动要求时才使用 `instance_env`。 [ASSUMED]
+2. **`instance` 默认以显式值持久化到 `qrun.toml`，而不是默认走 env ref。**
+   - 结论：token 只走 env ref 或 IBM 官方 saved account；`instance` 默认写显式非 secret 值。仅当调用者明确要求时，后续设计才考虑 `instance_env`。
+   - 理由：IBM 官方推荐显式提供 `instance`，而 `instance` 本身不是 secret；把它固定进 profile 更符合可复现 control plane。 [CITED: https://quantum.cloud.ibm.com/docs/en/guides/initialize-account] [CITED: https://quantum.cloud.ibm.com/docs/en/api/qiskit-ibm-runtime/qiskit-runtime-service] [ASSUMED]
 
 ## Environment Availability
 
