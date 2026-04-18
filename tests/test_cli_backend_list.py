@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
 from quantum_runtime.runtime.backend_registry import BackendCapabilityDescriptor, BackendDependency
+from quantum_runtime.runtime.ibm_access import IbmAccessError, IbmAccessResolution
 
 
 RUNNER = CliRunner()
@@ -93,6 +94,17 @@ def _backend_capabilities_fixture() -> dict[str, BackendCapabilityDescriptor]:
             notes=["IBM readiness-only inventory surface"],
         ),
     }
+
+
+def _configured_ibm_resolution() -> IbmAccessResolution:
+    return IbmAccessResolution(
+        status="ok",
+        configured=True,
+        channel="ibm_quantum_platform",
+        credential_mode="saved_account",
+        instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+        saved_account_name="fluxq-dev",
+    )
 
 
 def test_qrun_backend_list_json_reports_known_backends(monkeypatch) -> None:
@@ -195,3 +207,98 @@ def test_backend_list_json_omits_auto_selection_fields(
     assert "recommended_backend" not in payload["remote"]
     assert "selected_backend" not in payload["remote"]
     assert "least_busy" not in payload["remote"]
+
+
+def test_backend_list_json_projects_ibm_target_readiness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    class _FakeStatus:
+        operational = True
+        status_msg = "active"
+        pending_jobs = 3
+
+    class _FakeBackend:
+        name = "ibm_brisbane"
+        backend_version = "2.1.4"
+        num_qubits = 127
+
+        def status(self) -> _FakeStatus:
+            return _FakeStatus()
+
+    class _FakeService:
+        def backends(self) -> list[_FakeBackend]:
+            return [_FakeBackend()]
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.collect_backend_capabilities",
+        _backend_capabilities_fixture,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.resolve_ibm_access",
+        lambda *, workspace_root: _configured_ibm_resolution(),
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.build_ibm_service",
+        lambda *, resolution: _FakeService(),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["backend", "list", "--json", "--workspace", str(workspace)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    remote = payload["remote"]
+    target = remote["targets"][0]
+    assert target["name"] == "ibm_brisbane"
+    assert target["operational"] is True
+    assert target["status_msg"] == "active"
+    assert target["pending_jobs"] == 3
+    assert target["num_qubits"] == 127
+    assert target["backend_version"] == "2.1.4"
+    assert target["readiness"]["status"] == "ready"
+    assert target["readiness"]["reason_codes"] == []
+    assert target["readiness"]["next_actions"] == []
+
+
+def test_backend_list_json_returns_blocked_remote_state_when_ibm_service_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.collect_backend_capabilities",
+        _backend_capabilities_fixture,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.resolve_ibm_access",
+        lambda *, workspace_root: _configured_ibm_resolution(),
+    )
+
+    def _service_unavailable(*, resolution: IbmAccessResolution) -> object:
+        raise IbmAccessError("ibm_runtime_dependency_missing")
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.backend_list.build_ibm_service",
+        _service_unavailable,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["backend", "list", "--json", "--workspace", str(workspace)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    remote = payload["remote"]
+    assert remote["readiness"]["status"] == "blocked"
+    assert "ibm_runtime_dependency_missing" in remote["readiness"]["reason_codes"]
+    assert remote["targets"] == []
+    assert "recommended_backend" not in payload
+    assert "selected_backend" not in payload
+    assert "least_busy" not in payload
