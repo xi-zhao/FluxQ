@@ -8,9 +8,9 @@
 ## Current Status
 
 - Active milestone: **v1.1 Remote Execution**
-- Active focus: Phase 9 implementation complete, awaiting live IBM verification
+- Active focus: Phase 9 complete, ready to plan **Phase 10**
 - Scope guard: IBM Quantum Platform only, job mode only, trust-first remote execution
-- Next step: complete `09-HUMAN-UAT.md` or approve Phase 9 manually
+- Next step: `/gsd-plan-phase 10`
 
 ## Phases
 
@@ -32,7 +32,7 @@
 
 **Milestone Goal:** Extend FluxQ from a trustworthy local control plane to a trustworthy remote execution control plane through IBM Quantum Platform job mode without weakening canonical artifacts, offline trust, or fail-closed machine output.
 
-- [ ] **Phase 9: IBM Access & Backend Readiness** - Configure non-interactive IBM access and validate explicit backend readiness before any remote submission.
+- [x] **Phase 9: IBM Access & Backend Readiness** - Configure non-interactive IBM access and validate explicit backend readiness before any remote submission.
 - [ ] **Phase 10: Canonical Remote Submit & Attempt Records** - Submit existing FluxQ runtime objects remotely and persist a first-class remote attempt immediately.
 - [ ] **Phase 11: Remote Lifecycle Control** - Reopen, poll, and cancel remote jobs without resubmitting compute.
 - [ ] **Phase 12: Terminal Result Materialization** - Finalize terminal remote jobs into immutable local artifacts that remain usable offline.
@@ -101,7 +101,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-8 Runtime Foundation | v1.0 | 29/29 | Complete | 2026-04-18 |
-| 9. IBM Access & Backend Readiness | v1.1 | 3/3 | Human verification | - |
+| 9. IBM Access & Backend Readiness | v1.1 | 3/3 | Complete | 2026-04-18 |
 | 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/TBD | Not started | - |
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |

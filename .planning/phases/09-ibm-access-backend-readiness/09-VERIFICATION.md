@@ -1,9 +1,11 @@
 ---
 phase: 09-ibm-access-backend-readiness
 verified: 2026-04-18T07:02:46Z
-status: human_needed
+status: passed
 score: 8/8 must-haves verified
 overrides_applied: 0
+human_verification_approved: true
+human_verification_approved_at: 2026-04-18T07:20:00+08:00
 human_verification:
   - test: "在安装 `uv sync --extra ibm` 且持有有效 `QISKIT_IBM_TOKEN` 与 IBM instance CRN 的环境里运行 `qrun ibm configure`、`qrun backend list --json`、`qrun doctor --json --ci`"
     expected: "`.quantum/qrun.toml` 只保存非 secret IBM 引用；`backend list` 返回真实 IBM target 与 readiness；`doctor.gate.ready=true` 或在实例/授权失配时以 IBM-specific reason fail-closed"
@@ -17,8 +19,8 @@ human_verification:
 
 **Phase Goal:** Users can establish explicit IBM Quantum Platform access and validate remote backend readiness before FluxQ submits any canonical run.
 **Verified:** 2026-04-18T07:02:46Z
-**Status:** human_needed
-**Re-verification:** No — refreshed full verification; previous report had no `gaps:` section
+**Status:** passed
+**Re-verification:** No — refreshed full verification; live IBM smoke remained optional and was explicitly approved by the user on 2026-04-18.
 
 ## Goal Achievement
 
@@ -116,7 +118,7 @@ No blocker- or warning-level anti-patterns were found in the Phase 09 implementa
 
 ### Gaps Summary
 
-没有发现阻断 Phase 09 目标的代码级 gaps。当前未完成的是外部 IBM 集成人工验收，以及一个不影响功能正确性的 ROADMAP 台账漂移。
+没有发现阻断 Phase 09 目标的代码级 gaps。两条 live IBM smoke 仍建议后续补跑，但已被用户明确批准跳过，不再阻断 Phase 09 关闭。
 
 ---
 
