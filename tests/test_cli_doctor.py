@@ -3,16 +3,48 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.runtime.backend_registry import BackendCapabilityDescriptor, BackendDependency
+from quantum_runtime.runtime.ibm_access import IbmAccessError, IbmAccessResolution
 from quantum_runtime.workspace import WorkspaceManager, acquire_workspace_lock
+from quantum_runtime.workspace.manager import DEFAULT_QRUN_TOML
 
 
 RUNNER = CliRunner()
+
+
+def _write_remote_ibm_profile(
+    workspace: Path,
+    *,
+    credential_mode: str = "env",
+    token_env: str = "QISKIT_IBM_TOKEN",
+    saved_account_name: str = "fluxq-dev",
+    instance: str = "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+) -> None:
+    if credential_mode == "env":
+        remote_block = f"""
+
+[remote.ibm]
+channel = "ibm_quantum_platform"
+credential_mode = "env"
+token_env = "{token_env}"
+instance = "{instance}"
+"""
+    else:
+        remote_block = f"""
+
+[remote.ibm]
+channel = "ibm_quantum_platform"
+credential_mode = "saved_account"
+saved_account_name = "{saved_account_name}"
+instance = "{instance}"
+"""
+    (workspace / "qrun.toml").write_text(DEFAULT_QRUN_TOML + remote_block)
 
 
 def _doctor_capabilities(*, classiq_available: bool, classiq_optional: bool = True) -> dict[str, dict[str, object]]:
@@ -347,3 +379,136 @@ def test_qrun_doctor_json_reports_workspace_recovery_required_for_pending_doctor
     payload = json.loads(result.stdout)
     assert payload["reason"] == "workspace_recovery_required"
     assert str(pending) in payload["details"]["pending_files"]
+
+
+def test_doctor_ci_blocks_missing_ibm_token_env_when_remote_ibm_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    WorkspaceManager.load_or_init(workspace)
+    _write_remote_ibm_profile(workspace, credential_mode="env")
+    monkeypatch.setenv("QISKIT_IBM_TOKEN", "super-secret-token")
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: _doctor_capabilities(classiq_available=True),
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.resolve_ibm_access",
+        lambda *, workspace_root: IbmAccessResolution(
+            status="error",
+            configured=True,
+            channel="ibm_quantum_platform",
+            credential_mode="env",
+            instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            token_env="QISKIT_IBM_TOKEN",
+            error_code="ibm_token_env_missing",
+            reason_codes=["ibm_token_env_missing"],
+        ),
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json", "--ci"],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["gate"]["ready"] is False
+    assert "ibm_token_env_missing" in payload["reason_codes"]
+    assert any("ibm_token_env_missing" in issue for issue in payload["blocking_issues"])
+    assert "super-secret-token" not in result.stdout
+    assert "Authorization" not in result.stdout
+
+
+def test_doctor_ci_skips_ibm_checks_without_remote_ibm_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    WorkspaceManager.load_or_init(workspace)
+    calls = {"count": 0}
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: _doctor_capabilities(classiq_available=True),
+    )
+
+    def _unexpected_ibm_resolution(*, workspace_root: Path) -> IbmAccessResolution:
+        calls["count"] += 1
+        return IbmAccessResolution(
+            status="error",
+            configured=True,
+            channel="ibm_quantum_platform",
+            credential_mode="env",
+            instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            token_env="QISKIT_IBM_TOKEN",
+            error_code="ibm_token_env_missing",
+            reason_codes=["ibm_token_env_missing"],
+        )
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.resolve_ibm_access",
+        _unexpected_ibm_resolution,
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json", "--fix", "--ci"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["gate"]["ready"] is True
+    assert payload["blocking_issues"] == []
+    assert "ibm_token_env_missing" not in payload["reason_codes"]
+    assert calls["count"] == 0
+
+
+def test_doctor_ci_reports_ibm_runtime_dependency_missing_when_opted_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    WorkspaceManager.load_or_init(workspace)
+    _write_remote_ibm_profile(workspace, credential_mode="saved_account")
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.collect_backend_capabilities",
+        lambda: _doctor_capabilities(classiq_available=True),
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.resolve_ibm_access",
+        lambda *, workspace_root: IbmAccessResolution(
+            status="ok",
+            configured=True,
+            channel="ibm_quantum_platform",
+            credential_mode="saved_account",
+            instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            saved_account_name="fluxq-dev",
+        ),
+        raising=False,
+    )
+
+    def _missing_dependency(*, resolution: IbmAccessResolution) -> object:
+        raise IbmAccessError("ibm_runtime_dependency_missing")
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.doctor.build_ibm_service",
+        _missing_dependency,
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--json", "--ci"],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["gate"]["ready"] is False
+    assert "ibm_runtime_dependency_missing" in payload["reason_codes"]
+    assert any("ibm_runtime_dependency_missing" in issue for issue in payload["blocking_issues"])
+    assert "No module named" not in result.stdout
