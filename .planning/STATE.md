@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: archived
-stopped_at: Archived v1.0 Runtime Foundation milestone
-last_updated: "2026-04-18T09:15:00+08:00"
-last_activity: 2026-04-18 -- v1.0 archived
+milestone: v1.1
+milestone_name: Remote Execution
+status: planning
+stopped_at: Started milestone v1.1 Remote Execution
+last_updated: "2026-04-18T09:30:00+08:00"
+last_activity: 2026-04-18 -- milestone v1.1 started
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 29
-  completed_plans: 29
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
-**Current focus:** Planning next milestone
+**Current focus:** Defining milestone v1.1 requirements
 
 ## Current Position
 
-Phase: v1.0 archived
-Plan: N/A
-Status: Milestone complete — ready for `/gsd-new-milestone`
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining milestone v1.1 requirements
 Last activity: 2026-04-18
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -94,12 +94,9 @@ Recent decisions affecting current work:
 - [Phase 08]: Kept the exact Phase 04 proof path as the targeted Ruff, module-form MyPy, and selected pytest sequence including tests/test_runtime_policy.py.
 - [Phase 08]: Documented ./scripts/dev-bootstrap.sh verify as a broader repo smoke command instead of shrinking it to the Phase 04 subset.
 - [Phase 08]: Kept `RUNT-02` owned by Phase 08 while citing `03-VERIFICATION.md` as the refreshed proof artifact. — Phase 08 is the terminal traceability owner in REQUIREMENTS.md, while Phase 03 now provides the current passed verification evidence used by the final milestone proof chain.
-- [Phase 08]: Treat unrelated `./scripts/dev-bootstrap.sh verify` failures as repo-smoke debt instead of milestone blockers once the exact proof chain is consistent. — The plan explicitly kept scope narrow to the owned Phase 03, Phase 04, and ledger proof chain; broader smoke failures remain documented debt and do not reopen FLOW-02.
-- [Phase 08]: Reopened Phase 08 after verifier reproduced a surviving `_promote_exec_aliases()` interruption path where `specs/current.json` can outrun `reports/latest.json` / `manifests/latest.json`.
-- [Phase 08]: Gap closure keeps `RUNT-02` under Phase 08 and adds two follow-up plans: one code/test repair plan and one proof-chain regeneration plan.
+- [Phase 08]: Treat unrelated ./scripts/dev-bootstrap.sh verify failures as repo-smoke debt instead of milestone blockers once the exact proof chain is consistent.
 - [Phase 08]: Promoted reports/latest.json and manifests/latest.json before specs/current.json so qspec aliases cannot outrun durable exec aliases.
 - [Phase 08]: Guarded workspace.json current_revision plus report/manifest/qspec aliases as one recovery surface and fail-closed before the next exec reserves a new revision.
-- [Phase 08]: Use the focused 57-test regression bundle as the corrected proof source for both Phase 03 and Phase 08 verification refreshes.
 
 ### Pending Todos
 
@@ -107,10 +104,10 @@ None.
 
 ### Blockers/Concerns
 
-None. The shipped v1.0 milestone is archived and the repo is ready for the next milestone definition.
+- Next milestone is scoped around remote submission, remote lifecycle tracking, and preserving the same machine-readable contract across local and remote flows.
 
 ## Session Continuity
 
-Last session: 2026-04-18T09:15:00+08:00
-Stopped at: Archived v1.0 Runtime Foundation milestone
+Last session: 2026-04-18T09:30:00+08:00
+Stopped at: Started milestone v1.1 Remote Execution
 Resume file: None

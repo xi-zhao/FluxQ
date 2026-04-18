@@ -10,11 +10,21 @@ The product is not a chat assistant with quantum flavoring. Its product core is 
 
 An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
 
+## Current Milestone: v1.1 Remote Execution
+
+**Goal:** Extend FluxQ from a trustworthy local runtime control plane to a trustworthy remote execution control plane.
+
+**Target features:**
+- Submit canonical runs to one remote provider through the existing runtime object surface
+- Track remote job lifecycle through the same control-plane abstractions used locally
+- Preserve schema-versioned, fail-closed, agent-friendly machine output across local and remote flows
+
 ## Current State
 
 - v1.0 Runtime Foundation shipped on 2026-04-18.
 - FluxQ now has a complete local control-plane baseline across canonical ingress, trusted revision artifacts, shared-workspace safety, CI-ready policy gates, verified delivery bundles, and runtime-first adoption guidance.
 - The v1.0 closeout repaired the surviving exec alias-promotion recovery hole and re-established a truthful verification and bookkeeping proof chain.
+- v1.1 now focuses on carrying that same trust model into remote submission and remote lifecycle management without weakening the local contract.
 
 ## Requirements
 
@@ -33,19 +43,17 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 
 ### Active
 
-- [ ] `REMT-01`: Submit canonical runs to remote quantum providers through the same control-plane abstractions
+- [ ] `REMT-01`: Submit canonical runs to one remote provider through the same control-plane abstractions
 - [ ] `REMT-02`: Track remote job lifecycle through the same runtime object surfaces and observability contracts
-- [ ] `OPTM-01`: Support optimizer-driven parameter search beyond bounded local bindings and sweeps
-- [ ] `OPTM-02`: Promote gradient or hybrid-loop workflows to first-class runtime operations
-- [ ] `ECOS-01`: Expand the provider matrix with first-party parity guarantees
-- [ ] `ECOS-02`: Support richer import/export interchange profiles across external platforms
+- [ ] `REMT-03`: Preserve schema-versioned, fail-closed machine output across local and remote execution flows
 
 ### Out of Scope
 
 - A new quantum programming language or DSL — FluxQ should orchestrate canonical runtime objects, not replace the ecosystem language layer
 - General-purpose conversational assistant or IDE behavior — natural language is ingress, not the product center
-- Broad provider expansion before the next milestone clarifies the remote-runtime wedge — local and near-local control-plane maturity has higher leverage
-- Full optimizer platform in the immediate next milestone — remote execution and lifecycle trust come first
+- Broad provider expansion in v1.1 — the first remote milestone should prove one trustworthy provider path before widening the matrix
+- Full optimizer platform in v1.1 — remote execution and lifecycle trust come first
+- Rich external interchange expansion in v1.1 — provider lifecycle parity is higher priority than wider ecosystem coverage
 
 ## Context
 
@@ -66,7 +74,7 @@ An agent or team can trust a FluxQ run as a durable runtime object that is repro
 
 - Extend FluxQ from a trustworthy local runtime control plane to a trustworthy remote execution control plane.
 - Add remote submission and remote lifecycle tracking without weakening the durable runtime-object model.
-- Preserve fail-closed and agent-friendly machine-output contracts while broadening provider reach and interoperability.
+- Preserve fail-closed and agent-friendly machine-output contracts while adding one clear remote provider path.
 
 ## Key Decisions
 
@@ -98,4 +106,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Current State and Next Milestone Goals
 
 ---
-*Last updated: 2026-04-18 after v1.0 Runtime Foundation milestone*
+*Last updated: 2026-04-18 for v1.1 Remote Execution kickoff*
