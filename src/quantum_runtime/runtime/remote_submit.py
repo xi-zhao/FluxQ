@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import Field
 
@@ -73,14 +73,36 @@ def submit_remote_input(
     report_file: Path | None = None,
     revision: str | None = None,
     intent_text: str | None = None,
+    event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None = None,
 ) -> RemoteSubmitResult | RemoteSubmitBlockedResult:
     """Resolve one canonical input, submit it remotely, and persist the attempt."""
     selected_backend_name = backend_name.strip()
+    source_kind = _source_kind(
+        intent_file=intent_file,
+        intent_json_file=intent_json_file,
+        qspec_file=qspec_file,
+        report_file=report_file,
+        revision=revision,
+        intent_text=intent_text,
+    )
+    if event_sink is not None:
+        event_sink(
+            "submit_started",
+            {
+                "provider": "ibm",
+                "backend": selected_backend_name or None,
+                "source_kind": source_kind,
+            },
+            None,
+            "ok",
+        )
     if not selected_backend_name:
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=workspace_root,
             reason_codes=["remote_backend_required"],
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
 
     resolved = resolve_runtime_input(
         workspace_root=workspace_root,
@@ -94,19 +116,23 @@ def submit_remote_input(
     handle = _load_workspace_handle(workspace_root)
     access = resolve_ibm_access(workspace_root=handle.root)
     if access.status != "ok":
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=_resolution_reason_codes(access),
             details=access.model_dump(mode="json", exclude_none=True),
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
     try:
         service = build_ibm_service(resolution=access)
     except IbmAccessError as exc:
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=_service_reason_codes(exc.code, resolution=access),
             details=exc.details,
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
     try:
         submit_result = submit_ibm_job(
             service=service,
@@ -115,13 +141,15 @@ def submit_remote_input(
             shots=int(resolved.intent_model.shots),
         )
     except IbmAccessError as exc:
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=_submit_reason_codes(exc.code),
             details=exc.details,
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
     except Exception as exc:
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=["remote_submit_failed"],
             details={
@@ -129,6 +157,8 @@ def submit_remote_input(
                 "message": str(exc),
             },
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
 
     attempt_id = _reserve_attempt_id(handle)
     semantics = summarize_qspec_semantics(resolved.qspec)
@@ -174,7 +204,7 @@ def submit_remote_input(
     except (WorkspaceConflictError, WorkspaceRecoveryRequiredError):
         raise
     except Exception as exc:
-        return _blocked_result(
+        blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=["remote_attempt_persist_failed"],
             details={
@@ -182,8 +212,23 @@ def submit_remote_input(
                 "message": str(exc),
             },
         )
+        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
+        return blocked_result
 
-    return RemoteSubmitResult(
+    if event_sink is not None:
+        event_sink(
+            "submit_persisted",
+            {
+                "attempt_id": record.attempt_id,
+                "job_id": record.job.id,
+                "backend": record.backend.name,
+                "provider": record.provider,
+            },
+            None,
+            "ok",
+        )
+
+    result = RemoteSubmitResult(
         workspace=str(handle.root.resolve()),
         attempt_id=record.attempt_id,
         provider=record.provider,
@@ -197,6 +242,8 @@ def submit_remote_input(
         next_actions=list(record.next_actions),
         decision=decision,
     )
+    _emit_submit_completion(event_sink=event_sink, result=result)
+    return result
 
 
 def _load_workspace_handle(workspace_root: Path) -> WorkspaceHandle:
@@ -334,3 +381,42 @@ def _sanitize_value(key: str, value: Any) -> Any:
     if isinstance(value, str) and "bearer " in value.lower():
         return "[redacted]"
     return value
+
+
+def _emit_submit_completion(
+    *,
+    event_sink: Callable[[str, dict[str, Any], str | None, str], None] | None,
+    result: RemoteSubmitResult | RemoteSubmitBlockedResult,
+) -> None:
+    if event_sink is None:
+        return
+    event_sink(
+        "submit_completed",
+        result.model_dump(mode="json"),
+        None,
+        result.status,
+    )
+
+
+def _source_kind(
+    *,
+    intent_file: Path | None,
+    intent_json_file: Path | None,
+    qspec_file: Path | None,
+    report_file: Path | None,
+    revision: str | None,
+    intent_text: str | None,
+) -> str:
+    if intent_file is not None:
+        return "intent_file"
+    if intent_json_file is not None:
+        return "intent_json_file"
+    if qspec_file is not None:
+        return "qspec_file"
+    if report_file is not None:
+        return "report_file"
+    if revision is not None:
+        return "revision"
+    if intent_text is not None:
+        return "intent_text"
+    return "unknown"

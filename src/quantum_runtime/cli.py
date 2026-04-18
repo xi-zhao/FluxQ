@@ -1640,6 +1640,7 @@ def remote_submit_command(
             report_file=report_file,
             revision=revision,
             intent_text=intent_text,
+            event_sink=event_sink,
         )
     except ImportSourceError as exc:
         _structured_cli_error(
@@ -1647,7 +1648,7 @@ def remote_submit_command(
             json_output=json_output,
             jsonl_output=jsonl_output,
             event_sink=event_sink,
-            completion_event_type="remote_submit_completed",
+            completion_event_type="submit_completed",
             details=exc.details,
         )
     except IbmAccessError as exc:
@@ -1656,7 +1657,7 @@ def remote_submit_command(
             json_output=json_output,
             jsonl_output=jsonl_output,
             event_sink=event_sink,
-            completion_event_type="remote_submit_completed",
+            completion_event_type="submit_completed",
             details=exc.details,
         )
     except ValueError as exc:
@@ -1665,7 +1666,7 @@ def remote_submit_command(
             json_output=json_output,
             jsonl_output=jsonl_output,
             event_sink=event_sink,
-            completion_event_type="remote_submit_completed",
+            completion_event_type="submit_completed",
         )
     except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
         _handle_workspace_safety_error(
@@ -1673,19 +1674,16 @@ def remote_submit_command(
             json_output=json_output,
             jsonl_output=jsonl_output,
             event_sink=event_sink,
-            completion_event_type="remote_submit_completed",
+            completion_event_type="submit_completed",
         )
 
     if json_output:
         _echo_json(result)
         raise typer.Exit(code=exit_code_for_control_plane(result))
     if jsonl_output and event_sink is not None:
-        event_sink(
-            "remote_submit_completed",
-            result.model_dump(mode="json"),
-            None,
-            result.status,
-        )
+        raise typer.Exit(code=exit_code_for_control_plane(result))
+    if result.status != "ok":
+        typer.echo(getattr(result, "remediation", remediation_for_error(getattr(result, "error_code", "remote_submit_failed"))))
         raise typer.Exit(code=exit_code_for_control_plane(result))
 
     typer.echo(

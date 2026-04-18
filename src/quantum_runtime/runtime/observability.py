@@ -34,6 +34,8 @@ def phase_for_event_type(event_type: str) -> str:
     """Map a machine event type into a stable phase label."""
     if event_type in {"run_started", "input_resolved", "qspec_prepared", "intent_written", "plan_written"}:
         return "resolve"
+    if event_type in {"submit_started", "submit_persisted", "submit_completed"}:
+        return "remote"
     if event_type in {"artifact_written", "report_written", "manifest_written", "run_completed"}:
         return "execute"
     if event_type in {"compare_started", "left_resolved", "right_resolved", "compare_completed"}:
