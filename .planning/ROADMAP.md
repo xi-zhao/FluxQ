@@ -63,7 +63,12 @@ Plans:
   1. User can submit a remote run from the same prompt, markdown, structured JSON, `QSpec`, or trusted report-backed ingress surface used locally.
   2. Successful submission immediately yields a persisted FluxQ remote attempt record with provider job handle, backend, instance, and submit-time provenance.
   3. The submission path preserves the existing canonical `QSpec` surface instead of introducing a separate remote-only input format.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 10-01-PLAN.md — Remote attempt models, workspace paths, and atomic persistence separate from revision history
+- [ ] 10-02-PLAN.md — Runtime remote submit seam using the existing IBM access factory and immediate attempt persistence
+- [ ] 10-03-PLAN.md — Provider-neutral `qrun remote submit` CLI and truthful backend submit capability surfacing
 
 ### Phase 11: Remote Lifecycle Control
 **Goal**: Users can manage an existing remote job lifecycle without changing run identity or resubmitting compute.
