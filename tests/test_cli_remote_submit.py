@@ -6,7 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.cli import app
 from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
@@ -15,6 +17,7 @@ from quantum_runtime.runtime import load_remote_attempt
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNNER = CliRunner()
 
 
 def _load_remote_submit_module():
@@ -49,11 +52,8 @@ def _qspec_path(tmp_path: Path) -> Path:
 
 
 def _report_sources(tmp_path: Path) -> tuple[Path, Path, str]:
-    from typer.testing import CliRunner
-
-    runner = CliRunner()
     source_workspace = tmp_path / ".quantum-source"
-    result = runner.invoke(
+    result = RUNNER.invoke(
         app,
         [
             "exec",
@@ -253,3 +253,246 @@ def test_backend_registry_reports_ibm_remote_submit_capability() -> None:
     capabilities = collect_backend_capabilities()
 
     assert capabilities["ibm-runtime"].capabilities["remote_submit"] is True
+
+
+def _patch_real_remote_submit(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_remote_submit_module()
+
+    def _fake_submit_ibm_job(*, service, backend_name: str, qspec: QSpec, shots: int):
+        return {
+            "job_id": "job-123",
+            "job_status": "QUEUED",
+            "primitive": "sampler_v2",
+        }
+
+    monkeypatch.setattr(module, "resolve_ibm_access", lambda *, workspace_root: _fake_ibm_resolution())
+    monkeypatch.setattr(module, "build_ibm_service", lambda *, resolution: object())
+    monkeypatch.setattr(module, "submit_ibm_job", _fake_submit_ibm_job)
+
+
+def _assert_remote_submit_payload(payload: dict[str, object]) -> None:
+    assert payload["status"] == "ok"
+    assert str(payload["attempt_id"]).startswith("attempt_")
+    assert payload["job"]["id"] == "job-123"
+    assert payload["job"]["status"] == "QUEUED"
+    assert payload["backend"]["name"] == "ibm_brisbane"
+    assert payload["backend"]["instance"] == "crn:v1:bluemix:public:quantum-computing:us-east:a/test::"
+
+
+def test_qrun_remote_submit_json_requires_exactly_one_input_source(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "expected_exactly_one_input"
+
+
+def test_qrun_remote_submit_json_accepts_intent_text_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    _patch_real_remote_submit(monkeypatch)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    _assert_remote_submit_payload(json.loads(result.stdout))
+
+
+def test_qrun_remote_submit_json_accepts_report_file_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_workspace, report_path, _ = _report_sources(tmp_path)
+    target_workspace = tmp_path / ".quantum-target"
+    assert source_workspace.exists()
+    _patch_real_remote_submit(monkeypatch)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(target_workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--report-file",
+            str(report_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    _assert_remote_submit_payload(json.loads(result.stdout))
+
+
+def test_qrun_remote_submit_json_accepts_revision_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, _, revision = _report_sources(tmp_path)
+    _patch_real_remote_submit(monkeypatch)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--revision",
+            revision,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    _assert_remote_submit_payload(json.loads(result.stdout))
+
+
+def test_qrun_remote_submit_json_rejects_blank_backend_name(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "   ",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == "remote_backend_required"
+
+
+def test_qrun_remote_submit_preserves_latest_report_and_manifest_aliases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    _patch_real_remote_submit(monkeypatch)
+
+    first = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0, first.stdout
+
+    report_latest = workspace / "reports" / "latest.json"
+    manifest_latest = workspace / "manifests" / "latest.json"
+    report_before = report_latest.read_text(encoding="utf-8")
+    manifest_before = manifest_latest.read_text(encoding="utf-8")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert report_latest.read_text(encoding="utf-8") == report_before
+    assert manifest_latest.read_text(encoding="utf-8") == manifest_before
+
+
+@pytest.mark.parametrize(
+    "error_factory",
+    [
+        lambda workspace: WorkspaceConflictError(
+            workspace=workspace,
+            lock_path=workspace / ".lease",
+            holder={"hostname": "builder", "pid": 99, "operation": "qrun exec"},
+        ),
+        lambda workspace: WorkspaceRecoveryRequiredError(
+            workspace=workspace,
+            pending_files=[workspace / "reports" / ".latest.json.tmp-stale"],
+            last_valid_revision="rev_000001",
+        ),
+    ],
+)
+def test_qrun_remote_submit_json_uses_workspace_safety_helpers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_factory,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    def _raise_error(**kwargs):
+        raise error_factory(workspace)
+
+    monkeypatch.setattr("quantum_runtime.cli.submit_remote_input", _raise_error)
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] in {"workspace_conflict", "workspace_recovery_required"}
