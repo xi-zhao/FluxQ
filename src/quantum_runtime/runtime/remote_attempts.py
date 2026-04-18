@@ -36,6 +36,7 @@ class RemoteAttemptJob(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    status: str | None = None
 
 
 class RemoteAttemptInput(BaseModel):

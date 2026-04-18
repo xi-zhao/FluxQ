@@ -64,6 +64,7 @@ from .remote_attempts import (
     persist_remote_attempt,
     reserve_attempt_id,
 )
+from .remote_submit import RemoteSubmitResult, submit_remote_input
 from .run_manifest import RunManifestArtifact, RunReportArtifact
 
 __all__ = [
@@ -91,6 +92,7 @@ __all__ = [
     "RemoteAttemptBackend",
     "RemoteAttemptJob",
     "RemoteAttemptRecord",
+    "RemoteSubmitResult",
     "ResolveResult",
     "RunManifestArtifact",
     "RunReportArtifact",
@@ -130,6 +132,7 @@ __all__ = [
     "run_doctor",
     "schema_contract",
     "show_run",
+    "submit_remote_input",
     "validate_revision",
     "load_ibm_profile",
     "workspace_status",

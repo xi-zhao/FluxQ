@@ -84,7 +84,7 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
                 "benchmark_synthesis_backed": False,
                 "classiq_synthesis": False,
                 "remote_readiness": True,
-                "remote_submit": False,
+                "remote_submit": True,
             },
             notes=[
                 "IBM Quantum Platform readiness-only inventory surface",

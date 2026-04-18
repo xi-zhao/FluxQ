@@ -89,7 +89,7 @@ def _backend_capabilities_fixture() -> dict[str, BackendCapabilityDescriptor]:
                 "benchmark_synthesis_backed": False,
                 "classiq_synthesis": False,
                 "remote_readiness": True,
-                "remote_submit": False,
+                "remote_submit": True,
             },
             notes=["IBM readiness-only inventory surface"],
         ),
@@ -181,7 +181,7 @@ def test_backend_list_json_reports_ibm_runtime_descriptor(
     assert descriptor["provider"] == "ibm"
     assert descriptor["optional"] is True
     assert descriptor["capabilities"]["remote_readiness"] is True
-    assert descriptor["capabilities"]["remote_submit"] is False
+    assert descriptor["capabilities"]["remote_submit"] is True
 
 
 def test_backend_list_json_omits_auto_selection_fields(

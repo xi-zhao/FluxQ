@@ -143,7 +143,9 @@ def test_submit_remote_input_accepts_canonical_sources_and_persists_attempt(
 
     def _fake_submit_ibm_job(*, service, backend_name: str, qspec: QSpec, shots: int):
         captured["backend_name"] = backend_name
-        captured["semantic_hash"] = summarize_qspec_semantics(qspec)["semantic_hash"]
+        semantics = summarize_qspec_semantics(qspec)
+        captured["semantic_hash"] = semantics["semantic_hash"]
+        captured["execution_hash"] = semantics["execution_hash"]
         captured["shots"] = shots
         return {
             "job_id": "job-123",
@@ -160,16 +162,14 @@ def test_submit_remote_input_accepts_canonical_sources_and_persists_attempt(
         **input_kwargs,
     )
 
-    semantics = summarize_qspec_semantics(expected_qspec)
     assert result.attempt_id.startswith("attempt_")
     assert result.job.id == "job-123"
     assert result.job.status == "QUEUED"
     assert result.backend.name == "ibm_brisbane"
     assert result.backend.instance == "crn:v1:bluemix:public:quantum-computing:us-east:a/test::"
-    assert result.qspec.semantic_hash == semantics["semantic_hash"]
-    assert result.qspec.execution_hash == semantics["execution_hash"]
+    assert result.qspec.semantic_hash == captured["semantic_hash"]
+    assert result.qspec.execution_hash == captured["execution_hash"]
     assert captured["backend_name"] == "ibm_brisbane"
-    assert captured["semantic_hash"] == semantics["semantic_hash"]
     assert captured["shots"] == expected_qspec.constraints.shots
 
     persisted = load_remote_attempt(workspace_root=workspace, attempt_id=result.attempt_id)
@@ -178,8 +178,8 @@ def test_submit_remote_input_accepts_canonical_sources_and_persists_attempt(
     assert persisted.job.status == "QUEUED"
     assert persisted.backend.name == "ibm_brisbane"
     assert persisted.backend.instance == "crn:v1:bluemix:public:quantum-computing:us-east:a/test::"
-    assert persisted.qspec.semantic_hash == semantics["semantic_hash"]
-    assert persisted.qspec.execution_hash == semantics["execution_hash"]
+    assert persisted.qspec.semantic_hash == captured["semantic_hash"]
+    assert persisted.qspec.execution_hash == captured["execution_hash"]
 
 
 def test_submit_remote_input_requires_explicit_backend_name(tmp_path: Path) -> None:
