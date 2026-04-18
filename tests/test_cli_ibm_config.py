@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from quantum_runtime.cli import app
 from quantum_runtime.workspace import WorkspaceManager
 from quantum_runtime.workspace.manager import DEFAULT_QRUN_TOML
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNNER = CliRunner()
 
 
 def _workspace_root(tmp_path: Path) -> Path:
@@ -160,3 +164,140 @@ def test_ibm_profile_pyproject_declares_optional_ibm_extra() -> None:
     assert pyproject_payload["project"]["optional-dependencies"]["ibm"] == [
         "qiskit-ibm-runtime~=0.46",
     ]
+
+
+def test_qrun_ibm_configure_env_json_writes_non_secret_profile_reference(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    monkeypatch.setenv("QISKIT_IBM_TOKEN", "super-secret-token")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            "--credential-mode",
+            "env",
+            "--token-env",
+            "QISKIT_IBM_TOKEN",
+            "--instance",
+            "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["profile"]["credential_mode"] == "env"
+    assert payload["profile"]["token_env"] == "QISKIT_IBM_TOKEN"
+    assert payload["profile"]["instance"] == "crn:v1:bluemix:public:quantum-computing:us-east:a/test::"
+
+    qrun_payload = tomllib.loads((workspace / "qrun.toml").read_text())
+    assert qrun_payload["remote"]["ibm"] == {
+        "channel": "ibm_quantum_platform",
+        "credential_mode": "env",
+        "instance": "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+        "token_env": "QISKIT_IBM_TOKEN",
+    }
+    assert "super-secret-token" not in (workspace / "qrun.toml").read_text()
+
+
+def test_qrun_ibm_configure_saved_account_json_writes_profile_reference(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            "--credential-mode",
+            "saved_account",
+            "--saved-account-name",
+            "fluxq-dev",
+            "--instance",
+            "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["profile"]["credential_mode"] == "saved_account"
+    assert payload["profile"]["saved_account_name"] == "fluxq-dev"
+    assert "token_env" not in payload["profile"] or payload["profile"]["token_env"] is None
+
+    qrun_payload = tomllib.loads((workspace / "qrun.toml").read_text())
+    assert qrun_payload["remote"]["ibm"] == {
+        "channel": "ibm_quantum_platform",
+        "credential_mode": "saved_account",
+        "instance": "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+        "saved_account_name": "fluxq-dev",
+    }
+
+
+@pytest.mark.parametrize(
+    ("args", "reason"),
+    [
+        (
+            [
+                "--credential-mode",
+                "env",
+                "--instance",
+                "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            ],
+            "ibm_token_external_required",
+        ),
+        (
+            [
+                "--credential-mode",
+                "saved_account",
+                "--instance",
+                "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+                "--token-env",
+                "QISKIT_IBM_TOKEN",
+            ],
+            "ibm_config_invalid",
+        ),
+        (
+            [
+                "--credential-mode",
+                "saved_account",
+                "--saved-account-name",
+                "fluxq-dev",
+            ],
+            "ibm_instance_required",
+        ),
+    ],
+)
+def test_qrun_ibm_configure_json_rejects_invalid_flags(
+    tmp_path: Path,
+    args: list[str],
+    reason: str,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            *args,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "error"
+    assert payload["reason"] == reason
+    assert payload["error_code"] == reason
