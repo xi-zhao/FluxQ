@@ -61,19 +61,19 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | TBD | Pending |
-| BACK-01 | TBD | Pending |
-| REMT-01 | TBD | Pending |
-| REMT-02 | TBD | Pending |
-| REMT-03 | TBD | Pending |
-| REMT-04 | TBD | Pending |
-| OBSV-01 | TBD | Pending |
+| AUTH-01 | Phase 9 | Pending |
+| BACK-01 | Phase 9 | Pending |
+| REMT-01 | Phase 10 | Pending |
+| REMT-02 | Phase 10 | Pending |
+| REMT-03 | Phase 11 | Pending |
+| REMT-04 | Phase 12 | Pending |
+| OBSV-01 | Phase 13 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 7 total
-- Mapped to phases: 0
-- Unmapped: 7 ⚠️
+- Mapped to phases: 7
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-04-18*
-*Last updated: 2026-04-18 after initial v1.1 definition*
+*Last updated: 2026-04-18 after v1.1 roadmap creation*

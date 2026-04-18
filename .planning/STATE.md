@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Remote Execution
-status: planning
-stopped_at: Started milestone v1.1 Remote Execution
-last_updated: "2026-04-18T09:30:00+08:00"
-last_activity: 2026-04-18 -- milestone v1.1 started
+status: ready_to_plan
+stopped_at: Created roadmap for v1.1 Remote Execution (Phases 9-13)
+last_updated: "2026-04-18T11:46:51+08:00"
+last_activity: 2026-04-18 -- created v1.1 roadmap and mapped 7/7 requirements
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 13
+  completed_phases: 8
+  total_plans: 29
+  completed_plans: 29
+  percent: 62
 ---
 
 # Project State
@@ -21,51 +21,34 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
-**Current focus:** Defining milestone v1.1 requirements
+**Current focus:** Phase 9 planning for IBM remote access and backend readiness
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining milestone v1.1 requirements
-Last activity: 2026-04-18
+Phase: 9 of 13 (IBM Access & Backend Readiness)
+Plan: 0 of TBD
+Status: Ready to plan Phase 9
+Last activity: 2026-04-18 — created v1.1 roadmap and traceability map
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████░░░░] 62%
 
 ## Performance Metrics
 
 **Velocity:**
-
 - Total plans completed: 29
-- Average duration: 0 min
-- Total execution time: 0.0 hours
+- Average duration: Not tracked
+- Total execution time: Not tracked
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3 | - | - |
-| 02 | 4 | - | - |
-| 03 | 4 | - | - |
-| 04 | 4 | - | - |
-| 05 | 3 | - | - |
-| 06 | 3 | - | - |
-| 07 | 3 | - | - |
-| 08 | 5 | - | - |
+| 01-08 | 29 | Not tracked | Not tracked |
+| 09-13 | 0 | - | - |
 
 **Recent Trend:**
-
-- Last 5 plans: 5 complete
-- Trend: Positive
-
-| Phase 07 P01 | 5 min | 2 tasks | 4 files |
-| Phase 07 P02 | 2 min | 2 tasks | 2 files |
-| Phase 07 P03 | 5 min | 2 tasks | 3 files |
-| Phase 08 P01 | 6 min | 2 tasks | 4 files |
-| Phase 08 P02 | 5 min | 2 tasks | 3 files |
-| Phase 08 P03 | 6 min | 2 tasks | 4 files |
-| Phase 08 P04 | 5min | 2 tasks | 2 files |
-| Phase 08 P05 | 3 min | 2 tasks | 6 files |
+- Last 5 plans: Completed during Phase 08 closeout
+- Trend: Stable
 
 ## Accumulated Context
 
@@ -74,29 +57,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Initialization: Position FluxQ as an agent-first quantum runtime CLI.
-- Initialization: Treat prompt text as ingress, not source of truth.
-- Initialization: Keep `QSpec` as the canonical truth layer and evolve it compatibly.
-- [Phase 04]: Persist compare latest/history artifacts through ensure_schema_payload() on new writes without rewriting prior history files.
-- [Phase 04-policy-acceptance-gates]: Benchmark policy remains CLI-flag driven in Phase 4; no automatic policy-hint consumption.
-- [Phase 04-policy-acceptance-gates]: Benchmark history keys off source_revision/source_kind so imported report and revision benchmarks persist under the evaluated revision.
-- [Phase 04-policy-acceptance-gates]: Benchmark exit mapping is verdict-first when policy is requested and falls back to legacy status-based exits otherwise.
-- [Phase 04-policy-acceptance-gates]: Doctor CI reuses the existing issues versus advisories split and only projects it into explicit blocking/advisory fields.
-- [Phase 04-policy-acceptance-gates]: Doctor reports keep legacy raw findings intact; CI verdict, reason-code, and gate fields are additive and only emitted when --ci is requested.
-- [Phase 04-policy-acceptance-gates]: Doctor exit behavior is verdict-first only when a CI verdict exists; legacy workspace/dependency fallback mapping remains unchanged otherwise.
-- [Phase 05-verified-delivery-bundles]: `qrun pack` validates revisions up front, packages immutable history only, and preserves the last good bundle until staged verification passes.
-- [Phase 05-verified-delivery-bundles]: `qrun pack-inspect` verifies copied bundles from bundle-local digests and revision metadata without depending on the source workspace.
-- [Phase 05-verified-delivery-bundles]: `qrun pack-import` verifies first, imports immutable history into a target workspace, rewrites workspace-bound provenance paths, and then promotes aliases.
-- [Phase 07-compare-trust-closure]: report writer no longer backfills canonical history from mutable aliases, so revision history stays self-consistent across multiple execs.
-- [Phase 07-compare-trust-closure]: healthy baseline/current compare now returns the documented policy verdict path, while true canonical-history tampering still fails closed with trust errors.
-- [Phase 08]: Made report latest promotion explicit and default-off so executor owns when mutable aliases move.
-- [Phase 08]: Derived report semantics and fallback qspec hashes from the passed QSpec object instead of trusting mutable alias file contents.
-- [Phase 08]: Kept the exact Phase 04 proof path as the targeted Ruff, module-form MyPy, and selected pytest sequence including tests/test_runtime_policy.py.
-- [Phase 08]: Documented ./scripts/dev-bootstrap.sh verify as a broader repo smoke command instead of shrinking it to the Phase 04 subset.
-- [Phase 08]: Kept `RUNT-02` owned by Phase 08 while citing `03-VERIFICATION.md` as the refreshed proof artifact. — Phase 08 is the terminal traceability owner in REQUIREMENTS.md, while Phase 03 now provides the current passed verification evidence used by the final milestone proof chain.
-- [Phase 08]: Treat unrelated ./scripts/dev-bootstrap.sh verify failures as repo-smoke debt instead of milestone blockers once the exact proof chain is consistent.
-- [Phase 08]: Promoted reports/latest.json and manifests/latest.json before specs/current.json so qspec aliases cannot outrun durable exec aliases.
-- [Phase 08]: Guarded workspace.json current_revision plus report/manifest/qspec aliases as one recovery surface and fail-closed before the next exec reserves a new revision.
+- [v1.1]: Scope stays IBM Quantum Platform only, job mode only, trust-first remote execution.
+- [v1.1]: Remote attempt identity should remain separate from immutable terminal revision identity.
+- [v1.1]: Remote submission must require explicit instance and backend selection; no implicit auto-selection or silent retry.
+- [v1.1]: Secrets stay outside `.quantum`; FluxQ persists references and provenance, not credentials.
 
 ### Pending Todos
 
@@ -104,10 +68,11 @@ None.
 
 ### Blockers/Concerns
 
-- Next milestone is scoped around remote submission, remote lifecycle tracking, and preserving the same machine-readable contract across local and remote flows.
+- Phase 9 planning still needs the exact CLI shape for credential configuration and backend discovery.
+- Phase 11 planning still needs the definitive mapping from IBM job states to FluxQ lifecycle states.
 
 ## Session Continuity
 
-Last session: 2026-04-18T09:30:00+08:00
-Stopped at: Started milestone v1.1 Remote Execution
+Last session: 2026-04-18 11:46 +08:00
+Stopped at: Created v1.1 roadmap, state digest, and requirement traceability for phases 9-13
 Resume file: None
