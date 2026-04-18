@@ -8,9 +8,9 @@
 ## Current Status
 
 - Active milestone: **v1.1 Remote Execution**
-- Active focus: Phase 9 complete, ready to plan **Phase 10**
+- Active focus: Phase 10 planned and ready to execute
 - Scope guard: IBM Quantum Platform only, job mode only, trust-first remote execution
-- Next step: `/gsd-plan-phase 10`
+- Next step: `/gsd-execute-phase 10`
 
 ## Phases
 
@@ -68,7 +68,7 @@ Plans:
 Plans:
 - [ ] 10-01-PLAN.md — Remote attempt models, workspace paths, and atomic persistence separate from revision history
 - [ ] 10-02-PLAN.md — Runtime remote submit seam using the existing IBM access factory and immediate attempt persistence
-- [ ] 10-03-PLAN.md — Provider-neutral `qrun remote submit` CLI and truthful backend submit capability surfacing
+- [ ] 10-03-PLAN.md — Remote submit machine contracts, JSONL parity, and fail-closed observability
 
 ### Phase 11: Remote Lifecycle Control
 **Goal**: Users can manage an existing remote job lifecycle without changing run identity or resubmitting compute.
@@ -107,7 +107,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-8 Runtime Foundation | v1.0 | 29/29 | Complete | 2026-04-18 |
 | 9. IBM Access & Backend Readiness | v1.1 | 3/3 | Complete | 2026-04-18 |
-| 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/TBD | Not started | - |
+| 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/3 | Planned | - |
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |
 | 13. Fail-Closed Remote Observability | v1.1 | 0/TBD | Not started | - |
