@@ -574,6 +574,19 @@ def test_doctor_jsonl_ci_redacts_ibm_secret_material(
 
     events = _parse_jsonl(result.stdout)
     completion = events[-1]["payload"]
-    assert completion["event_type"] if False else True
     assert completion["gate"]["ready"] is False
     assert any(str(code).startswith("ibm_") for code in completion["reason_codes"])
+
+
+def test_ibm_doctor_jsonl_ci_preserves_ibm_reason_codes_and_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_doctor_jsonl_ci_preserves_ibm_reason_codes_and_gate(tmp_path, monkeypatch)
+
+
+def test_ibm_doctor_jsonl_ci_redacts_ibm_secret_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    test_doctor_jsonl_ci_redacts_ibm_secret_material(tmp_path, monkeypatch)
