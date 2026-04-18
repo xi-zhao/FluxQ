@@ -32,6 +32,14 @@ REMEDIATIONS: dict[str, str] = {
     "workspace_alias_mismatch": "Review alias_paths, restore the active aliases to one coherent revision, then retry the command.",
     "pack_bundle_invalid": "Run `qrun pack-inspect --pack-root <bundle> --json`, fix the reported bundle verification issues, then retry the import.",
     "pack_revision_conflict": "Import into an empty workspace or remove the conflicting revision history before retrying `qrun pack-import`.",
+    "ibm_config_invalid": (
+        "Use `qrun ibm configure` with exactly one credential reference: `--token-env` for `env` mode or "
+        "`--saved-account-name` for `saved_account` mode."
+    ),
+    "ibm_instance_required": "Pass `--instance <crn>` to `qrun ibm configure`; FluxQ requires explicit IBM instance selection.",
+    "ibm_token_external_required": (
+        "Pass `--token-env <ENV_VAR>` and provide the IBM token through that environment variable instead of storing it in `.quantum/qrun.toml`."
+    ),
 }
 
 

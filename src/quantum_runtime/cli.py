@@ -13,6 +13,7 @@ from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequ
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime import (
     ComparePolicy,
+    IbmAccessProfile,
     ImportReference,
     ImportResolution,
     ImportSourceError,
@@ -41,6 +42,7 @@ from quantum_runtime.runtime import (
     resolve_workspace_baseline,
     run_doctor,
     validate_revision,
+    write_ibm_profile,
     workspace_status,
 )
 from quantum_runtime.runtime.policy import BenchmarkPolicy, apply_benchmark_policy
@@ -87,8 +89,10 @@ app = typer.Typer(
 )
 backend_app = typer.Typer(add_completion=False, help="Backend discovery helpers.")
 baseline_app = typer.Typer(add_completion=False, help="Workspace baseline helpers.")
+ibm_app = typer.Typer(add_completion=False, help="IBM Quantum Platform helpers.")
 app.add_typer(backend_app, name="backend")
 app.add_typer(baseline_app, name="baseline")
+app.add_typer(ibm_app, name="ibm")
 
 
 def _emit_json_payload(payload: object, *, exit_code: int) -> None:
@@ -105,6 +109,13 @@ def _json_error(reason: str) -> None:
         ),
         exit_code=3,
     )
+
+
+def _cli_error(reason: str, *, json_output: bool) -> None:
+    if json_output:
+        _json_error(reason)
+    typer.echo(remediation_for_error(reason))
+    raise typer.Exit(code=3)
 
 
 def _json_import_source_error(error: ImportSourceError) -> None:
@@ -809,6 +820,80 @@ def baseline_clear_command(
         return
 
     typer.echo("Cleared workspace baseline." if cleared else "No baseline set.")
+
+
+@ibm_app.command("configure")
+def ibm_configure_command(
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        file_okay=False,
+        dir_okay=True,
+        writable=True,
+        resolve_path=False,
+        help="Workspace directory that contains the IBM profile reference.",
+    ),
+    credential_mode: str = typer.Option(
+        ...,
+        "--credential-mode",
+        help="IBM credential reference mode: env or saved_account.",
+    ),
+    instance: str | None = typer.Option(
+        None,
+        "--instance",
+        help="IBM Quantum Platform instance CRN.",
+    ),
+    token_env: str | None = typer.Option(
+        None,
+        "--token-env",
+        help="Environment variable name that carries the IBM token.",
+    ),
+    saved_account_name: str | None = typer.Option(
+        None,
+        "--saved-account-name",
+        help="Saved IBM account name from the local Qiskit account file.",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a machine-readable JSON result.",
+    ),
+) -> None:
+    if not instance:
+        _cli_error("ibm_instance_required", json_output=json_output)
+    if credential_mode not in {"env", "saved_account"}:
+        _cli_error("ibm_config_invalid", json_output=json_output)
+
+    if credential_mode == "env":
+        if token_env is None:
+            _cli_error("ibm_token_external_required", json_output=json_output)
+        if saved_account_name is not None:
+            _cli_error("ibm_config_invalid", json_output=json_output)
+        profile = IbmAccessProfile(
+            credential_mode="env",
+            instance=instance,
+            token_env=token_env,
+        )
+    else:
+        if saved_account_name is None:
+            _cli_error("ibm_config_invalid", json_output=json_output)
+        if token_env is not None:
+            _cli_error("ibm_config_invalid", json_output=json_output)
+        profile = IbmAccessProfile(
+            credential_mode="saved_account",
+            instance=instance,
+            saved_account_name=saved_account_name,
+        )
+
+    result = write_ibm_profile(
+        workspace_root=workspace,
+        profile=profile,
+    )
+    if json_output:
+        _echo_json(result, exclude_none=True)
+        return
+
+    typer.echo(f"Configured IBM access profile at {result.workspace}")
 
 
 @app.command("bench")
