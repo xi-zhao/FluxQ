@@ -33,7 +33,7 @@
 **Milestone Goal:** Extend FluxQ from a trustworthy local control plane to a trustworthy remote execution control plane through IBM Quantum Platform job mode without weakening canonical artifacts, offline trust, or fail-closed machine output.
 
 - [x] **Phase 9: IBM Access & Backend Readiness** - Configure non-interactive IBM access and validate explicit backend readiness before any remote submission.
-- [ ] **Phase 10: Canonical Remote Submit & Attempt Records** - Submit existing FluxQ runtime objects remotely and persist a first-class remote attempt immediately.
+- [x] **Phase 10: Canonical Remote Submit & Attempt Records** - Submit existing FluxQ runtime objects remotely and persist a first-class remote attempt immediately. (completed 2026-04-18)
 - [ ] **Phase 11: Remote Lifecycle Control** - Reopen, poll, and cancel remote jobs without resubmitting compute.
 - [ ] **Phase 12: Terminal Result Materialization** - Finalize terminal remote jobs into immutable local artifacts that remain usable offline.
 - [ ] **Phase 13: Fail-Closed Remote Observability** - Expose schema-versioned remote JSON and JSONL contracts for submit, lifecycle, finalization, and recovery.
@@ -66,9 +66,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — Remote attempt models, workspace paths, and atomic persistence separate from revision history
-- [ ] 10-02-PLAN.md — Runtime remote submit seam using the existing IBM access factory and immediate attempt persistence
-- [ ] 10-03-PLAN.md — Remote submit machine contracts, JSONL parity, and fail-closed observability
+- [x] 10-01-PLAN.md — Remote attempt models, workspace paths, and atomic persistence separate from revision history
+- [x] 10-02-PLAN.md — Runtime remote submit seam using the existing IBM access factory and immediate attempt persistence
+- [x] 10-03-PLAN.md — Remote submit machine contracts, JSONL parity, and fail-closed observability
 
 ### Phase 11: Remote Lifecycle Control
 **Goal**: Users can manage an existing remote job lifecycle without changing run identity or resubmitting compute.
@@ -107,7 +107,7 @@ Plans:
 |-------|-----------|----------------|--------|-----------|
 | 1-8 Runtime Foundation | v1.0 | 29/29 | Complete | 2026-04-18 |
 | 9. IBM Access & Backend Readiness | v1.1 | 3/3 | Complete | 2026-04-18 |
-| 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/3 | Planned | - |
+| 10. Canonical Remote Submit & Attempt Records | v1.1 | 3/3 | Complete   | 2026-04-18 |
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |
 | 13. Fail-Closed Remote Observability | v1.1 | 0/TBD | Not started | - |
