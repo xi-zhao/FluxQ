@@ -23,6 +23,7 @@ The skill should help an agent recognize when FluxQ is the right tool, choose th
   - trust loop
   - gates
   - delivery
+- The skill should guide users interactively when an agent is helping them operate FluxQ.
 - The skill must match the current product surface.
 - The skill must not imply that remote IBM submission already exists.
 
@@ -118,6 +119,7 @@ the skill should cause the agent to:
 2. choose the right workflow branch
 3. avoid inventing unsupported capabilities
 4. prefer the built-in trust and delivery loop over ad hoc scripting
+5. guide the user toward the next correct command instead of dumping an unstructured command list
 
 ## Skill Structure
 
@@ -216,6 +218,34 @@ The skill should bias agents toward this order:
 
 This order matters because FluxQ's value is the trusted control-plane loop, not any single command in isolation.
 
+## Interactive Guidance Contract
+
+The skill should not behave like a static reference page when an agent is actively helping a user.
+
+Instead, it should define a lightweight guidance style for live FluxQ usage:
+
+1. identify the user's current stage first:
+   - starting from natural language
+   - starting from an intent file
+   - checking trust or drift
+   - preparing delivery
+   - checking IBM readiness
+2. if key context is missing, ask only one short question at a time
+3. prefer giving one recommended next command, with brief alternatives only when they are materially different
+4. explain why the next command is the right one now
+5. tell the user what artifact, signal, or decision they should expect from that command
+6. keep the user inside the FluxQ lifecycle instead of routing them into ad hoc scripting too early
+7. for IBM-related tasks, stop at readiness guidance unless the product surface has actually added remote-submit features
+
+In practice, the skill should encourage agent guidance like:
+
+- "If you are starting from one sentence, begin with `qrun prompt` or `qrun exec --intent-text`."
+- "If you want a dry run before producing a revision, use `qrun plan`."
+- "If this revision is now approved, set a baseline before compare work."
+- "Before shipping to another workspace, run `pack-inspect` before `pack-import`."
+
+This keeps the skill useful during real operator interaction instead of only during offline task routing.
+
 ## Quick Reference Design
 
 `quick-reference.md` should be intentionally compact and grouped by workflow:
@@ -288,6 +318,22 @@ The skill never claims capabilities that belong to future phases:
 - no remote lifecycle reopen or cancel
 - no remote finalization workflow
 
+### 4. Guidance check
+
+Given live-user prompts, the skill should encourage a guided response instead of a command dump:
+
+- "I have a prompt. What should I run first?"
+- "I already executed once. How do I know if it still matches the approved version?"
+- "I want to hand this run to another workspace safely."
+- "Can I use IBM from this workspace yet?"
+
+The expected behavior is:
+
+- identify the stage
+- recommend the next smallest useful command
+- explain what it will tell the user
+- avoid over-prescribing future commands before the current step is understood
+
 ## Future Evolution
 
 The initial version should optimize for the current product surface.
@@ -299,3 +345,29 @@ When FluxQ adds future remote-submit capabilities, the preferred evolution path 
 3. only then add thin wrappers for other agent ecosystems if needed
 
 This keeps one source of truth inside the repository and lets the skill evolve with the CLI.
+
+## Future Product Direction: CLI-Native Guidance
+
+This skill can improve how agents guide users through FluxQ today, but it cannot by itself change the experience of users who run `qrun` directly in a shell without an agent.
+
+That distinction should stay explicit:
+
+- the skill owns agent-side guidance
+- the CLI owns product-native guidance
+
+If FluxQ later wants built-in operator guidance, that should be planned as a product feature, not hidden inside the skill. Candidate future surfaces include:
+
+- `qrun guide`
+- `qrun start`
+- workflow-aware interactive help
+- command-specific next-step hints in human-readable output
+
+That future CLI work should reuse the same lifecycle model as the skill:
+
+- ingress
+- execution
+- trust loop
+- gates
+- delivery
+
+This gives the project a clean evolution path: the repository skill teaches agents now, and later product work can bring the same guidance into the CLI itself.
