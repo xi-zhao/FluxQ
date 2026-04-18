@@ -14,7 +14,7 @@ from quantum_runtime.workspace import WorkspaceManager, WorkspacePaths
 from quantum_runtime.workspace.manifest import atomic_write_text
 
 
-IBM_CHANNEL = "ibm_quantum_platform"
+IBM_CHANNEL: Literal["ibm_quantum_platform"] = "ibm_quantum_platform"
 IBM_CREDENTIAL_MODES = {"env", "saved_account"}
 
 
@@ -256,7 +256,7 @@ def _extract_ibm_block(payload: dict[str, Any]) -> dict[str, Any] | None:
     return ibm_block
 
 
-def _load_service_class() -> type[object]:
+def _load_service_class() -> Any:
     try:
         module = importlib.import_module("qiskit_ibm_runtime")
     except ModuleNotFoundError as exc:

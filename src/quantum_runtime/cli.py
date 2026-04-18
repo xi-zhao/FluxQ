@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NoReturn
 
 import typer
 
@@ -111,7 +112,7 @@ def _json_error(reason: str) -> None:
     )
 
 
-def _cli_error(reason: str, *, json_output: bool) -> None:
+def _cli_error(reason: str, *, json_output: bool) -> NoReturn:
     if json_output:
         _json_error(reason)
     typer.echo(remediation_for_error(reason))
