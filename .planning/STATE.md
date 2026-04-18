@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Remote Execution
 status: executing
-stopped_at: Completed 09-01-PLAN.md
-last_updated: "2026-04-18T05:51:50.590Z"
+stopped_at: Completed 09-02-PLAN.md
+last_updated: "2026-04-18T06:02:17.477Z"
 last_activity: 2026-04-18
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 09 (ibm-access-backend-readiness) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-04-18
 
@@ -53,6 +53,7 @@ Progress: [██████░░░░] 62%
 - Trend: Stable
 
 | Phase 09 P01 | 315 | 2 tasks | 8 files |
+| Phase 09 P02 | 6min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,8 @@ Recent decisions affecting current work:
 - [v1.1]: Secrets stay outside `.quantum`; FluxQ persists references and provenance, not credentials.
 - [Phase 09]: Persist only IBM credential references in .quantum/qrun.toml; secrets stay in env vars or external saved-account storage.
 - [Phase 09]: Use qrun ibm configure plus build_ibm_service() as the stable IBM config and service seam for later doctor/backend-list work.
+- [Phase 09]: IBM doctor checks only run when qrun.toml explicitly opts into [remote.ibm], preserving local-only doctor semantics elsewhere.
+- [Phase 09]: Doctor policy and observability preserve IBM-specific reason codes so JSON and JSONL share one remediation and next-action vocabulary.
 
 ### Pending Todos
 
@@ -79,6 +82,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-18T05:51:50.588Z
-Stopped at: Completed 09-01-PLAN.md
+Last session: 2026-04-18T06:02:17.475Z
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
