@@ -74,6 +74,7 @@ class WorkspaceManifest(BaseModel):
     project_id: str
     created_at: str
     current_revision: str = "rev_000000"
+    current_attempt: str = "attempt_000000"
     active_spec: str = "specs/current.json"
     active_report: str = "reports/latest.json"
     default_exports: list[str] = Field(default_factory=lambda: ["qiskit", "qasm3"])
@@ -98,12 +99,25 @@ class WorkspaceManifest(BaseModel):
 
     def next_revision(self) -> str:
         """Return the next sequential revision identifier."""
-        match = re.fullmatch(r"rev_(\d{6})", self.current_revision)
-        if not match:
-            raise ValueError(f"Invalid revision format: {self.current_revision}")
-        return f"rev_{int(match.group(1)) + 1:06d}"
+        return _next_identifier(self.current_revision, prefix="rev")
 
     def bump_revision(self) -> str:
         """Advance and store the current revision."""
         self.current_revision = self.next_revision()
         return self.current_revision
+
+    def next_attempt(self) -> str:
+        """Return the next sequential remote-attempt identifier."""
+        return _next_identifier(self.current_attempt, prefix="attempt")
+
+    def bump_attempt(self) -> str:
+        """Advance and store the current remote-attempt identifier."""
+        self.current_attempt = self.next_attempt()
+        return self.current_attempt
+
+
+def _next_identifier(current_value: str, *, prefix: str) -> str:
+    match = re.fullmatch(rf"{prefix}_(\d{{6}})", current_value)
+    if not match:
+        raise ValueError(f"Invalid {prefix} format: {current_value}")
+    return f"{prefix}_{int(match.group(1)) + 1:06d}"

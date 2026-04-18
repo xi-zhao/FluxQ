@@ -54,6 +54,21 @@ class WorkspaceHandle:
         self.manifest = manifest
         return revision
 
+    def reserve_attempt(self, *, assume_locked: bool = False) -> str:
+        """Advance the remote-attempt identity and persist the manifest."""
+        if assume_locked:
+            manifest = WorkspaceManifest.load(self.paths.workspace_json)
+            attempt_id = manifest.bump_attempt()
+            manifest.save(self.paths.workspace_json)
+        else:
+            with acquire_workspace_lock(self.paths.root):
+                manifest = WorkspaceManifest.load(self.paths.workspace_json)
+                attempt_id = manifest.bump_attempt()
+                manifest.save(self.paths.workspace_json)
+
+        self.manifest = manifest
+        return attempt_id
+
 
 class WorkspaceManager:
     """Create and load the deterministic workspace layout."""

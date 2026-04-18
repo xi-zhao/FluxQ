@@ -55,6 +55,15 @@ from .imports import (
 from .inspect import InspectReport, inspect_workspace
 from .pack import PackImportResult, PackInspectionResult, PackResult, import_pack_bundle, inspect_pack_bundle, pack_revision
 from .resolve import IntentResolution, intent_resolution_from_prompt, resolve_runtime_input
+from .remote_attempts import (
+    RemoteAttemptArtifactPaths,
+    RemoteAttemptBackend,
+    RemoteAttemptJob,
+    RemoteAttemptRecord,
+    load_remote_attempt,
+    persist_remote_attempt,
+    reserve_attempt_id,
+)
 from .run_manifest import RunManifestArtifact, RunReportArtifact
 
 __all__ = [
@@ -78,6 +87,10 @@ __all__ = [
     "PackInspectionResult",
     "PlanResult",
     "ReportImportError",
+    "RemoteAttemptArtifactPaths",
+    "RemoteAttemptBackend",
+    "RemoteAttemptJob",
+    "RemoteAttemptRecord",
     "ResolveResult",
     "RunManifestArtifact",
     "RunReportArtifact",
@@ -103,9 +116,12 @@ __all__ = [
     "intent_resolution_from_prompt",
     "list_backends",
     "load_qspec_from_report",
+    "load_remote_attempt",
     "pack_revision",
     "import_pack_bundle",
     "inspect_pack_bundle",
+    "persist_remote_attempt",
+    "reserve_attempt_id",
     "resolve_runtime_input",
     "resolve_runtime_object",
     "resolve_ibm_access",

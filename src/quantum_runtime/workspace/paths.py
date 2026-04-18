@@ -143,6 +143,52 @@ class WorkspacePaths:
     def baseline_current_json(self) -> Path:
         return self.baselines_dir / "current.json"
 
+    @property
+    def remote_dir(self) -> Path:
+        return self.root / "remote"
+
+    @property
+    def remote_attempts_dir(self) -> Path:
+        return self.remote_dir / "attempts"
+
+    @property
+    def remote_attempts_history_dir(self) -> Path:
+        return self.remote_attempts_dir / "history"
+
+    @property
+    def remote_attempt_latest_json(self) -> Path:
+        return self.remote_attempts_dir / "latest.json"
+
+    def remote_attempt_history_json(self, attempt_id: str) -> Path:
+        return self.remote_attempts_history_dir / f"{attempt_id}.json"
+
+    @property
+    def remote_artifacts_dir(self) -> Path:
+        return self.remote_dir / "artifacts"
+
+    @property
+    def remote_artifacts_history_dir(self) -> Path:
+        return self.remote_artifacts_dir / "history"
+
+    def remote_artifact_attempt_dir(self, attempt_id: str) -> Path:
+        return self.remote_artifacts_history_dir / attempt_id
+
+    @property
+    def remote_events_dir(self) -> Path:
+        return self.remote_dir / "events"
+
+    @property
+    def remote_events_history_dir(self) -> Path:
+        return self.remote_events_dir / "history"
+
+    @property
+    def remote_trace_dir(self) -> Path:
+        return self.remote_dir / "trace"
+
+    @property
+    def remote_trace_history_dir(self) -> Path:
+        return self.remote_trace_dir / "history"
+
     def required_directories(self) -> list[Path]:
         """Return the required directory skeleton for a workspace."""
         return [
@@ -170,4 +216,13 @@ class WorkspacePaths:
             self.trace_history_dir,
             self.root / "cache",
             self.packs_dir,
+            self.remote_dir,
+            self.remote_attempts_dir,
+            self.remote_attempts_history_dir,
+            self.remote_artifacts_dir,
+            self.remote_artifacts_history_dir,
+            self.remote_events_dir,
+            self.remote_events_history_dir,
+            self.remote_trace_dir,
+            self.remote_trace_history_dir,
         ]
