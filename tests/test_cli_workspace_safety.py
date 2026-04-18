@@ -224,6 +224,58 @@ def test_qrun_exec_json_reports_workspace_recovery_required_alias_mismatch_contr
     }
 
 
+def test_qrun_exec_jsonl_reports_alias_mismatch_remediation_consistently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    intent_path = tmp_path / "intent.md"
+    _write_intent(intent_path)
+    alias_paths = [
+        workspace / "workspace.json",
+        workspace / "specs" / "current.json",
+        workspace / "reports" / "latest.json",
+        workspace / "manifests" / "latest.json",
+    ]
+
+    monkeypatch.setattr(
+        cli_module,
+        "execute_intent",
+        _raise_workspace_error(
+            WorkspaceRecoveryRequiredError(
+                workspace=workspace,
+                pending_files=[],
+                alias_paths=alias_paths,
+                last_valid_revision="rev_000007",
+                recovery_mode="alias_mismatch",
+            )
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(intent_path),
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    events = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert len(events) == 1
+    event = events[0]
+    assert event["error_code"] == "workspace_recovery_required"
+    assert event["remediation"] == (
+        "Review alias_paths, restore the active aliases to one coherent revision, then retry the command."
+    )
+    assert event["payload"]["remediation"] == event["remediation"]
+    assert event["payload"]["details"]["recovery_mode"] == "alias_mismatch"
+
+
 @pytest.mark.parametrize(
     ("error", "expected_parts"),
     [

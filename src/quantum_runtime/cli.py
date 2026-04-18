@@ -190,6 +190,11 @@ def _make_jsonl_emitter(*, workspace: Path):
 
     def emit(event_type: str, payload: dict[str, object], revision: str | None = None, status: str = "ok") -> None:
         error_code = str(payload.get("error_code")) if isinstance(payload, dict) and payload.get("error_code") is not None else None
+        remediation = None
+        if isinstance(payload, dict) and payload.get("remediation") is not None:
+            remediation = str(payload["remediation"])
+        elif error_code is not None:
+            remediation = remediation_for_error(error_code)
         event = JsonlEvent(
             event_type=event_type,
             phase=phase_for_event_type(event_type),
@@ -197,7 +202,7 @@ def _make_jsonl_emitter(*, workspace: Path):
             revision=revision,
             status=status,
             error_code=error_code,
-            remediation=remediation_for_error(error_code) if error_code is not None else None,
+            remediation=remediation,
             payload=ensure_schema_payload(payload) if isinstance(payload, dict) and "status" in payload else payload,
         )
         typer.echo(event.model_dump_json())
