@@ -37,9 +37,14 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
     """Return the runtime's known backend capability descriptors."""
     qiskit = _dependency_metadata(module_name="qiskit", distribution_name="qiskit")
     qiskit_aer = _dependency_metadata(module_name="qiskit_aer", distribution_name="qiskit-aer")
+    ibm_runtime = _dependency_metadata(
+        module_name="qiskit_ibm_runtime",
+        distribution_name="qiskit-ibm-runtime",
+    )
     classiq = _dependency_metadata(module_name="classiq", distribution_name="classiq")
 
     qiskit_local_available = qiskit.available and qiskit_aer.available
+    ibm_runtime_available = ibm_runtime.available
     classiq_available = classiq.available
 
     return {
@@ -62,6 +67,28 @@ def collect_backend_capabilities() -> dict[str, BackendCapabilityDescriptor]:
             notes=[
                 "Local Qiskit backend",
                 "Benchmark entries can be structural_only or target_aware depending on supplied target constraints.",
+            ],
+        ),
+        "ibm-runtime": BackendCapabilityDescriptor(
+            backend="ibm-runtime",
+            provider="ibm",
+            available=ibm_runtime_available,
+            optional=True,
+            reason=None if ibm_runtime_available else ibm_runtime.error or "ibm_runtime_dependency_missing",
+            module_dependencies=[ibm_runtime],
+            capabilities={
+                "simulate_locally": False,
+                "transpile_validation": False,
+                "structural_benchmark": False,
+                "benchmark_target_aware": False,
+                "benchmark_synthesis_backed": False,
+                "classiq_synthesis": False,
+                "remote_readiness": True,
+                "remote_submit": False,
+            },
+            notes=[
+                "IBM Quantum Platform readiness-only inventory surface",
+                "Lists provider context and target readiness without selecting a backend automatically.",
             ],
         ),
         "classiq": BackendCapabilityDescriptor(

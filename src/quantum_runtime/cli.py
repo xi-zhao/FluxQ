@@ -1815,9 +1815,14 @@ def backend_list_command(
         "--json",
         help="Emit a machine-readable JSON result.",
     ),
+    workspace: Path = typer.Option(
+        Path(".quantum"),
+        "--workspace",
+        help="Workspace root used to resolve remote backend readiness context.",
+    ),
 ) -> None:
     """List known runtime backends and their availability."""
-    report = list_backends()
+    report = list_backends(workspace_root=workspace)
     if json_output:
         _echo_json(report)
         return
