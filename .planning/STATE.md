@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Remote Execution
-status: verifying
-stopped_at: Completed 09-03-PLAN.md
-last_updated: "2026-04-18T06:13:55.814Z"
-last_activity: 2026-04-18
+status: human_verification
+stopped_at: Awaiting live IBM verification for Phase 09
+last_updated: "2026-04-18T07:15:00+08:00"
+last_activity: 2026-04-18 -- persisted human IBM verification items for Phase 09
 progress:
   total_phases: 5
   completed_phases: 1
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-18)
 
 **Core value:** An agent or team can trust a FluxQ run as a durable runtime object that is reproducible, comparable, and deliverable, rather than as a one-off generated code snippet.
-**Current focus:** Phase 09 — ibm-access-backend-readiness
+**Current focus:** Phase 09 human verification for IBM access and backend readiness
 
 ## Current Position
 
-Phase: 09 (ibm-access-backend-readiness) — EXECUTING
+Phase: 09 (ibm-access-backend-readiness) — HUMAN VERIFICATION REQUIRED
 Plan: 3 of 3
-Status: Phase complete — ready for verification
+Status: Automated checks passed; awaiting real IBM environment verification
 Last activity: 2026-04-18
 
 Progress: [██████░░░░] 62%
@@ -77,15 +77,15 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None.
+- Run the two live IBM checks recorded in `.planning/phases/09-ibm-access-backend-readiness/09-HUMAN-UAT.md`, or explicitly approve Phase 09 without running them.
 
 ### Blockers/Concerns
 
-- Phase 9 planning still needs the exact CLI shape for credential configuration and backend discovery.
+- Phase 09 still needs two real IBM environment checks: one env-token path and one saved-account path.
 - Phase 11 planning still needs the definitive mapping from IBM job states to FluxQ lifecycle states.
 
 ## Session Continuity
 
-Last session: 2026-04-18T06:13:55.811Z
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-04-18T07:15:00+08:00
+Stopped at: Awaiting live IBM verification for Phase 09
 Resume file: None

@@ -8,9 +8,9 @@
 ## Current Status
 
 - Active milestone: **v1.1 Remote Execution**
-- Active focus: roadmap created, ready to plan **Phase 9**
+- Active focus: Phase 9 implementation complete, awaiting live IBM verification
 - Scope guard: IBM Quantum Platform only, job mode only, trust-first remote execution
-- Next step: `/gsd-plan-phase 9`
+- Next step: complete `09-HUMAN-UAT.md` or approve Phase 9 manually
 
 ## Phases
 
@@ -101,7 +101,7 @@ Plans:
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1-8 Runtime Foundation | v1.0 | 29/29 | Complete | 2026-04-18 |
-| 9. IBM Access & Backend Readiness | v1.1 | 0/3 | Not started | - |
+| 9. IBM Access & Backend Readiness | v1.1 | 3/3 | Human verification | - |
 | 10. Canonical Remote Submit & Attempt Records | v1.1 | 0/TBD | Not started | - |
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |
