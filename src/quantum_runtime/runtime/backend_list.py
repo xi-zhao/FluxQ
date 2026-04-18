@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,7 @@ class BackendListReport(BaseModel):
 def list_backends(*, workspace_root: Path = Path(".quantum")) -> BackendListReport:
     """Return known runtime backends and their current availability."""
     capabilities = collect_backend_capabilities()
+    ibm_descriptor = capabilities.get("ibm-runtime")
     return BackendListReport(
         backends={
             name: {
@@ -42,7 +43,7 @@ def list_backends(*, workspace_root: Path = Path(".quantum")) -> BackendListRepo
         },
         remote=_ibm_remote_summary(
             workspace_root=workspace_root,
-            sdk_available=capabilities.get("ibm-runtime").available if "ibm-runtime" in capabilities else False,
+            sdk_available=ibm_descriptor.available if ibm_descriptor is not None else False,
         ),
     )
 
@@ -79,7 +80,7 @@ def _ibm_remote_summary(*, workspace_root: Path, sdk_available: bool) -> dict[st
 
     try:
         service = build_ibm_service(resolution=resolution)
-        targets = [_project_target_readiness(target) for target in service.backends()]
+        targets = [_project_target_readiness(target) for target in cast(Any, service).backends()]
     except IbmAccessError as exc:
         return _remote_payload(
             configured=resolution.configured,
