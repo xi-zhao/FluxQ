@@ -9,7 +9,7 @@ Requirements for the v1.1 Remote Execution milestone.
 
 ### Remote Access
 
-- [ ] **AUTH-01**: User can configure IBM Quantum Platform credentials and instance selection non-interactively for local agents and CI
+- [x] **AUTH-01**: User can configure IBM Quantum Platform credentials and instance selection non-interactively for local agents and CI
 - [ ] **BACK-01**: User can list compatible remote backends and see readiness details before remote submission
 
 ### Remote Execution
@@ -61,7 +61,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 9 | Pending |
+| AUTH-01 | Phase 9 | Complete |
 | BACK-01 | Phase 9 | Pending |
 | REMT-01 | Phase 10 | Pending |
 | REMT-02 | Phase 10 | Pending |

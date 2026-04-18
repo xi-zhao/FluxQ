@@ -51,7 +51,7 @@
 **Plans**: 3 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — IBM optional extra, non-secret profile contract, and `qrun ibm configure`
+- [x] 09-01-PLAN.md — IBM optional extra, non-secret profile contract, and `qrun ibm configure`
 - [ ] 09-02-PLAN.md — IBM `doctor --ci` auth/profile gate plus JSONL observability
 - [ ] 09-03-PLAN.md — IBM `backend list` inventory and target readiness surface
 
