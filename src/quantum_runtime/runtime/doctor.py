@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -10,6 +11,12 @@ from pydantic import BaseModel, Field
 from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import QSpec
 from quantum_runtime.runtime.backend_registry import backend_capabilities_as_dict
+from quantum_runtime.runtime.ibm_access import (
+    IbmAccessError,
+    IbmAccessResolution,
+    build_ibm_service,
+    resolve_ibm_access,
+)
 from quantum_runtime.runtime.policy import DoctorPolicy, apply_doctor_policy
 from quantum_runtime.workspace import (
     WorkspaceLockConflict,
@@ -83,17 +90,18 @@ def run_doctor(
         dependencies=dependencies,
         required_backends=required_backends,
     )
+    ibm_issues, ibm_reason_codes = _ibm_doctor_findings(paths=paths)
     if event_sink is not None:
         event_sink(
             "dependencies_checked",
             {
-                "issue_count": len(dependency_issues),
+                "issue_count": len(dependency_issues) + len(ibm_issues),
                 "advisory_count": len(dependency_advisories),
             },
             current_revision,
-            "ok" if not dependency_issues else "degraded",
+            "ok" if not dependency_issues and not ibm_issues else "degraded",
         )
-    all_issues = issues + dependency_issues
+    all_issues = issues + dependency_issues + ibm_issues
     status: Literal["ok", "degraded", "error"] = "ok" if not all_issues else "degraded"
     report = DoctorReport(
         status=status,
@@ -103,6 +111,7 @@ def run_doctor(
         dependencies=dependencies,
         issues=all_issues,
         advisories=dependency_advisories,
+        reason_codes=ibm_reason_codes if ci and ibm_reason_codes else None,
     )
     if ci:
         report = apply_doctor_policy(
@@ -330,3 +339,120 @@ def _persist_doctor_report(*, workspace_root: Path, report: DoctorReport, revisi
         ) from exc
 
     return {"latest": str(latest_path), "history": str(history_path)}
+
+
+def _ibm_doctor_findings(*, paths: WorkspacePaths) -> tuple[list[str], list[str]]:
+    if not _workspace_opted_into_ibm(paths.qrun_toml):
+        return [], []
+
+    try:
+        resolution = resolve_ibm_access(workspace_root=paths.root)
+    except Exception:
+        reason_code = "ibm_access_unresolved"
+        return [_ibm_issue_message(reason_code)], [reason_code]
+
+    if resolution.status != "ok":
+        reason_code = _ibm_resolution_reason_code(resolution)
+        return [_ibm_issue_message(reason_code, resolution=resolution)], [reason_code]
+
+    try:
+        build_ibm_service(resolution=resolution)
+    except IbmAccessError as exc:
+        reason_code = _ibm_service_reason_code(exc.code, resolution=resolution)
+        return [_ibm_issue_message(reason_code, resolution=resolution)], [reason_code]
+    except Exception:
+        reason_code = (
+            "ibm_saved_account_missing"
+            if resolution.credential_mode == "saved_account"
+            else "ibm_access_unresolved"
+        )
+        return [_ibm_issue_message(reason_code, resolution=resolution)], [reason_code]
+
+    return [], []
+
+
+def _workspace_opted_into_ibm(qrun_toml: Path) -> bool:
+    if not qrun_toml.exists():
+        return False
+    raw_toml = qrun_toml.read_text(encoding="utf-8")
+    if "[remote.ibm]" not in raw_toml:
+        return False
+    try:
+        payload = tomllib.loads(raw_toml)
+    except Exception:
+        return True
+
+    remote = payload.get("remote")
+    return isinstance(remote, dict) and isinstance(remote.get("ibm"), dict)
+
+
+def _ibm_resolution_reason_code(resolution: IbmAccessResolution) -> str:
+    if resolution.status == "not_configured":
+        return "ibm_profile_missing"
+    if resolution.error_code in {
+        "ibm_profile_missing",
+        "ibm_instance_unset",
+        "ibm_token_env_missing",
+        "ibm_saved_account_missing",
+        "ibm_runtime_dependency_missing",
+        "ibm_access_unresolved",
+    }:
+        return resolution.error_code
+    if resolution.error_code == "ibm_instance_required":
+        return "ibm_instance_unset"
+    if resolution.error_code == "ibm_config_invalid":
+        if not resolution.credential_mode:
+            return "ibm_profile_missing"
+        if resolution.credential_mode == "env" and not resolution.token_env:
+            return "ibm_profile_missing"
+        if resolution.credential_mode == "saved_account" and not resolution.saved_account_name:
+            return "ibm_profile_missing"
+    return "ibm_access_unresolved"
+
+
+def _ibm_service_reason_code(error_code: str, *, resolution: IbmAccessResolution) -> str:
+    if error_code in {
+        "ibm_profile_missing",
+        "ibm_instance_unset",
+        "ibm_token_env_missing",
+        "ibm_saved_account_missing",
+        "ibm_runtime_dependency_missing",
+        "ibm_access_unresolved",
+    }:
+        return error_code
+    if error_code == "ibm_runtime_dependency_missing":
+        return "ibm_runtime_dependency_missing"
+    if error_code == "ibm_token_external_required":
+        return "ibm_token_env_missing"
+    if error_code == "ibm_saved_account_missing":
+        return "ibm_saved_account_missing"
+    if error_code == "ibm_instance_required":
+        return "ibm_instance_unset"
+    if error_code == "ibm_config_invalid":
+        return _ibm_resolution_reason_code(resolution)
+    if resolution.credential_mode == "saved_account":
+        return "ibm_saved_account_missing"
+    return "ibm_access_unresolved"
+
+
+def _ibm_issue_message(
+    reason_code: str,
+    *,
+    resolution: IbmAccessResolution | None = None,
+) -> str:
+    if reason_code == "ibm_profile_missing":
+        return "ibm_profile_missing: configure [remote.ibm] with qrun ibm configure"
+    if reason_code == "ibm_instance_unset":
+        return "ibm_instance_unset: set remote.ibm.instance explicitly"
+    if reason_code == "ibm_token_env_missing":
+        token_env = resolution.token_env if resolution is not None else None
+        token_label = token_env or "the configured IBM token env var"
+        return f"ibm_token_env_missing: set {token_label} before running IBM doctor checks"
+    if reason_code == "ibm_saved_account_missing":
+        saved_account_name = resolution.saved_account_name if resolution is not None else None
+        if saved_account_name:
+            return f"ibm_saved_account_missing: verify IBM saved account {saved_account_name}"
+        return "ibm_saved_account_missing: verify the configured IBM saved account"
+    if reason_code == "ibm_runtime_dependency_missing":
+        return "ibm_runtime_dependency_missing: install qiskit-ibm-runtime before running IBM doctor checks"
+    return "ibm_access_unresolved: verify the configured IBM profile, credential reference, and instance"

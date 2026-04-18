@@ -92,10 +92,17 @@ def apply_doctor_policy(
     if not effective_policy.block_on_issues:
         advisory_issues = raw_issues + advisory_issues
 
+    report_reason_codes = normalize_reason_codes([str(code) for code in report.reason_codes or []])
     blocking_reason_codes = [_doctor_reason_code("doctor_blocking_issue", item) for item in blocking_issues]
     advisory_reason_codes = [_doctor_reason_code("doctor_advisory_issue", item) for item in advisory_issues]
-    reason_codes = normalize_reason_codes(blocking_reason_codes + advisory_reason_codes)
-    next_actions = _doctor_next_actions(blocking_issues, advisory_issues)
+    reason_codes = normalize_reason_codes(
+        blocking_reason_codes + advisory_reason_codes + report_reason_codes
+    )
+    next_actions = _doctor_next_actions(
+        blocking_issues,
+        advisory_issues,
+        reason_codes=reason_codes,
+    )
 
     verdict_failed = bool(blocking_issues)
     if verdict_failed:
@@ -397,7 +404,17 @@ def _doctor_issue_slug(issue: str) -> str:
     return slug or "unknown_issue"
 
 
-def _doctor_next_actions(blocking_issues: list[str], advisory_issues: list[str]) -> list[str]:
+def _doctor_next_actions(
+    blocking_issues: list[str],
+    advisory_issues: list[str],
+    *,
+    reason_codes: list[str] | None = None,
+) -> list[str]:
+    if reason_codes:
+        reason_actions = next_actions_for_reason_codes(reason_codes)
+        if reason_actions:
+            return reason_actions
+
     actions: list[str] = []
     for issue in blocking_issues + advisory_issues:
         normalized_issue = str(issue)
@@ -414,9 +431,6 @@ def _doctor_next_actions(blocking_issues: list[str], advisory_issues: list[str])
         elif "unavailable" in normalized_issue:
             actions.append("run_doctor")
 
-    fallback_actions = next_actions_for_reason_codes(actions)
-    if fallback_actions:
-        return fallback_actions
     if actions:
         return normalize_reason_codes(actions)
     return ["run_doctor"]
