@@ -34,6 +34,15 @@ from .executor import (
     load_qspec_from_report,
 )
 from .export import ExportResult, export_artifact, export_artifact_from_report, export_artifact_from_resolution
+from .ibm_access import (
+    IbmAccessProfile,
+    IbmAccessResolution,
+    IbmConfigureResult,
+    build_ibm_service,
+    load_ibm_profile,
+    resolve_ibm_access,
+    write_ibm_profile,
+)
 from .imports import (
     ImportReference,
     ImportResolution,
@@ -56,6 +65,9 @@ __all__ = [
     "DoctorReport",
     "ExecResult",
     "ExportResult",
+    "IbmAccessProfile",
+    "IbmAccessResolution",
+    "IbmConfigureResult",
     "ImportReference",
     "ImportResolution",
     "ImportSourceError",
@@ -77,6 +89,7 @@ __all__ = [
     "collect_backend_capabilities",
     "compare_import_resolutions",
     "compare_workspace_baseline",
+    "build_ibm_service",
     "persist_compare_result",
     "execute_intent",
     "execute_intent_json",
@@ -95,12 +108,15 @@ __all__ = [
     "inspect_pack_bundle",
     "resolve_runtime_input",
     "resolve_runtime_object",
+    "resolve_ibm_access",
     "resolve_import_reference",
     "resolve_workspace_baseline",
     "run_doctor",
     "schema_contract",
     "show_run",
     "validate_revision",
+    "load_ibm_profile",
     "workspace_status",
     "WorkspaceBaselineResolution",
+    "write_ibm_profile",
 ]
