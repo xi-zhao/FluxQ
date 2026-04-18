@@ -40,6 +40,22 @@ REMEDIATIONS: dict[str, str] = {
     "ibm_token_external_required": (
         "Pass `--token-env <ENV_VAR>` and provide the IBM token through that environment variable instead of storing it in `.quantum/qrun.toml`."
     ),
+    "ibm_profile_missing": (
+        "Run `qrun ibm configure` to persist a non-secret `[remote.ibm]` profile before using IBM readiness checks."
+    ),
+    "ibm_instance_unset": "Run `qrun ibm configure --instance <crn>` so the workspace pins one explicit IBM instance.",
+    "ibm_token_env_missing": (
+        "Export the configured IBM token environment variable before running `qrun doctor --ci` for an IBM-enabled workspace."
+    ),
+    "ibm_saved_account_missing": (
+        "Create or refresh the configured IBM saved account outside `.quantum`, then rerun `qrun doctor --ci`."
+    ),
+    "ibm_runtime_dependency_missing": (
+        "Install the optional IBM extra with `uv sync --extra ibm` before running IBM readiness checks."
+    ),
+    "ibm_access_unresolved": (
+        "Review the `[remote.ibm]` profile, credential reference, and instance settings, then rerun `qrun doctor --ci`."
+    ),
 }
 
 

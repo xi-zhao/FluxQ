@@ -92,6 +92,14 @@ def next_actions_for_reason_codes(reason_codes: list[str]) -> list[str]:
             actions.append("reject_bundle")
         elif code.startswith("bundle_required_missing") or code.startswith("bundle_digest_mismatch"):
             actions.append("reject_bundle")
+        elif code == "ibm_profile_missing" or code == "ibm_instance_unset" or code == "ibm_access_unresolved":
+            actions.append("configure_ibm_profile")
+        elif code == "ibm_token_env_missing":
+            actions.append("set_ibm_token_env")
+        elif code == "ibm_saved_account_missing":
+            actions.append("verify_ibm_saved_account")
+        elif code == "ibm_runtime_dependency_missing":
+            actions.append("install_ibm_extra")
         elif code.endswith("_dependency_missing") or code.endswith("_backend_unavailable"):
             actions.append("run_doctor")
     return normalize_reason_codes(actions)
