@@ -64,6 +64,16 @@ def next_actions_for_reason_codes(reason_codes: list[str]) -> list[str]:
     """Map machine reason codes to short executable next-action hints."""
     actions: list[str] = []
     for code in reason_codes:
+        if code == "remote_backend_required":
+            actions.append("choose_explicit_backend")
+        elif code == "remote_backend_not_ready":
+            actions.extend(["run_backend_list", "retry_submit_when_backend_ready"])
+        elif code == "remote_submit_failed":
+            actions.append("retry_submit_when_backend_ready")
+        elif code == "remote_attempt_persist_failed":
+            actions.append("inspect_remote_attempt_store")
+        elif code == "remote_submit_persisted":
+            actions.append("inspect_remote_attempt_store")
         if code in {
             "workspace_not_initialized",
             "active_qspec_missing",
@@ -100,6 +110,8 @@ def next_actions_for_reason_codes(reason_codes: list[str]) -> list[str]:
             actions.append("verify_ibm_saved_account")
         elif code == "ibm_runtime_dependency_missing":
             actions.append("install_ibm_extra")
+        elif code == "ibm_backend_lookup_failed":
+            actions.append("run_backend_list")
         elif code.endswith("_dependency_missing") or code.endswith("_backend_unavailable"):
             actions.append("run_doctor")
     return normalize_reason_codes(actions)

@@ -22,6 +22,15 @@ REMEDIATIONS: dict[str, str] = {
     ),
     "expected_exactly_one_input": "Provide exactly one supported input selector for the command.",
     "remote_backend_required": "Pass `--backend <name>`; FluxQ requires explicit remote backend selection.",
+    "remote_backend_not_ready": (
+        "Run `qrun backend list --workspace <workspace> --json` to confirm backend readiness, then retry once the target is operational."
+    ),
+    "remote_submit_failed": (
+        "Review the remote submit gate, provider health, and backend readiness, then retry once the submit path is healthy."
+    ),
+    "remote_attempt_persist_failed": (
+        "Inspect `.quantum/remote/attempts/` and workspace recovery state before retrying the remote submit."
+    ),
     "invalid_benchmark_policy": (
         "Use `qrun bench --baseline` with non-negative regression thresholds and valid comparable/status policy options."
     ),

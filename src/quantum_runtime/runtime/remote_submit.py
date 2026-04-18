@@ -7,11 +7,17 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from quantum_runtime.errors import WorkspaceConflictError
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
 from quantum_runtime.qspec import summarize_qspec_semantics
-from quantum_runtime.runtime.contracts import SchemaPayload
-from quantum_runtime.runtime.ibm_access import IbmAccessResolution, build_ibm_service, resolve_ibm_access
+from quantum_runtime.runtime.contracts import SchemaPayload, remediation_for_error
+from quantum_runtime.runtime.ibm_access import (
+    IbmAccessError,
+    IbmAccessResolution,
+    build_ibm_service,
+    resolve_ibm_access,
+)
 from quantum_runtime.runtime.ibm_remote_submit import submit_ibm_job
+from quantum_runtime.runtime.observability import decision_block, gate_block, next_actions_for_reason_codes
 from quantum_runtime.runtime.remote_attempts import (
     RemoteAttemptArtifactPaths,
     RemoteAttemptBackend,
@@ -39,6 +45,21 @@ class RemoteSubmitResult(SchemaPayload):
     artifacts: RemoteAttemptArtifactPaths
     reason_codes: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
+    decision: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemoteSubmitBlockedResult(SchemaPayload):
+    """Machine-readable result for a blocked remote submit."""
+
+    status: Literal["degraded"] = "degraded"
+    workspace: str
+    provider: str = "ibm"
+    reason: str
+    error_code: str
+    remediation: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
     gate: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -52,11 +73,14 @@ def submit_remote_input(
     report_file: Path | None = None,
     revision: str | None = None,
     intent_text: str | None = None,
-) -> RemoteSubmitResult:
+) -> RemoteSubmitResult | RemoteSubmitBlockedResult:
     """Resolve one canonical input, submit it remotely, and persist the attempt."""
     selected_backend_name = backend_name.strip()
     if not selected_backend_name:
-        raise ValueError("remote_backend_required")
+        return _blocked_result(
+            workspace_root=workspace_root,
+            reason_codes=["remote_backend_required"],
+        )
 
     resolved = resolve_runtime_input(
         workspace_root=workspace_root,
@@ -69,50 +93,96 @@ def submit_remote_input(
     )
     handle = _load_workspace_handle(workspace_root)
     access = resolve_ibm_access(workspace_root=handle.root)
-    service = build_ibm_service(resolution=access)
-    submit_result = submit_ibm_job(
-        service=service,
-        backend_name=selected_backend_name,
-        qspec=resolved.qspec,
-        shots=int(resolved.intent_model.shots),
-    )
+    if access.status != "ok":
+        return _blocked_result(
+            workspace_root=handle.root,
+            reason_codes=_resolution_reason_codes(access),
+            details=access.model_dump(mode="json", exclude_none=True),
+        )
+    try:
+        service = build_ibm_service(resolution=access)
+    except IbmAccessError as exc:
+        return _blocked_result(
+            workspace_root=handle.root,
+            reason_codes=_service_reason_codes(exc.code, resolution=access),
+            details=exc.details,
+        )
+    try:
+        submit_result = submit_ibm_job(
+            service=service,
+            backend_name=selected_backend_name,
+            qspec=resolved.qspec,
+            shots=int(resolved.intent_model.shots),
+        )
+    except IbmAccessError as exc:
+        return _blocked_result(
+            workspace_root=handle.root,
+            reason_codes=_submit_reason_codes(exc.code),
+            details=exc.details,
+        )
+    except Exception as exc:
+        return _blocked_result(
+            workspace_root=handle.root,
+            reason_codes=["remote_submit_failed"],
+            details={
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+
     attempt_id = _reserve_attempt_id(handle)
     semantics = summarize_qspec_semantics(resolved.qspec)
-    gate = {
-        "status": "open",
-        "summary": "Remote submit accepted. Poll the provider job before finalization.",
-    }
-    record = persist_remote_attempt(
-        workspace=handle,
-        attempt_id=attempt_id,
-        resolved_input=resolved,
-        semantic_hashes={
-            "semantic_hash": semantics["semantic_hash"],
-            "execution_hash": semantics["execution_hash"],
-        },
-        provider="ibm",
-        auth_source=_auth_source(access),
-        backend={
-            "name": selected_backend_name,
-            "instance": access.instance,
-        },
-        job={
-            "id": _submit_value(submit_result, "job_id"),
-            "status": _submit_value(submit_result, "job_status"),
-        },
-        decision_block=gate,
-        submit_payload={
-            "provider": "ibm",
-            "primitive": _submit_value(submit_result, "primitive", default="sampler_v2"),
-            "job_id": _submit_value(submit_result, "job_id"),
-            "job_status": _submit_value(submit_result, "job_status"),
-            "backend": selected_backend_name,
-            "instance": access.instance,
-            "shots": int(resolved.intent_model.shots),
-        },
-        reason_codes=["remote_submit_accepted"],
-        next_actions=["poll_remote_job"],
+    reason_codes = ["remote_submit_persisted"]
+    next_actions = next_actions_for_reason_codes(reason_codes)
+    decision = decision_block(
+        status="ok",
+        reason_codes=reason_codes,
+        next_actions=next_actions,
     )
+    try:
+        record = persist_remote_attempt(
+            workspace=handle,
+            attempt_id=attempt_id,
+            resolved_input=resolved,
+            semantic_hashes={
+                "semantic_hash": semantics["semantic_hash"],
+                "execution_hash": semantics["execution_hash"],
+            },
+            provider="ibm",
+            auth_source=_auth_source(access),
+            backend={
+                "name": selected_backend_name,
+                "instance": access.instance,
+            },
+            job={
+                "id": _submit_value(submit_result, "job_id"),
+                "status": _submit_value(submit_result, "job_status"),
+            },
+            decision_block=decision,
+            submit_payload={
+                "provider": "ibm",
+                "primitive": _submit_value(submit_result, "primitive", default="sampler_v2"),
+                "job_id": _submit_value(submit_result, "job_id"),
+                "job_status": _submit_value(submit_result, "job_status"),
+                "backend": selected_backend_name,
+                "instance": access.instance,
+                "shots": int(resolved.intent_model.shots),
+            },
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        )
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError):
+        raise
+    except Exception as exc:
+        return _blocked_result(
+            workspace_root=handle.root,
+            reason_codes=["remote_attempt_persist_failed"],
+            details={
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+
     return RemoteSubmitResult(
         workspace=str(handle.root.resolve()),
         attempt_id=record.attempt_id,
@@ -125,7 +195,7 @@ def submit_remote_input(
         artifacts=record.artifacts,
         reason_codes=list(record.reason_codes),
         next_actions=list(record.next_actions),
-        gate=dict(record.gate),
+        decision=decision,
     )
 
 
@@ -163,3 +233,104 @@ def _submit_value(receipt: object, field: str, *, default: Any = None) -> Any:
     if isinstance(receipt, dict):
         return receipt.get(field, default)
     return getattr(receipt, field, default)
+
+
+def _blocked_result(
+    *,
+    workspace_root: Path,
+    reason_codes: list[str],
+    details: dict[str, Any] | None = None,
+) -> RemoteSubmitBlockedResult:
+    normalized_reason_codes = list(dict.fromkeys(str(code) for code in reason_codes if str(code).strip()))
+    if not normalized_reason_codes:
+        normalized_reason_codes = ["remote_submit_failed"]
+    next_actions = next_actions_for_reason_codes(normalized_reason_codes)
+    primary_reason = normalized_reason_codes[0]
+    return RemoteSubmitBlockedResult(
+        workspace=str(workspace_root.resolve()),
+        reason=primary_reason,
+        error_code=primary_reason,
+        remediation=remediation_for_error(primary_reason),
+        details=_sanitize_details(details or {}),
+        reason_codes=normalized_reason_codes,
+        next_actions=next_actions,
+        gate=gate_block(
+            ready=False,
+            severity="error",
+            reason_codes=normalized_reason_codes,
+            next_actions=next_actions,
+        ),
+    )
+
+
+def _resolution_reason_codes(resolution: IbmAccessResolution) -> list[str]:
+    if resolution.reason_codes:
+        return list(resolution.reason_codes)
+    if resolution.error_code == "ibm_instance_required":
+        return ["ibm_instance_unset"]
+    if resolution.error_code == "ibm_config_invalid":
+        if not resolution.credential_mode:
+            return ["ibm_profile_missing"]
+        if resolution.credential_mode == "env" and not resolution.token_env:
+            return ["ibm_profile_missing"]
+        if resolution.credential_mode == "saved_account" and not resolution.saved_account_name:
+            return ["ibm_profile_missing"]
+    if resolution.error_code is not None:
+        return [resolution.error_code]
+    return ["ibm_access_unresolved"]
+
+
+def _service_reason_codes(error_code: str, *, resolution: IbmAccessResolution) -> list[str]:
+    if error_code == "ibm_token_external_required":
+        return ["ibm_token_env_missing"]
+    if error_code == "ibm_instance_required":
+        return ["ibm_instance_unset"]
+    if error_code == "ibm_config_invalid":
+        return _resolution_reason_codes(resolution)
+    if error_code in {
+        "ibm_profile_missing",
+        "ibm_instance_unset",
+        "ibm_token_env_missing",
+        "ibm_saved_account_missing",
+        "ibm_runtime_dependency_missing",
+        "ibm_access_unresolved",
+    }:
+        return [error_code]
+    return ["ibm_access_unresolved"]
+
+
+def _submit_reason_codes(error_code: str) -> list[str]:
+    if error_code == "ibm_backend_lookup_failed":
+        return ["remote_backend_not_ready", "ibm_backend_lookup_failed"]
+    if error_code == "remote_backend_not_ready":
+        return ["remote_backend_not_ready"]
+    if error_code in {
+        "ibm_profile_missing",
+        "ibm_instance_unset",
+        "ibm_token_env_missing",
+        "ibm_saved_account_missing",
+        "ibm_runtime_dependency_missing",
+        "ibm_access_unresolved",
+    }:
+        return [error_code]
+    return ["remote_submit_failed"]
+
+
+def _sanitize_details(details: dict[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in details.items():
+        sanitized[key] = _sanitize_value(key, value)
+    return sanitized
+
+
+def _sanitize_value(key: str, value: Any) -> Any:
+    lowered_key = key.lower()
+    if lowered_key in {"authorization", "token"}:
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {item_key: _sanitize_value(item_key, item_value) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_value(key, item) for item in value]
+    if isinstance(value, str) and "bearer " in value.lower():
+        return "[redacted]"
+    return value
