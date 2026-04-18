@@ -625,3 +625,224 @@ def test_ibm_doctor_jsonl_ci_redacts_ibm_secret_material(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     test_doctor_jsonl_ci_redacts_ibm_secret_material(tmp_path, monkeypatch)
+
+
+def _remote_submit_ibm_resolution() -> IbmAccessResolution:
+    return IbmAccessResolution(
+        status="ok",
+        configured=True,
+        channel="ibm_quantum_platform",
+        credential_mode="saved_account",
+        instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+        saved_account_name="fluxq-dev",
+    )
+
+
+def test_remote_submit_reason_codes_map_to_machine_actions() -> None:
+    expected_actions = {
+        "remote_backend_required": "choose_explicit_backend",
+        "remote_backend_not_ready": "run_backend_list",
+        "remote_submit_failed": "retry_submit_when_backend_ready",
+        "remote_attempt_persist_failed": "inspect_remote_attempt_store",
+        "ibm_profile_missing": "configure_ibm_profile",
+        "ibm_runtime_dependency_missing": "install_ibm_extra",
+        "ibm_backend_lookup_failed": "run_backend_list",
+    }
+
+    for code, action in expected_actions.items():
+        assert remediation_for_error(code) != DEFAULT_REMEDIATION
+        assert action in next_actions_for_reason_codes([code])
+
+
+def test_qrun_remote_submit_json_exposes_reason_codes_next_actions_and_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: {
+            "job_id": "job-123",
+            "job_status": "QUEUED",
+            "primitive": "sampler_v2",
+        },
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason_codes"] == ["remote_submit_persisted"]
+    assert payload["next_actions"] == ["inspect_remote_attempt_store"]
+    assert payload["decision"]["ready"] is True
+    assert payload["decision"]["severity"] == "info"
+    assert payload["decision"]["recommended_action"] == "inspect_remote_attempt_store"
+
+
+def test_qrun_remote_submit_json_blocks_backend_lookup_with_stable_gate_and_redaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: (_ for _ in ()).throw(
+            IbmAccessError(
+                "ibm_backend_lookup_failed",
+                details={
+                    "backend_name": backend_name,
+                    "authorization": "Bearer super-secret-token",
+                },
+            )
+        ),
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    assert "super-secret-token" not in result.stdout
+    assert "Authorization" not in result.stdout
+    assert "Bearer " not in result.stdout
+
+    payload = json.loads(result.stdout)
+    assert payload["reason_codes"] == ["remote_backend_not_ready", "ibm_backend_lookup_failed"]
+    assert payload["next_actions"] == ["run_backend_list", "retry_submit_when_backend_ready"]
+    assert payload["gate"]["ready"] is False
+    assert payload["gate"]["severity"] == "error"
+    assert payload["gate"]["recommended_action"] == "run_backend_list"
+
+
+def test_qrun_remote_submit_json_blocks_ibm_access_and_provider_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: IbmAccessResolution(
+            status="error",
+            configured=True,
+            channel="ibm_quantum_platform",
+            credential_mode="env",
+            instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            token_env="QISKIT_IBM_TOKEN",
+            error_code="ibm_token_env_missing",
+            reason_codes=["ibm_token_env_missing"],
+        ),
+        raising=False,
+    )
+
+    access_result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert access_result.exit_code == 2, access_result.stdout
+    access_payload = json.loads(access_result.stdout)
+    assert access_payload["reason_codes"] == ["ibm_token_env_missing"]
+    assert access_payload["next_actions"] == ["set_ibm_token_env"]
+    assert access_payload["gate"]["ready"] is False
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: (_ for _ in ()).throw(
+            RuntimeError("Authorization: Bearer super-secret-token")
+        ),
+        raising=False,
+    )
+
+    provider_result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert provider_result.exit_code == 2, provider_result.stdout
+    assert "super-secret-token" not in provider_result.stdout
+    assert "Authorization" not in provider_result.stdout
+    assert "Bearer " not in provider_result.stdout
+
+    provider_payload = json.loads(provider_result.stdout)
+    assert provider_payload["reason_codes"] == ["remote_submit_failed"]
+    assert provider_payload["next_actions"] == ["retry_submit_when_backend_ready"]
+    assert provider_payload["gate"]["ready"] is False
