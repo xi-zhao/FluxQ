@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 from qiskit import transpile
 
@@ -25,7 +27,7 @@ class IbmSubmitJobResult(BaseModel):
 
 def submit_ibm_job(
     *,
-    service: object,
+    service: Any,
     backend_name: str,
     qspec: QSpec,
     shots: int,
