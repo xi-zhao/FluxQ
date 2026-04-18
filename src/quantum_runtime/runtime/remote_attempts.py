@@ -125,16 +125,16 @@ def persist_remote_attempt(
         auth_source=auth_source,
         backend=backend_model,
         job=job_model,
-        input={
-            "source_kind": resolved_input.source_kind,
-            "source": resolved_input.source,
-        },
-        qspec={
-            "semantic_hash": semantic_hashes["semantic_hash"],
-            "execution_hash": semantic_hashes["execution_hash"],
-            "path": artifact_paths.qspec_path,
-            "source": resolved_input.source,
-        },
+        input=RemoteAttemptInput(
+            source_kind=resolved_input.source_kind,
+            source=resolved_input.source,
+        ),
+        qspec=RemoteAttemptQspec(
+            semantic_hash=semantic_hashes["semantic_hash"],
+            execution_hash=semantic_hashes["execution_hash"],
+            path=artifact_paths.qspec_path,
+            source=resolved_input.source,
+        ),
         artifacts=artifact_paths,
         reason_codes=list(reason_codes or []),
         next_actions=list(next_actions or []),
