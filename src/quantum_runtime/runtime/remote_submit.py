@@ -59,6 +59,8 @@ class RemoteSubmitBlockedResult(SchemaPayload):
     status: Literal["degraded"] = "degraded"
     workspace: str
     provider: str = "ibm"
+    attempt_id: str | None = Field(default=None, pattern=r"attempt_\d{6}")
+    job: RemoteAttemptJob | None = None
     reason: str
     error_code: str
     remediation: str
@@ -200,7 +202,15 @@ def submit_remote_input(
         blocked_result = _blocked_result(
             workspace_root=handle.root,
             reason_codes=["remote_attempt_persist_failed"],
+            attempt_id=attempt_id,
+            job={
+                "id": _submit_value(submit_result, "job_id"),
+                "status": _submit_value(submit_result, "job_status"),
+            },
             details={
+                "attempt_id": attempt_id,
+                "job_id": _submit_value(submit_result, "job_id"),
+                "backend": selected_backend_name,
                 "error_type": type(exc).__name__,
                 "message": str(exc),
             },
@@ -280,6 +290,8 @@ def _blocked_result(
     workspace_root: Path,
     reason_codes: list[str],
     details: dict[str, Any] | None = None,
+    attempt_id: str | None = None,
+    job: RemoteAttemptJob | dict[str, Any] | None = None,
 ) -> RemoteSubmitBlockedResult:
     normalized_reason_codes = list(dict.fromkeys(str(code) for code in reason_codes if str(code).strip()))
     if not normalized_reason_codes:
@@ -288,6 +300,8 @@ def _blocked_result(
     primary_reason = normalized_reason_codes[0]
     return RemoteSubmitBlockedResult(
         workspace=str(workspace_root.resolve()),
+        attempt_id=attempt_id,
+        job=RemoteAttemptJob.model_validate(job) if job is not None else None,
         reason=primary_reason,
         error_code=primary_reason,
         remediation=remediation_for_error(primary_reason),
@@ -385,7 +399,7 @@ def _emit_submit_completion(
         return
     event_sink(
         "submit_completed",
-        result.model_dump(mode="json"),
+        result.model_dump(mode="json", exclude_none=True),
         None,
         result.status,
     )

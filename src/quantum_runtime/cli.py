@@ -525,7 +525,7 @@ def resolve_command(
         raise typer.BadParameter(str(exc)) from exc
 
     if json_output:
-        _echo_json(result)
+        _echo_json(result, exclude_none=True)
         raise typer.Exit(code=exit_code_for_control_plane(result))
 
     typer.echo(

@@ -1026,6 +1026,62 @@ def test_remote_submit_jsonl_redacts_ibm_secret_material(
     assert events[-1]["payload"]["reason_codes"] == ["remote_backend_not_ready", "ibm_backend_lookup_failed"]
 
 
+def test_remote_submit_jsonl_preserves_recovery_handles_when_attempt_persist_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: {
+            "job_id": "job-123",
+            "job_status": "QUEUED",
+            "primitive": "sampler_v2",
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.persist_remote_attempt",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("disk-full")),
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert events[-1]["event_type"] == "submit_completed"
+    completion = events[-1]["payload"]
+    assert completion["reason"] == "remote_attempt_persist_failed"
+    assert str(completion["attempt_id"]).startswith("attempt_")
+    assert completion["job"]["id"] == "job-123"
+    assert completion["job"]["status"] == "QUEUED"
+
+
 def test_qrun_remote_submit_jsonl_requires_exactly_one_input_source(tmp_path: Path) -> None:
     workspace = tmp_path / ".quantum"
 

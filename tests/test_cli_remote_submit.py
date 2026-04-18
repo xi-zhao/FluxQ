@@ -485,6 +485,45 @@ def test_qrun_remote_submit_preserves_latest_report_and_manifest_aliases(
     assert manifest_latest.read_text(encoding="utf-8") == manifest_before
 
 
+def test_qrun_remote_submit_json_preserves_recovery_handles_when_attempt_persist_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+    _patch_real_remote_submit(monkeypatch)
+
+    def _fail_persist_remote_attempt(**kwargs):
+        raise RuntimeError("disk-full")
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.persist_remote_attempt",
+        _fail_persist_remote_attempt,
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "remote_attempt_persist_failed"
+    assert str(payload["attempt_id"]).startswith("attempt_")
+    assert payload["job"]["id"] == "job-123"
+    assert payload["job"]["status"] == "QUEUED"
+
+
 @pytest.mark.parametrize(
     "error_factory",
     [
