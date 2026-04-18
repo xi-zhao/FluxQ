@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+import quantum_runtime.cli as cli_module
 from quantum_runtime.cli import app
+from quantum_runtime.errors import WorkspaceConflictError
 from quantum_runtime.runtime.contracts import DEFAULT_REMEDIATION, remediation_for_error
 from quantum_runtime.runtime.ibm_access import IbmAccessError, IbmAccessResolution
 from quantum_runtime.runtime.observability import next_actions_for_reason_codes
@@ -434,6 +436,7 @@ def test_qrun_doctor_jsonl_emits_workspace_and_dependency_events(tmp_path: Path)
         "dependencies_checked",
         "doctor_completed",
     ]
+    assert all(event["phase"] == "doctor" for event in events)
     assert events[-1]["payload"]["schema_version"] == "0.3.0"
 
 
@@ -464,11 +467,43 @@ def test_qrun_doctor_ci_jsonl_emits_policy_payload_on_completion(tmp_path: Path)
     assert result.exit_code == 2, result.stdout
     events = _parse_jsonl(result.stdout)
     assert events[-1]["event_type"] == "doctor_completed"
+    assert "doctor_written" in [event["event_type"] for event in events]
+    assert all(event["phase"] == "doctor" for event in events)
     assert events[-1]["payload"]["schema_version"] == "0.3.0"
     assert "active_report_missing" in events[-1]["payload"]["blocking_issues"]
     assert isinstance(events[-1]["payload"]["advisory_issues"], list)
     assert events[-1]["payload"]["verdict"]["status"] == "fail"
     assert events[-1]["payload"]["gate"]["ready"] is False
+
+
+def test_qrun_doctor_jsonl_workspace_safety_failure_uses_doctor_completed_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        cli_module,
+        "run_doctor",
+        lambda **kwargs: (_ for _ in ()).throw(
+            WorkspaceConflictError(
+                workspace=workspace,
+                lock_path=workspace / "locks" / "workspace.lock",
+                holder={"pid": 4242, "hostname": "ci-runner"},
+            )
+        ),
+    )
+
+    result = RUNNER.invoke(
+        app,
+        ["doctor", "--workspace", str(workspace), "--jsonl"],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert events[-1]["event_type"] == "doctor_completed"
+    assert events[-1]["phase"] == "doctor"
+    assert events[-1]["payload"]["reason"] == "workspace_conflict"
 
 
 def test_doctor_jsonl_ci_preserves_ibm_reason_codes_and_gate(

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 from quantum_runtime.cli import app
 from quantum_runtime.workspace import WorkspaceManager
+from quantum_runtime.workspace import acquire_workspace_lock
 from quantum_runtime.workspace.manager import DEFAULT_QRUN_TOML
 
 
@@ -301,3 +302,155 @@ def test_qrun_ibm_configure_json_rejects_invalid_flags(
     assert payload["status"] == "error"
     assert payload["reason"] == reason
     assert payload["error_code"] == reason
+
+
+@pytest.mark.parametrize(
+    ("args", "reason"),
+    [
+        (
+            [
+                "--credential-mode",
+                "env",
+                "--token-env",
+                "   ",
+                "--instance",
+                "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            ],
+            "ibm_token_external_required",
+        ),
+        (
+            [
+                "--credential-mode",
+                "saved_account",
+                "--saved-account-name",
+                "   ",
+                "--instance",
+                "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            ],
+            "ibm_config_invalid",
+        ),
+        (
+            [
+                "--credential-mode",
+                "env",
+                "--token-env",
+                "QISKIT_IBM_TOKEN",
+                "--instance",
+                "   ",
+            ],
+            "ibm_instance_required",
+        ),
+    ],
+)
+def test_qrun_ibm_configure_json_rejects_whitespace_only_values(
+    tmp_path: Path,
+    args: list[str],
+    reason: str,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            *args,
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == reason
+    assert payload["error_code"] == reason
+
+
+def test_qrun_ibm_configure_json_translates_malformed_qrun_toml_to_stable_error(tmp_path: Path) -> None:
+    workspace = _workspace_root(tmp_path)
+    (workspace / "qrun.toml").write_text("[workspace\nbroken")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            "--credential-mode",
+            "saved_account",
+            "--saved-account-name",
+            "fluxq-dev",
+            "--instance",
+            "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "ibm_config_invalid"
+    assert payload["error_code"] == "ibm_config_invalid"
+
+
+def test_qrun_ibm_configure_json_reports_workspace_conflict_contract(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+    WorkspaceManager.load_or_init(workspace)
+
+    with acquire_workspace_lock(workspace, command="pytest ibm configure lock holder"):
+        result = RUNNER.invoke(
+            app,
+            [
+                "ibm",
+                "configure",
+                "--workspace",
+                str(workspace),
+                "--credential-mode",
+                "saved_account",
+                "--saved-account-name",
+                "fluxq-dev",
+                "--instance",
+                "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+                "--json",
+            ],
+        )
+
+    assert result.exit_code == 3, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["reason"] == "workspace_conflict"
+    assert payload["error_code"] == "workspace_conflict"
+
+
+def test_qrun_ibm_configure_preserves_existing_float_scalars_in_qrun_toml(tmp_path: Path) -> None:
+    workspace = _workspace_root(tmp_path)
+    (workspace / "qrun.toml").write_text(
+        DEFAULT_QRUN_TOML
+        + """
+
+[timeouts]
+submit_seconds = 1.5
+"""
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "ibm",
+            "configure",
+            "--workspace",
+            str(workspace),
+            "--credential-mode",
+            "saved_account",
+            "--saved-account-name",
+            "fluxq-dev",
+            "--instance",
+            "crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    qrun_payload = tomllib.loads((workspace / "qrun.toml").read_text())
+    assert qrun_payload["timeouts"]["submit_seconds"] == 1.5
+    assert qrun_payload["remote"]["ibm"]["saved_account_name"] == "fluxq-dev"

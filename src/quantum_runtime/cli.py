@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 from typing import NoReturn
 
 import typer
+from pydantic import ValidationError
 
 from quantum_runtime import __version__
 from quantum_runtime.diagnostics import run_structural_benchmark
@@ -172,6 +174,7 @@ def _handle_workspace_safety_error(
     json_output: bool,
     jsonl_output: bool = False,
     event_sink=None,
+    completion_event_type: str = "run_completed",
 ) -> None:
     payload = _workspace_safety_payload(error)
     exit_code = exit_code_for_workspace_safety(error.code)
@@ -179,7 +182,7 @@ def _handle_workspace_safety_error(
         _emit_json_payload(payload, exit_code=exit_code)
     if jsonl_output and event_sink is not None:
         event_sink(
-            "run_completed",
+            completion_event_type,
             ensure_schema_payload(payload),
             status="error",
         )
@@ -860,36 +863,53 @@ def ibm_configure_command(
         help="Emit a machine-readable JSON result.",
     ),
 ) -> None:
-    if not instance:
+    normalized_instance = instance.strip() if instance is not None else ""
+    normalized_token_env = token_env.strip() or None if token_env is not None else None
+    normalized_saved_account_name = (
+        saved_account_name.strip() or None if saved_account_name is not None else None
+    )
+
+    if not normalized_instance:
         _cli_error("ibm_instance_required", json_output=json_output)
     if credential_mode not in {"env", "saved_account"}:
         _cli_error("ibm_config_invalid", json_output=json_output)
 
     if credential_mode == "env":
-        if token_env is None:
+        if normalized_token_env is None:
             _cli_error("ibm_token_external_required", json_output=json_output)
-        if saved_account_name is not None:
+        if normalized_saved_account_name is not None:
             _cli_error("ibm_config_invalid", json_output=json_output)
-        profile = IbmAccessProfile(
-            credential_mode="env",
-            instance=instance,
-            token_env=token_env,
-        )
+        try:
+            profile = IbmAccessProfile(
+                credential_mode="env",
+                instance=normalized_instance,
+                token_env=normalized_token_env,
+            )
+        except (ValidationError, ValueError, tomllib.TOMLDecodeError):
+            _cli_error("ibm_config_invalid", json_output=json_output)
     else:
-        if saved_account_name is None:
+        if normalized_saved_account_name is None:
             _cli_error("ibm_config_invalid", json_output=json_output)
-        if token_env is not None:
+        if normalized_token_env is not None:
             _cli_error("ibm_config_invalid", json_output=json_output)
-        profile = IbmAccessProfile(
-            credential_mode="saved_account",
-            instance=instance,
-            saved_account_name=saved_account_name,
-        )
+        try:
+            profile = IbmAccessProfile(
+                credential_mode="saved_account",
+                instance=normalized_instance,
+                saved_account_name=normalized_saved_account_name,
+            )
+        except (ValidationError, ValueError, tomllib.TOMLDecodeError):
+            _cli_error("ibm_config_invalid", json_output=json_output)
 
-    result = write_ibm_profile(
-        workspace_root=workspace,
-        profile=profile,
-    )
+    try:
+        result = write_ibm_profile(
+            workspace_root=workspace,
+            profile=profile,
+        )
+    except (ValidationError, ValueError, tomllib.TOMLDecodeError):
+        _cli_error("ibm_config_invalid", json_output=json_output)
+    except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
+        _handle_workspace_safety_error(exc, json_output=json_output)
     if json_output:
         _echo_json(result, exclude_none=True)
         return
@@ -1797,7 +1817,13 @@ def doctor_command(
             else run_doctor(workspace_root=workspace, fix=fix, ci=ci)
         )
     except (WorkspaceConflictError, WorkspaceRecoveryRequiredError) as exc:
-        _handle_workspace_safety_error(exc, json_output=json_output, jsonl_output=jsonl_output, event_sink=event_sink)
+        _handle_workspace_safety_error(
+            exc,
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="doctor_completed",
+        )
     if json_output:
         _echo_json(report, exclude_none=not ci)
         raise typer.Exit(code=exit_code_for_doctor(report))

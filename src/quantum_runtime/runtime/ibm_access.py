@@ -10,7 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from quantum_runtime.workspace import WorkspaceManager, WorkspacePaths
+from quantum_runtime.errors import WorkspaceConflictError
+from quantum_runtime.workspace import WorkspaceLockConflict, WorkspaceManager, WorkspacePaths, acquire_workspace_lock
 from quantum_runtime.workspace.manifest import atomic_write_text
 
 
@@ -38,14 +39,23 @@ class IbmAccessProfile(BaseModel):
 
     @model_validator(mode="after")
     def _validate_mode_requirements(self) -> "IbmAccessProfile":
-        if not self.instance.strip():
+        instance = self.instance.strip()
+        token_env = self.token_env.strip() if self.token_env is not None else None
+        saved_account_name = (
+            self.saved_account_name.strip() if self.saved_account_name is not None else None
+        )
+
+        if not instance:
             raise ValueError("instance is required")
         if self.credential_mode == "env":
-            if not self.token_env or self.saved_account_name is not None:
+            if not token_env or saved_account_name is not None:
                 raise ValueError("env mode requires token_env only")
-            return self
-        if not self.saved_account_name or self.token_env is not None:
+        elif not saved_account_name or token_env is not None:
             raise ValueError("saved_account mode requires saved_account_name only")
+
+        self.instance = instance
+        self.token_env = token_env
+        self.saved_account_name = saved_account_name
         return self
 
 
@@ -85,16 +95,32 @@ def load_ibm_profile(*, workspace_root: Path) -> IbmAccessProfile | None:
 
 def write_ibm_profile(*, workspace_root: Path, profile: IbmAccessProfile) -> IbmConfigureResult:
     """Persist a non-secret IBM access profile to `qrun.toml`."""
-    handle = WorkspaceManager.load_or_init(workspace_root)
+    try:
+        handle = WorkspaceManager.load_or_init(workspace_root)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=workspace_root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+
     qrun_toml = handle.paths.qrun_toml
-    payload = _load_qrun_payload(qrun_toml)
+    try:
+        with acquire_workspace_lock(handle.root, command="qrun ibm configure"):
+            payload = _load_qrun_payload(qrun_toml)
 
-    remote_block = payload.setdefault("remote", {})
-    if not isinstance(remote_block, dict):
-        raise ValueError("Expected [remote] table in qrun.toml")
-    remote_block["ibm"] = profile.model_dump(mode="json", exclude_none=True)
+            remote_block = payload.setdefault("remote", {})
+            if not isinstance(remote_block, dict):
+                raise ValueError("Expected [remote] table in qrun.toml")
+            remote_block["ibm"] = profile.model_dump(mode="json", exclude_none=True)
 
-    atomic_write_text(qrun_toml, _dump_toml(payload))
+            atomic_write_text(qrun_toml, _dump_toml(payload))
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=handle.root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
     return IbmConfigureResult(
         workspace=str(handle.root),
         profile=profile,
@@ -259,8 +285,11 @@ def _extract_ibm_block(payload: dict[str, Any]) -> dict[str, Any] | None:
 def _load_service_class() -> Any:
     try:
         module = importlib.import_module("qiskit_ibm_runtime")
-    except ModuleNotFoundError as exc:
-        raise IbmAccessError("ibm_runtime_dependency_missing") from exc
+    except Exception as exc:
+        raise IbmAccessError(
+            "ibm_runtime_dependency_missing",
+            details={"import_error": str(exc)},
+        ) from exc
 
     service_class = getattr(module, "QiskitRuntimeService", None)
     if service_class is None:
@@ -309,6 +338,8 @@ def _append_toml_table(lines: list[str], prefix: tuple[str, ...], table: dict[st
 def _toml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, float):
+        return str(value)
     if isinstance(value, int):
         return str(value)
     if isinstance(value, str):

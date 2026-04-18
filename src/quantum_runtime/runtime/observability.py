@@ -40,7 +40,7 @@ def phase_for_event_type(event_type: str) -> str:
         return "compare"
     if event_type in {"benchmark_started", "benchmark_completed"} or event_type.startswith("backend_"):
         return "benchmark"
-    if event_type in {"doctor_started", "workspace_checked", "dependency_checked", "doctor_completed"}:
+    if event_type in {"doctor_started", "workspace_checked", "dependency_checked", "dependencies_checked", "doctor_written", "doctor_completed"}:
         return "doctor"
     if event_type in {"pack_started", "pack_artifact_copied", "pack_completed"}:
         return "pack"
