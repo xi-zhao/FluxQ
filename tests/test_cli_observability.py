@@ -897,6 +897,7 @@ def test_remote_submit_jsonl_emits_submit_lifecycle_events_with_persisted_ids(
         "submit_completed",
     ]
     assert all(event["phase"] == "remote" for event in events)
+    assert events[0]["payload"]["source_kind"] == "prompt_text"
     assert "attempt_id" not in events[0]["payload"]
     assert "job_id" not in events[0]["payload"]
     assert str(events[1]["payload"]["attempt_id"]).startswith("attempt_")
@@ -1023,3 +1024,27 @@ def test_remote_submit_jsonl_redacts_ibm_secret_material(
     events = _parse_jsonl(result.stdout)
     assert events[-1]["event_type"] == "submit_completed"
     assert events[-1]["payload"]["reason_codes"] == ["remote_backend_not_ready", "ibm_backend_lookup_failed"]
+
+
+def test_qrun_remote_submit_jsonl_requires_exactly_one_input_source(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 3, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert [event["event_type"] for event in events] == ["submit_completed"]
+    completion = events[-1]["payload"]
+    assert completion["reason"] == "expected_exactly_one_input"
+    assert completion["error_code"] == "expected_exactly_one_input"

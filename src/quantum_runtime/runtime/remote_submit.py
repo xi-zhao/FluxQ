@@ -27,7 +27,12 @@ from quantum_runtime.runtime.remote_attempts import (
     persist_remote_attempt,
 )
 from quantum_runtime.runtime.resolve import resolve_runtime_input
-from quantum_runtime.workspace import WorkspaceHandle, WorkspaceLockConflict, WorkspaceManager
+from quantum_runtime.workspace import (
+    WorkspaceHandle,
+    WorkspaceLockConflict,
+    WorkspaceManager,
+    pending_atomic_write_files,
+)
 
 
 class RemoteSubmitResult(SchemaPayload):
@@ -77,7 +82,11 @@ def submit_remote_input(
 ) -> RemoteSubmitResult | RemoteSubmitBlockedResult:
     """Resolve one canonical input, submit it remotely, and persist the attempt."""
     selected_backend_name = backend_name.strip()
-    source_kind = _source_kind(
+    if not selected_backend_name:
+        raise ValueError("remote_backend_required")
+
+    resolved = resolve_runtime_input(
+        workspace_root=workspace_root,
         intent_file=intent_file,
         intent_json_file=intent_json_file,
         qspec_file=qspec_file,
@@ -90,29 +99,13 @@ def submit_remote_input(
             "submit_started",
             {
                 "provider": "ibm",
-                "backend": selected_backend_name or None,
-                "source_kind": source_kind,
+                "backend": selected_backend_name,
+                "source_kind": resolved.source_kind,
             },
             None,
             "ok",
         )
-    if not selected_backend_name:
-        blocked_result = _blocked_result(
-            workspace_root=workspace_root,
-            reason_codes=["remote_backend_required"],
-        )
-        _emit_submit_completion(event_sink=event_sink, result=blocked_result)
-        return blocked_result
-
-    resolved = resolve_runtime_input(
-        workspace_root=workspace_root,
-        intent_file=intent_file,
-        intent_json_file=intent_json_file,
-        qspec_file=qspec_file,
-        report_file=report_file,
-        revision=revision,
-        intent_text=intent_text,
-    )
+    _ensure_remote_attempt_persistence_ready(workspace_root)
     handle = _load_workspace_handle(workspace_root)
     access = resolve_ibm_access(workspace_root=handle.root)
     if access.status != "ok":
@@ -398,25 +391,14 @@ def _emit_submit_completion(
     )
 
 
-def _source_kind(
-    *,
-    intent_file: Path | None,
-    intent_json_file: Path | None,
-    qspec_file: Path | None,
-    report_file: Path | None,
-    revision: str | None,
-    intent_text: str | None,
-) -> str:
-    if intent_file is not None:
-        return "intent_file"
-    if intent_json_file is not None:
-        return "intent_json_file"
-    if qspec_file is not None:
-        return "qspec_file"
-    if report_file is not None:
-        return "report_file"
-    if revision is not None:
-        return "revision"
-    if intent_text is not None:
-        return "intent_text"
-    return "unknown"
+def _ensure_remote_attempt_persistence_ready(workspace_root: Path) -> None:
+    handle = _load_workspace_handle(workspace_root)
+    paths = handle.paths
+    pending_files = pending_atomic_write_files(paths.remote_attempt_latest_json)
+    if not pending_files:
+        return
+    raise WorkspaceRecoveryRequiredError(
+        workspace=handle.root.resolve(),
+        pending_files=pending_files,
+        last_valid_revision=None,
+    )

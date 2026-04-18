@@ -14,6 +14,7 @@ from quantum_runtime.intent.parser import parse_intent_file
 from quantum_runtime.intent.planner import plan_to_qspec
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
 from quantum_runtime.runtime import load_remote_attempt
+from quantum_runtime.workspace import WorkspacePaths
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -191,6 +192,38 @@ def test_submit_remote_input_requires_explicit_backend_name(tmp_path: Path) -> N
             backend_name="   ",
             intent_text="Generate a 4-qubit GHZ circuit and measure all qubits.",
         )
+
+
+def test_submit_remote_input_checks_workspace_recovery_before_provider_submit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_remote_submit_module()
+    workspace = tmp_path / ".quantum"
+    handle = module.WorkspaceManager.load_or_init(workspace)
+    paths = WorkspacePaths(root=workspace)
+    pending_path = paths.remote_attempt_latest_json.parent / f".{paths.remote_attempt_latest_json.name}.tmp-stale"
+    pending_path.write_text("stale", encoding="utf-8")
+
+    submit_called = False
+
+    def _fake_submit_ibm_job(*, service, backend_name: str, qspec: QSpec, shots: int):
+        nonlocal submit_called
+        submit_called = True
+        return {"job_id": "job-123", "job_status": "QUEUED"}
+
+    monkeypatch.setattr(module, "resolve_ibm_access", lambda *, workspace_root: _fake_ibm_resolution())
+    monkeypatch.setattr(module, "build_ibm_service", lambda *, resolution: object())
+    monkeypatch.setattr(module, "submit_ibm_job", _fake_submit_ibm_job)
+
+    with pytest.raises(WorkspaceRecoveryRequiredError):
+        module.submit_remote_input(
+            workspace_root=handle.root,
+            backend_name="ibm_brisbane",
+            intent_text="Generate a 4-qubit GHZ circuit and measure all qubits.",
+        )
+
+    assert submit_called is False
 
 
 def test_submit_ibm_job_uses_explicit_backend_lookup_and_sampler_job_mode(monkeypatch) -> None:

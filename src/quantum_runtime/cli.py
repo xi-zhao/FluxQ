@@ -1618,18 +1618,19 @@ def remote_submit_command(
 ) -> None:
     """Submit one canonical runtime input to the configured remote provider."""
     _validate_output_modes(json_output=json_output, jsonl_output=jsonl_output)
+    event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     inputs_provided = sum(
         value is not None
         for value in (intent_file, intent_json_file, qspec_file, report_file, revision, intent_text)
     )
     if inputs_provided != 1:
-        if json_output:
-            _json_error("expected_exactly_one_input")
-        raise typer.BadParameter(
-            "Provide exactly one of --intent-file, --intent-json-file, --qspec-file, --report-file, --revision, or --intent-text."
+        _structured_cli_error(
+            "expected_exactly_one_input",
+            json_output=json_output,
+            jsonl_output=jsonl_output,
+            event_sink=event_sink,
+            completion_event_type="submit_completed",
         )
-
-    event_sink = _make_jsonl_emitter(workspace=workspace) if jsonl_output else None
     try:
         result = submit_remote_input(
             workspace_root=workspace,
