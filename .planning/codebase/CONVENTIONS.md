@@ -1,152 +1,120 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-04-14
+**Analysis Date:** 2026-04-18
 
 ## Naming Patterns
 
 **Files:**
-- Use `snake_case.py` for implementation modules under `src/quantum_runtime/`, for example `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/intent/parser.py`, and `src/quantum_runtime/workspace/manager.py`.
-- Use `tests/test_<area>.py` for canonical tests in the top-level `tests/` directory, for example `tests/test_cli_exec.py`, `tests/test_runtime_imports.py`, `tests/test_workspace_manager.py`, and `tests/test_release_docs.py`.
-- Keep snapshot fixtures under `tests/golden/`, for example `tests/golden/qspec_ghz.json`, `tests/golden/qasm_ghz_main.qasm`, and `tests/golden/report_summary_ghz.txt`.
-- Use package `__init__.py` files as barrel modules with explicit `__all__` lists, for example `src/quantum_runtime/runtime/__init__.py`, `src/quantum_runtime/qspec/__init__.py`, `src/quantum_runtime/workspace/__init__.py`, and `src/quantum_runtime/reporters/__init__.py`.
-- Treat `src/quantum_runtime/reporters/writer-NSConflict-BlovedSwami-mac26.4.1.py`, `tests/test_cli_bench-NSConflict-BlovedSwami-mac26.4.1.py`, and `tests/test_runtime_imports-NSConflict-BlovedSwami-mac26.4.1.py` as conflict artifacts, not as naming patterns to extend.
+- Use `snake_case.py` module names under `src/quantum_runtime/`, for example `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/run_manifest.py`, `src/quantum_runtime/qspec/validation.py`, and `src/quantum_runtime/workspace/manager.py`.
+- Use package `__init__.py` files as stable barrels, especially `src/quantum_runtime/runtime/__init__.py`, `src/quantum_runtime/qspec/__init__.py`, `src/quantum_runtime/workspace/__init__.py`, and `src/quantum_runtime/reporters/__init__.py`.
+- Name tests `tests/test_<area>.py`, for example `tests/test_cli_exec.py`, `tests/test_runtime_imports.py`, `tests/test_workspace_manager.py`, and `tests/test_packaging_release.py`.
+- Keep checked-in snapshots and golden artifacts in `tests/golden/`, for example `tests/golden/qiskit_ghz_main.py`, `tests/golden/qspec_ghz.json`, and `tests/golden/report_summary_ghz.txt`.
 
 **Functions:**
-- Use `snake_case` for public functions and module-local helpers, for example `parse_intent_text()` in `src/quantum_runtime/intent/parser.py`, `execute_intent()` in `src/quantum_runtime/runtime/executor.py`, and `workspace_status()` in `src/quantum_runtime/runtime/control_plane.py`.
-- Prefix file-local helpers with `_`, for example `_json_error()` and `_make_jsonl_emitter()` in `src/quantum_runtime/cli.py`, `_coerce_details()` in `src/quantum_runtime/errors.py`, and `_write_intent()` in `tests/test_cli_exec.py`.
-- Name CLI command handlers with a `_command` suffix in `src/quantum_runtime/cli.py`, for example `init_command()`, `baseline_set_command()`, `pack_inspect_command()`, and `backend_list_command()`.
+- Use `snake_case` for public functions across runtime and tests, for example `execute_intent()` in `src/quantum_runtime/runtime/executor.py`, `resolve_report_file()` in `src/quantum_runtime/runtime/imports.py`, `remediation_for_error()` in `src/quantum_runtime/runtime/contracts.py`, and `test_qrun_exec_json_generates_workspace_artifacts_and_report()` in `tests/test_cli_exec.py`.
+- Prefix file-local helpers with `_`, for example `_json_error()` and `_handle_workspace_safety_error()` in `src/quantum_runtime/cli.py`, `_seed_bootstrap_file()` in `src/quantum_runtime/workspace/manager.py`, `_backend_capabilities_fixture()` in `tests/test_cli_backend_list.py`, and `_write_current_pack_shape()` in `tests/test_pack_bundle.py`.
+- Name Typer command handlers with a `_command` suffix inside `src/quantum_runtime/cli.py`, including `init_command()`, `exec_command()`, `compare_command()`, `doctor_command()`, and `backend_list_command()`.
+- Prefer verb-oriented helper prefixes that describe the runtime action: `resolve_*`, `load_*`, `write_*`, `build_*`, `compare_*`, `execute_*`, `persist_*`, and `validate_*`.
 
 **Variables:**
-- Use `snake_case` for locals and parameters, for example `workspace_root`, `event_sink`, `requested_exports`, `latest_manifest`, and `representative_bindings` across `src/quantum_runtime/runtime/` and `tests/`.
-- Use `UPPER_SNAKE_CASE` for constants and reusable test module state, for example `SCHEMA_VERSION` in `src/quantum_runtime/runtime/contracts.py`, `DEFAULT_QRUN_TOML` in `src/quantum_runtime/workspace/manager.py`, `PROJECT_ROOT` in many test modules, and `RUNNER` in CLI test modules such as `tests/test_cli_exec.py`.
+- Use `snake_case` for locals and parameters, with descriptive suffixes like `*_path`, `*_payload`, `*_result`, `*_resolution`, and `*_root`; examples include `workspace_root`, `report_path`, `baseline_resolution`, `event_sink`, and `artifact_names` in `src/quantum_runtime/runtime/` and `tests/`.
+- Use `UPPER_SNAKE_CASE` for module constants and test globals, for example `SCHEMA_VERSION` in `src/quantum_runtime/runtime/contracts.py` and `src/quantum_runtime/workspace/trace.py`, `DEFAULT_QRUN_TOML` in `src/quantum_runtime/workspace/manager.py`, and `PROJECT_ROOT` plus `RUNNER` in many CLI tests such as `tests/test_cli_exec.py`.
+- Keep workspace and revision identifiers explicit as `workspace`, `workspace_root`, `revision`, and `current_revision` rather than abbreviated aliases.
 
 **Types:**
-- Use `PascalCase` for Pydantic models, dataclasses, and structured error types, for example `ExecResult` in `src/quantum_runtime/runtime/executor.py`, `CompareResult` in `src/quantum_runtime/runtime/compare.py`, `WorkspaceHandle` in `src/quantum_runtime/workspace/manager.py`, and `WorkspaceConflictError` in `src/quantum_runtime/errors.py`.
-- Use descriptive suffixes such as `Result`, `Report`, `Manifest`, `Resolution`, `Details`, `Policy`, and `Verdict`, for example `BenchmarkReport`, `WorkspaceManifest`, `ImportResolution`, `WorkspaceConflictDetails`, `ComparePolicy`, and `CompareVerdict`.
+- Use `PascalCase` for Pydantic models, dataclasses, and exceptions, for example `ExecResult` in `src/quantum_runtime/runtime/executor.py`, `ImportResolution` in `src/quantum_runtime/runtime/imports.py`, `BackendCapabilityDescriptor` in `src/quantum_runtime/runtime/backend_registry.py`, `WorkspaceHandle` in `src/quantum_runtime/workspace/manager.py`, and `WorkspaceRecoveryRequiredError` in `src/quantum_runtime/errors.py`.
+- Suffix machine-facing models with domain nouns such as `Result`, `Report`, `Payload`, `Manifest`, `Resolution`, or `Descriptor`, as seen in `ErrorPayload`, `WorkspaceConflictErrorPayload`, `PackInspectionResult`, `DoctorReport`, and `WorkspaceBaselineResolution`.
+- Use `Literal[...]` for constrained domain values in models, such as `status` fields in `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/contracts.py`, and `src/quantum_runtime/workspace/trace.py`.
 
 ## Code Style
 
 **Formatting:**
-- Start modules with a module docstring and `from __future__ import annotations`, as shown in `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/workspace/trace.py`, `tests/test_cli_exec.py`, and `tests/test_release_docs.py`.
-- Group imports by standard library, third-party packages, and first-party packages with a blank line between groups. This is visible in `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/intent/parser.py`, and `tests/test_classiq_backend.py`.
-- Use manual Black-like wrapping: hanging indents, trailing commas in multiline literals and calls, and blank lines between top-level declarations. Representative files include `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/contracts.py`, and `tests/test_runtime_workspace_safety.py`.
-- Serialize machine-facing JSON explicitly with `model_dump_json(indent=2)` or `json.dumps(..., indent=2, ensure_ascii=True)`, for example in `src/quantum_runtime/runtime/contracts.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/reporters/writer.py`, `src/quantum_runtime/workspace/trace.py`, and many tests that seed or tamper workspace files.
-- Keep type annotations on public functions and most tests. Examples include `parse_intent_file(path: Path) -> IntentModel` in `src/quantum_runtime/intent/parser.py`, `execute_intent(*, workspace_root: Path, intent_file: Path, ...) -> ExecResult` in `src/quantum_runtime/runtime/executor.py`, and `test_qrun_exec_json_generates_workspace_artifacts_and_report(tmp_path: Path) -> None` in `tests/test_cli_exec.py`.
-- Prefer `Path` objects over raw path strings until the serialization boundary, for example in `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/runtime/imports.py`, and `tests/test_cli_init.py`.
+- Start source and test files with `from __future__ import annotations`; this is consistent in `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/qspec/model.py`, `tests/test_cli_exec.py`, and `tests/test_runtime_imports.py`.
+- Keep modules docstring-first in `src/`. Representative examples include `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/contracts.py`, `src/quantum_runtime/workspace/trace.py`, and `src/quantum_runtime/runtime/backend_registry.py`.
+- Follow Black-like manual formatting even though no formatter is configured in `pyproject.toml`: 4-space indentation, hanging indents, trailing commas in multiline calls, and blank lines between top-level declarations. This is visible in `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/contracts.py`, and `tests/test_cli_observability.py`.
+- Prefer deterministic JSON serialization via `model_dump_json(indent=2)` or `json.dumps(..., indent=2, ensure_ascii=True)` over ad hoc string assembly. See `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/run_manifest.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/reporters/writer.py`, and tests such as `tests/test_cli_exec.py` and `tests/test_runtime_imports.py`.
+- Use `pathlib.Path` for filesystem work instead of raw string paths, for example throughout `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/workspace/manager.py`, and nearly every test file under `tests/`.
+- Keep public functions and many tests fully type-annotated. Examples include `execute_intent(*, workspace_root: Path, intent_file: Path, ...) -> ExecResult` in `src/quantum_runtime/runtime/executor.py`, `workspace_recovery_required_error_payload(...) -> WorkspaceRecoveryRequiredErrorPayload` in `src/quantum_runtime/runtime/contracts.py`, and test signatures like `test_resolve_workspace_current_returns_structured_provenance(tmp_path: Path) -> None` in `tests/test_runtime_imports.py`.
 
 **Linting:**
-- Lint with Ruff through `[tool.ruff]` in `pyproject.toml`, repository commands in `CONTRIBUTING.md`, and `.github/workflows/ci.yml`.
-- Ruff scopes `src` and `tests` through `src = ["src", "tests"]` in `pyproject.toml`.
-- Ruff excludes `tests/golden` and `tests/test_qspec_validation.py` through `extend-exclude = ["tests/golden", "tests/test_qspec_validation.py"]` in `pyproject.toml`.
-- Ruff enforces only `E4`, `E7`, `E9`, and `F`. Import sorting, quote normalization, docstring style, and formatting are not tool-enforced.
-- MyPy runs only on `src` through `files = src` in `mypy.ini` and through `mypy src` in `.github/workflows/ci.yml`, `CONTRIBUTING.md`, and `scripts/dev-bootstrap.sh`.
-- MyPy is permissive around third-party packages and selected modules: `ignore_missing_imports = true`, plus module-specific exceptions for `quantum_runtime.intent.planner`, `quantum_runtime.runtime.executor`, and `quantum_runtime.diagnostics.transpile_validate` in `mypy.ini`.
+- Ruff is the only configured linter in `pyproject.toml`.
+- The active Ruff rule set is intentionally narrow: `E4`, `E7`, `E9`, and `F` under `[tool.ruff.lint]`.
+- Ruff runs against both `src` and `tests`, but `pyproject.toml` excludes `tests/golden/` and `tests/test_qspec_validation.py`.
+- There is no configured import sorter, formatter, quote-style rule, or docstring linter. Import order and formatting are maintained by convention, not by automated enforcement.
+- MyPy is configured separately in `mypy.ini` and only checks `src`. It uses `ignore_missing_imports = true` and carries targeted relaxations for `quantum_runtime.intent.planner`, `quantum_runtime.runtime.executor`, `quantum_runtime.reporters.summary`, and `quantum_runtime.diagnostics.transpile_validate`.
 
 ## Import Organization
 
 **Order:**
-1. Standard library imports such as `json`, `hashlib`, `subprocess`, `threading`, `Path`, and `Any`.
-2. Third-party imports such as `typer`, `pytest`, and `pydantic`.
-3. First-party imports from `quantum_runtime...` or package-relative imports.
+1. Standard library imports first, such as `json`, `hashlib`, `pathlib.Path`, `typing`, `threading`, and `tomllib`.
+2. Third-party imports second, such as `typer`, `pydantic`, `pytest`, `numpy`, and `qiskit`.
+3. Internal `quantum_runtime...` imports last, or relative imports inside a package such as `from .manifest import WorkspaceManifest` in `src/quantum_runtime/workspace/manager.py`.
 
 **Path Aliases:**
-- Not detected. Imports use either absolute package paths such as `from quantum_runtime.runtime import ...` in `src/quantum_runtime/cli.py` and `tests/test_runtime_compare.py`, or relative imports such as `from .trace import TraceWriter` in `src/quantum_runtime/workspace/manager.py` and `from .model import QSpec` in `src/quantum_runtime/qspec/__init__.py`.
-
-**Patterns:**
-- Use absolute imports across package boundaries and in tests. Examples include `tests/test_cli_exec.py`, `tests/test_qasm_export.py`, and `src/quantum_runtime/cli.py`.
-- Use relative imports inside a package when the module stays within one subsystem, for example `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/intent/parser.py`, `src/quantum_runtime/qspec/validation.py`, and the package barrel modules.
-- Favor barrel imports for broad orchestration surfaces. `src/quantum_runtime/cli.py` imports many runtime entrypoints from `src/quantum_runtime/runtime/__init__.py`, and `tests/test_runtime_compare.py` imports the public runtime API from the same barrel.
-- Import leaf modules directly when testing one implementation detail, for example `tests/test_classiq_backend.py`, `tests/test_workspace_manager.py`, `tests/test_qasm_export.py`, and `tests/test_cli_backend_list.py`.
-
-```python
-from pathlib import Path
-
-import typer
-
-from quantum_runtime import __version__
-from quantum_runtime.runtime import build_execution_plan, execute_intent
-from quantum_runtime.workspace import WorkspaceManager
-```
-
-```python
-from .locking import acquire_workspace_lock
-from .manifest import WorkspaceManifest, atomic_write_text
-from .paths import WorkspacePaths
-```
+- Not detected. Imports are either absolute package imports like `from quantum_runtime.runtime import ...` in `src/quantum_runtime/cli.py` or relative imports within a subpackage like `from .trace import TraceWriter` in `src/quantum_runtime/workspace/manager.py`.
+- Prefer importing through package barrels when crossing subsystem boundaries. `src/quantum_runtime/cli.py` imports most runtime and workspace APIs from `quantum_runtime.runtime` and `quantum_runtime.workspace` instead of leaf modules.
+- Import leaf modules directly when the caller needs one concrete implementation or when tests target internals, for example `tests/test_qiskit_emitter.py`, `tests/test_runtime_imports.py`, and `tests/test_cli_backend_list.py`.
 
 ## Error Handling
 
 **Patterns:**
-- Raise domain-specific exceptions that carry stable machine-readable codes and structured details. The base pattern is `StructuredQuantumRuntimeError` in `src/quantum_runtime/errors.py`, with concrete types such as `ManualQspecRequiredError`, `WorkspaceConflictError`, and `WorkspaceRecoveryRequiredError`.
-- Use boundary-specific exceptions when a simple reason code is enough, for example `ImportSourceError` in `src/quantum_runtime/runtime/imports.py`, `ReportImportError` in `src/quantum_runtime/runtime/executor.py`, `ArtifactProvenanceMismatch` in `src/quantum_runtime/artifact_provenance.py`, and `RunManifestIntegrityError` in `src/quantum_runtime/runtime/run_manifest.py`.
-- Convert failures into schema-versioned payloads at the CLI boundary through `_emit_json_payload()`, `_json_error()`, and `_handle_workspace_safety_error()` in `src/quantum_runtime/cli.py`.
-- Keep remediations stable and explicit through `REMEDIATIONS`, `ensure_schema_payload()`, and `dump_schema_payload()` in `src/quantum_runtime/runtime/contracts.py`.
-- Fail closed on provenance and integrity mismatches rather than silently discarding metadata. The explanatory inline comment in `src/quantum_runtime/runtime/export.py` and the guarded flows in `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/run_manifest.py`, and `src/quantum_runtime/runtime/inspect.py` follow this rule.
-- Use `assert` only for invariants that should already hold after prior validation or branching, for example `assert resolution is not None` in `src/quantum_runtime/cli.py`, `assert manifest is not None` in `src/quantum_runtime/runtime/doctor.py`, and loader assertions in `tests/test_pack_bundle.py`.
-
-```python
-class StructuredQuantumRuntimeError(QuantumRuntimeError):
-    code: str = "runtime_error"
-
-    def __init__(self, message: str, *, details: Mapping[str, Any] | None = None) -> None:
-        super().__init__(message)
-        self.message = message
-        self.details = _coerce_details(details or {})
-```
+- Prefer domain-specific exceptions that carry stable reason codes or structured details. Primary examples are `StructuredQuantumRuntimeError`, `WorkspaceConflictError`, and `WorkspaceRecoveryRequiredError` in `src/quantum_runtime/errors.py`, `QSpecValidationError` in `src/quantum_runtime/qspec/validation.py`, and `ImportSourceError` in `src/quantum_runtime/runtime/imports.py`.
+- Preserve a machine-readable `details` payload on structured failures. `src/quantum_runtime/errors.py` normalizes `Path` and mapping values through `_coerce_details()` before exposing them.
+- Re-raise low-level parsing, validation, and filesystem failures as runtime-domain errors close to the boundary. This is the dominant pattern in `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/export.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/runtime/executor.py`, and `src/quantum_runtime/runtime/ibm_access.py`.
+- Translate exceptions into schema-versioned JSON payloads in the CLI layer instead of leaking raw exceptions. `src/quantum_runtime/cli.py` routes failures through `_json_error()`, `_json_import_source_error()`, `_workspace_safety_payload()`, and `_emit_json_payload()`, all backed by models in `src/quantum_runtime/runtime/contracts.py`.
+- Use remediation text consistently through `remediation_for_error()` in `src/quantum_runtime/runtime/contracts.py` rather than embedding ad hoc user guidance in each command.
+- Use plain `ValueError` or narrow custom runtime exceptions only where a full structured hierarchy is unnecessary inside the runtime, such as `ReportImportError` in `src/quantum_runtime/runtime/executor.py`, `RunManifestIntegrityError` in `src/quantum_runtime/runtime/run_manifest.py`, and `ArtifactProvenanceMismatch` in `src/quantum_runtime/artifact_provenance.py`.
+- Use `assert` only for internal invariants after branching or loader setup, not for user-facing validation. Representative cases are `assert resolution is not None` in `src/quantum_runtime/cli.py`, `assert manifest is not None` in `src/quantum_runtime/runtime/doctor.py`, and loader assertions in `tests/test_qiskit_emitter.py`.
 
 ## Logging
 
-**Framework:** No `logging` module usage is present in `src/` or `tests/`.
+**Framework:** `typer.echo` for CLI output plus JSONL/NDJSON trace writers in the workspace layer. The standard `logging` module is not used in `src/quantum_runtime/`.
 
 **Patterns:**
-- Human-facing CLI output uses `typer.echo(...)` in `src/quantum_runtime/cli.py`.
-- Machine-facing command payloads use `dump_schema_payload()` and `ensure_schema_payload()` from `src/quantum_runtime/runtime/contracts.py`.
-- Streaming command telemetry uses `JsonlEvent` in `src/quantum_runtime/runtime/observability.py` and `_make_jsonl_emitter()` in `src/quantum_runtime/cli.py`.
-- Workspace event persistence uses `TraceWriter.append()` plus `append_trace_log()` and `write_trace_snapshot()` in `src/quantum_runtime/workspace/trace.py`.
-- New runtime behavior should emit structured JSON payloads or NDJSON events instead of ad hoc print statements.
+- Emit human and machine CLI output through `typer.echo` in `src/quantum_runtime/cli.py`; JSON is always routed through `dump_schema_payload()` or `event.model_dump_json()`.
+- Persist runtime events with `TraceWriter`, `append_trace_log()`, and `write_trace_snapshot()` in `src/quantum_runtime/workspace/trace.py`.
+- Keep workspace event output machine-readable and append-only in `.quantum/events.jsonl` and `.quantum/trace/events.ndjson`; event schemas are backed by `TraceEvent` in `src/quantum_runtime/workspace/trace.py` and `JsonlEvent` in `src/quantum_runtime/runtime/observability.py`.
+- Use `ensure_ascii=True` when manually serializing JSON to persisted artifacts, for example in `src/quantum_runtime/runtime/contracts.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/reporters/writer.py`, and `src/quantum_runtime/diagnostics/benchmark.py`.
+- Avoid `print()` in runtime modules. Tests may execute generated scripts that print JSON, as seen in `tests/test_qiskit_emitter.py`, but the main application surface does not use `print()`.
 
 ## Comments
 
 **When to Comment:**
-- Prefer module, class, and public function docstrings over inline comments. Examples appear throughout `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/contracts.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/workspace/trace.py`, and `src/quantum_runtime/intent/parser.py`.
-- Use inline comments sparingly for non-obvious constraints or fail-closed behavior. The notable example is the explanatory three-line comment in `src/quantum_runtime/runtime/export.py`.
-- Tests rely more on descriptive helper names and explicit assertions than inline commentary. `tests/test_intent_parser.py` is the exception because its markdown fixture uses heading comments like `# Goal` and `# Notes` inside the sample input.
+- Prefer concise module, class, and function docstrings instead of inline comments. This is the default style in `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/contracts.py`, `src/quantum_runtime/runtime/backend_registry.py`, `src/quantum_runtime/runtime/imports.py`, and `src/quantum_runtime/workspace/trace.py`.
+- Use descriptive helper names and structured payload models to explain intent rather than dense comment blocks. The larger orchestration modules rely on naming and helper extraction more than on inline explanation.
+- Inline comments are rare. The clearest repeated inline-comment pattern is targeted coverage suppression, for example `# pragma: no cover` in `tests/test_runtime_workspace_safety.py`.
 
 **JSDoc/TSDoc:**
-- Not applicable. This repository uses Python docstrings rather than JS/TS comment conventions.
+- Not applicable. Use Python docstrings instead.
 
 ## Function Design
 
 **Size:**
-- Core orchestration modules are large: `src/quantum_runtime/cli.py` has 1667 lines, `src/quantum_runtime/runtime/imports.py` has 1191, `src/quantum_runtime/runtime/compare.py` has 904, `src/quantum_runtime/runtime/control_plane.py` has 739, and `src/quantum_runtime/runtime/executor.py` has 640.
-- Supporting modules stay smaller and more focused, for example `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/errors.py`, `src/quantum_runtime/intent/parser.py`, and `src/quantum_runtime/reporters/__init__.py`.
-- Add new leaf helpers or subsystem modules before growing `src/quantum_runtime/cli.py` or `src/quantum_runtime/runtime/imports.py` further.
+- Large orchestration modules are normal in the current codebase: `src/quantum_runtime/cli.py` is 1864 lines, `src/quantum_runtime/runtime/imports.py` is 1197 lines, `src/quantum_runtime/runtime/pack.py` is 1158 lines, `src/quantum_runtime/runtime/compare.py` is 904 lines, and `src/quantum_runtime/runtime/executor.py` is 757 lines.
+- Supporting modules stay smaller and more focused, for example `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/runtime/backend_registry.py`, `src/quantum_runtime/errors.py`, and `src/quantum_runtime/reporters/__init__.py`.
+- When adding behavior to large orchestration modules, follow the existing style of extracting private helpers instead of growing command bodies inline.
 
 **Parameters:**
-- Use keyword-only parameters for orchestration-heavy APIs, for example `execute_intent(*, workspace_root: Path, intent_file: Path, ...)`, `workspace_conflict_error_payload(*, ...)`, `_make_jsonl_emitter(*, workspace: Path)`, `append_trace_log(*, source_path: Path, destination_path: Path)`, and `run_doctor(*, workspace_root: Path, ...)`.
-- Use structured inputs instead of long positional argument lists when data is cohesive, for example `ImportReference`, `ImportResolution`, `ComparePolicy`, and `WorkspaceHandle`.
+- Prefer keyword-only parameters for orchestration flows and payload builders, for example `execute_intent(*, workspace_root: Path, intent_file: Path, ...)` in `src/quantum_runtime/runtime/executor.py`, `resolve_report_file(report_file: Path, *, workspace_root: Path | None = None)` in `src/quantum_runtime/runtime/imports.py`, and `workspace_conflict_error_payload(*, ...)` in `src/quantum_runtime/runtime/contracts.py`.
+- Use `Path` for filesystem inputs and outputs.
+- Use `dict[str, Any]`, `list[str]`, and `Literal[...]` in helper boundaries where a full model would be overkill.
 
 **Return Values:**
-- Return Pydantic models or structured dictionaries for machine-facing flows. Examples include `ExecResult`, `CompareResult`, `DoctorReport`, `ExportResult`, `InspectReport`, and schema payload dicts from `src/quantum_runtime/runtime/contracts.py`.
-- CLI command handlers return `None` and communicate through `typer.echo(...)` plus `typer.Exit(...)` in `src/quantum_runtime/cli.py`.
-- Use `Field(default_factory=...)` consistently for mutable defaults in Pydantic models, for example in `src/quantum_runtime/qspec/model.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/contracts.py`, and `src/quantum_runtime/runtime/run_manifest.py`.
-
-```python
-def execute_intent(*, workspace_root: Path, intent_file: Path, event_sink: EventSink | None = None) -> ExecResult:
-    resolved = resolve_runtime_input(workspace_root=workspace_root, intent_file=intent_file)
-    ...
-```
+- Return Pydantic models for machine-facing flows, including `ExecResult`, `ImportResolution`, `WorkspaceBaselineResolution`, `BackendCapabilityDescriptor`, `WorkspaceConflictErrorPayload`, and `WorkspaceRecoveryRequiredErrorPayload`.
+- Return JSON-serializable dictionaries for small helper payloads and event sinks, such as the observability payloads assembled in `src/quantum_runtime/cli.py` and `src/quantum_runtime/runtime/observability.py`.
+- CLI command handlers in `src/quantum_runtime/cli.py` return `None` and surface results by echoing JSON or text plus `typer.Exit`.
 
 ## Module Design
 
 **Exports:**
-- Publish stable public surfaces through barrel modules with explicit `__all__`, especially `src/quantum_runtime/runtime/__init__.py`, `src/quantum_runtime/qspec/__init__.py`, `src/quantum_runtime/workspace/__init__.py`, `src/quantum_runtime/lowering/__init__.py`, and `src/quantum_runtime/reporters/__init__.py`.
-- Keep the CLI boundary dependent on barrel modules rather than on deep leaf imports. `src/quantum_runtime/cli.py` is the clearest example.
+- Use barrel modules to define the supported import surface. `src/quantum_runtime/runtime/__init__.py`, `src/quantum_runtime/qspec/__init__.py`, `src/quantum_runtime/workspace/__init__.py`, and `src/quantum_runtime/reporters/__init__.py` all declare explicit `__all__` lists.
+- Keep package-facing exports narrow and typed. The barrel modules mostly expose result models, top-level commands, and helper constructors rather than every internal helper.
 
 **Barrel Files:**
-- Use barrel imports when a caller needs the stable cross-module contract. Examples: `src/quantum_runtime/cli.py`, `tests/test_runtime_compare.py`, and `tests/test_runtime_policy.py`.
-- Use leaf-module imports when the test or module is validating a specific subsystem detail, for example `tests/test_workspace_manager.py`, `tests/test_qasm_export.py`, `tests/test_classiq_backend.py`, `tests/test_cli_backend_list.py`, and `src/quantum_runtime/reporters/writer.py`.
+- Prefer barrel imports for cross-package use, especially in command wiring code like `src/quantum_runtime/cli.py`.
+- Import leaf modules directly when tests need to patch or verify a concrete implementation, for example `tests/test_runtime_workspace_safety.py` importing `quantum_runtime.runtime.executor as executor_module`, `tests/test_qiskit_emitter.py` importing `quantum_runtime.lowering.qiskit_emitter`, and `tests/test_cli_backend_list.py` importing `quantum_runtime.runtime.backend_registry`.
+- Treat generated metadata under `src/quantum_runtime.egg-info/` as packaging output, not as a hand-edited source pattern.
 
 ---
 
-*Convention analysis: 2026-04-14*
+*Convention analysis: 2026-04-18*

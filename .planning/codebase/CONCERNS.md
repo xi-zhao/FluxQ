@@ -1,143 +1,163 @@
 # Codebase Concerns
 
-**Analysis Date:** 2026-04-14
+**Analysis Date:** 2026-04-18
 
 ## Tech Debt
 
-**Runtime orchestration is still concentrated in a few oversized modules:**
-- Issue: command parsing, import resolution, compare policy, and execution commit logic are concentrated in very large files: `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/control_plane.py`, and `src/quantum_runtime/runtime/executor.py`.
-- Files: `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/control_plane.py`, `src/quantum_runtime/runtime/executor.py`
-- Impact: small behavior changes can cross CLI UX, machine-readable contracts, workspace persistence, and compare/policy semantics in one edit. Review and regression cost stays high because responsibilities are not isolated cleanly.
-- Fix approach: split command handlers from services, extract import/replay logic out of `src/quantum_runtime/runtime/imports.py`, and keep the final workspace commit path in one dedicated module with a smaller surface.
+**Monolithic command and import orchestration:**
+- Issue: `src/quantum_runtime/cli.py` (1864 lines), `src/quantum_runtime/runtime/imports.py` (1197 lines), `src/quantum_runtime/runtime/pack.py` (1158 lines), `src/quantum_runtime/runtime/control_plane.py` (739 lines), and `src/quantum_runtime/runtime/executor.py` (757 lines) each combine multiple responsibilities that should evolve independently.
+- Files: `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/runtime/control_plane.py`, `src/quantum_runtime/runtime/executor.py`
+- Impact: small changes cut across CLI parsing, JSON/JSONL presentation, detached report resolution, replay-integrity validation, pack verification, workspace mutation, and rollback behavior. Regressions are harder to localize because the public contract and the filesystem side effects live in the same modules.
+- Fix approach: split command-family adapters from runtime services, separate detached-import resolution from replay-integrity evaluation, and separate pack inspection from pack import/promotion while keeping the existing result models stable.
 
-**Workspace health evaluation is duplicated across command surfaces:**
-- Issue: workspace health is recomputed in separate ways by `src/quantum_runtime/runtime/control_plane.py`, `src/quantum_runtime/runtime/doctor.py`, and `src/quantum_runtime/runtime/inspect.py`. These flows parse similar files, but they do not share one canonical evaluator and they do not fail the same way on corruption.
-- Files: `src/quantum_runtime/runtime/control_plane.py`, `src/quantum_runtime/runtime/doctor.py`, `src/quantum_runtime/runtime/inspect.py`
-- Impact: agents and CI can get different answers from `status`, `doctor`, and `inspect` for the same broken workspace. That makes remediation logic harder to trust and harder to automate safely.
-- Fix approach: move manifest/report/qspec health checks into one shared runtime-health service and have `status`, `doctor`, and `inspect` project that shared result into their own payload formats.
+**Retention settings are persisted but not enforced:**
+- Issue: `history_limit` is seeded in `src/quantum_runtime/workspace/manager.py` and persisted in `src/quantum_runtime/workspace/manifest.py`, but no runtime path prunes revision history or pack history.
+- Files: `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/workspace/manifest.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/diagnostics/benchmark.py`
+- Impact: `reports/history/`, `specs/history/`, `artifacts/history/`, `events/history/`, `trace/history/`, `benchmarks/history/`, `doctor/history/`, and `packs/` grow without bound even when operators believe retention is configured.
+- Fix approach: implement manifest-aware pruning after successful revision commits, pin the active revision and baseline, and add a dry-run retention audit before deleting anything.
 
-**Packaging is coupled to compatibility backfill instead of being read-only delivery logic:**
-- Issue: `src/quantum_runtime/runtime/pack.py` does more than copy an existing revision. It backfills missing `intents/history/<revision>.json` and `plans/history/<revision>.json` on demand through `resolve_runtime_input()` and `build_execution_plan()`.
-- Files: `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/runtime/resolve.py`, `src/quantum_runtime/runtime/control_plane.py`
-- Impact: a delivery command mutates revision history, which makes pack behavior harder to reason about and increases the blast radius of changes in resolve/plan code.
-- Fix approach: separate one-time migration/backfill from `qrun pack`, then keep pack logic read-only over already-materialized revision artifacts.
+**`qrun.toml` round-tripping is custom and lossy:**
+- Issue: `write_ibm_profile()` rewrites the full `qrun.toml` using `_dump_toml()` and `_append_toml_table()` instead of a round-trip TOML editor.
+- Files: `src/quantum_runtime/runtime/ibm_access.py`
+- Impact: comments, formatting, and key ordering are dropped on every IBM profile write, and future config growth is limited by the custom serializer's supported types.
+- Fix approach: move managed config into a smaller machine-owned file or adopt a TOML round-trip library before expanding workspace configuration further.
 
 ## Known Bugs
 
-**The live worktree contains conflict-copy Python files inside source and test discovery paths:**
-- Symptoms: `git status --short` shows 31 outstanding paths, including untracked `src/quantum_runtime/reporters/writer-NSConflict-BlovedSwami-mac26.4.1.py`, `tests/test_cli_bench-NSConflict-BlovedSwami-mac26.4.1.py`, and `tests/test_runtime_imports-NSConflict-BlovedSwami-mac26.4.1.py`.
-- Files: `src/quantum_runtime/reporters/writer-NSConflict-BlovedSwami-mac26.4.1.py`, `tests/test_cli_bench-NSConflict-BlovedSwami-mac26.4.1.py`, `tests/test_runtime_imports-NSConflict-BlovedSwami-mac26.4.1.py`
-- Trigger: local `pytest`, ad hoc import discovery, or packaging from the dirty worktree.
-- Workaround: remove or ignore `-NSConflict-` files before test runs and release packaging. Re-check `git status --short` before changing neighboring modules because the tree is already in an in-flight merge/conflict state.
+**Stale workspace locks survive crashed writers with no reclaim path:**
+- Symptoms: mutating commands keep returning `workspace_conflict` after a crash or `kill -9`, even when no live writer remains.
+- Files: `src/quantum_runtime/workspace/locking.py`, `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/runtime/ibm_access.py`, `src/quantum_runtime/runtime/doctor.py`
+- Trigger: a process exits before `WorkspaceLock.release()` runs and leaves `<workspace>/.workspace.lock` behind.
+- Workaround: manually inspect and delete the lock file after confirming no active writer still owns the workspace.
 
-**Repacking can delete the last good bundle before the replacement bundle is verified:**
-- Symptoms: `pack_revision()` deletes `packs/<revision>` first, then builds the replacement bundle, then validates it. Any later copy, backfill, or verification failure leaves no bundle at `packs/<revision>`.
-- Files: `src/quantum_runtime/runtime/pack.py`
-- Trigger: rerun `qrun pack --revision <revision>` for an existing bundle and hit any failure after `shutil.rmtree(pack_root)`.
-- Workaround: keep an external copy of the pack directory before rerunning `qrun pack`, or change the flow to replace only after the staged bundle has passed inspection.
+**Detached copied reports can resolve against the source workspace instead of the explicit target workspace:**
+- Symptoms: commands that accept `--report-file` can bind to the workspace embedded in report provenance while that source workspace still exists; the explicit `--workspace` path is only tried later as a fallback.
+- Files: `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/cli.py`, `tests/test_runtime_imports.py`, `tests/test_cli_compare.py`, `tests/test_cli_export.py`, `tests/test_cli_baseline.py`
+- Trigger: reuse a copied `reports/history/*.json` or `reports/latest.json` that still contains accessible source-workspace provenance.
+- Workaround: remove or rename the source workspace, or strip embedded provenance before using the copied report as a detached input.
 
 ## Security Considerations
 
-**`qrun pack` accepts unchecked revision input and can escape the workspace pack directory:**
-- Risk: `src/quantum_runtime/cli.py` forwards raw `--revision` text into `src/quantum_runtime/runtime/pack.py`, and `src/quantum_runtime/workspace/paths.py` builds `packs/<revision>` with no `rev_000001` validation. `pack_revision()` then calls `shutil.rmtree(pack_root)` and `os.replace(staged_root, pack_root)` on that derived path.
-- Files: `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/workspace/paths.py`
-- Current mitigation: not detected in the pack flow. Revision validation exists in `src/quantum_runtime/runtime/imports.py` for `resolve_report_revision()`, but pack does not reuse it.
-- Recommendations: add one shared revision validator, reject path separators and `..`, resolve the target path, and assert that it remains under `WorkspacePaths.packs_dir` before delete or replace operations.
+**Pack bundle inspection and import follow symlinks inside untrusted bundles:**
+- Risk: `inspect_pack_bundle()` and `import_pack_bundle()` treat symlinked files as ordinary files via `Path.is_file()`, `read_bytes()`, `_sha256_file()`, and `atomic_copy_file()`. A crafted bundle can point `report.json`, `qspec.json`, or members under `exports/` outside `pack_root`, causing local file reads during verification or import.
+- Files: `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/workspace/manifest.py`
+- Current mitigation: digest verification proves byte consistency for the chosen paths, and required-entry checks ensure expected names exist.
+- Recommendations: reject symlinks with `lstat()`, require every imported member to stay under `pack_root.resolve()`, and add malicious-bundle tests before treating pack bundles as a safe external handoff format.
 
-**The optional Classiq backend executes generated Python from disk:**
-- Risk: `src/quantum_runtime/backends/classiq_backend.py` calls `exec(compile(path.read_text(), ...), namespace)` on the generated program file. The emitter in `src/quantum_runtime/lowering/classiq_emitter.py` narrows the supported QSpec surface, but execution still trusts on-disk Python content at runtime.
-- Files: `src/quantum_runtime/backends/classiq_backend.py`, `src/quantum_runtime/lowering/classiq_emitter.py`, `src/quantum_runtime/qspec/validation.py`
-- Current mitigation: `src/quantum_runtime/qspec/validation.py` restricts supported pattern and rotation-block inputs, and the backend is optional.
-- Recommendations: execute an in-memory source string instead of rereading from disk, reject symlinked output paths, verify file hashes before execution, or run the generated program in a subprocess/sandbox boundary.
+**Detached report provenance is trusted before operator-supplied workspace context:**
+- Risk: `_infer_workspace_root_from_report_payload()` can steer resolution to absolute local paths embedded in a detached report before `workspace_option_relocated_report` is attempted. Untrusted report JSON can therefore influence which local `workspace.json`, QSpec, and artifact paths are opened.
+- Files: `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/export.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/executor.py`
+- Current mitigation: `canonicalize_artifact_provenance()` rejects cross-revision path drift once a workspace is selected, and replay-integrity checks reject mismatched QSpec and artifact digests.
+- Recommendations: make explicit `workspace_root` authoritative, require an opt-in flag to trust embedded provenance, and prefer pack bundles over detached raw reports for external exchange.
 
 ## Performance Bottlenecks
 
-**Each exec commit rewrites the full authoritative event logs:**
-- Problem: `append_trace_log()` reads the entire destination file and rewrites `existing + staged` back through `atomic_write_text()`. `src/quantum_runtime/runtime/executor.py` calls this for both `events.jsonl` and `trace/events.ndjson` after every successful exec.
-- Files: `src/quantum_runtime/workspace/trace.py`, `src/quantum_runtime/runtime/executor.py`
-- Cause: append is implemented as whole-file rewrite instead of append-only writes or shard promotion.
-- Improvement path: treat `events/history/<revision>.jsonl` and `trace/history/<revision>.ndjson` as the durable source, then rebuild or compact the latest aliases separately instead of rewriting the full logs every run.
+**`qrun exec` is always full-diagnostics, even for artifact-only use cases:**
+- Problem: `_execute_qspec()` always runs `run_local_simulation()`, `write_diagrams()`, `estimate_resources()`, and `validate_target_constraints()` before the report is written.
+- Files: `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/diagnostics/simulate.py`, `src/quantum_runtime/diagnostics/diagrams.py`, `src/quantum_runtime/diagnostics/transpile_validate.py`, `src/quantum_runtime/cli.py`
+- Cause: execution, diagnostics, and reporting are tightly coupled, and `qrun exec` exposes no fast/skip mode.
+- Improvement path: add diagnostic profiles such as `full`, `fast`, and `artifact-only`, or add granular flags like `--no-simulate` and `--no-diagram`.
 
-**Pack generation rescans the full event history and filters it in memory:**
-- Problem: `_write_revision_events()` loads all of `events.jsonl` or `trace/events.ndjson`, parses each line, filters by revision, and rewrites the filtered bundle-local log.
-- Files: `src/quantum_runtime/runtime/pack.py`
-- Cause: pack does not reuse the per-revision event snapshots already written under `events/history/` and `trace/history/`.
-- Improvement path: source pack bundles from `events/history/<revision>.jsonl` and `trace/history/<revision>.ndjson`, or stream the authoritative logs line-by-line instead of loading the whole file into memory.
+**Replay-integrity resolution re-hashes artifacts on every import-style command:**
+- Problem: import-style flows re-hash resolved artifacts from disk through `_evaluate_replay_integrity()` and `_sha256_file()` every time a report is imported, inspected, exported, or compared.
+- Files: `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/inspect.py`, `src/quantum_runtime/runtime/export.py`, `src/quantum_runtime/runtime/compare.py`
+- Cause: integrity checks are recomputed from filesystem bytes rather than reusing validated run-manifest metadata when the manifest is already trusted.
+- Improvement path: reuse run-manifest digests when the manifest validates, and reserve full artifact re-hash mode for strict verification or detached-report scenarios.
 
 ## Fragile Areas
 
-**Replay/import/compare trust logic stays central, stateful, and easy to destabilize:**
-- Files: `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/runtime/compare.py`, `src/quantum_runtime/runtime/run_manifest.py`, `src/quantum_runtime/artifact_provenance.py`, `tests/test_runtime_imports.py`, `tests/test_cli_compare.py`
-- Why fragile: this path handles workspace-current imports, historical revisions, detached reports, relocated workspaces, provenance normalization, manifest validation, replay-integrity scoring, and compare-policy gating. Small fallback changes can silently alter trust semantics.
-- Safe modification: change one fallback rule at a time, keep detached-report and relocated-workspace fixtures close to the code, and add tests for every new mismatch or provenance branch before refactoring.
-- Test coverage: integration coverage is strong in `tests/test_runtime_imports.py` and `tests/test_cli_compare.py`, but most guarantees are still proven through broad end-to-end cases instead of small, isolated unit tests.
+**Workspace commit and alias promotion pipeline:**
+- Files: `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/run_manifest.py`, `src/quantum_runtime/workspace/manifest.py`, `src/quantum_runtime/workspace/locking.py`, `src/quantum_runtime/runtime/pack.py`
+- Why fragile: one successful exec spans revision reservation, history writes, report generation, event snapshotting, run-manifest writing, event-log append, and alias promotion. Rollback only restores `workspace.json.current_revision`, so partial history artifacts can still remain on disk after mid-flight failure.
+- Safe modification: preserve the ordering of history writes before alias promotion, keep `reports/latest.json`, `specs/current.json`, `manifests/latest.json`, and active artifact aliases as one coherent set, and update recovery logic whenever a new active alias is introduced.
+- Test coverage: strong coverage exists in `tests/test_runtime_revision_artifacts.py`, `tests/test_workspace_locking.py`, `tests/test_cli_workspace_safety.py`, and `tests/test_cli_pack_import.py`; there is no stale-lock recovery test and no interrupted-write test for non-atomic artifact writers.
 
-**The packaging flow is destructive and multi-purpose under one critical section:**
-- Files: `src/quantum_runtime/runtime/pack.py`, `tests/test_pack_bundle.py`
-- Why fragile: `pack_revision()` acquires the workspace lock, deletes old staging and destination directories, backfills missing history objects, copies artifacts, synthesizes bundle events, and only then verifies the staged pack.
-- Safe modification: split pack into validation, materialization, and promotion phases. Keep destructive deletion as the last step, not the first one.
-- Test coverage: `tests/test_pack_bundle.py` only exercises `inspect_pack_bundle()` against synthetic directory shapes. It does not cover destructive reruns, compatibility backfill, or malformed revision input.
+**Detached report import and provenance canonicalization:**
+- Files: `src/quantum_runtime/runtime/imports.py`, `src/quantum_runtime/artifact_provenance.py`, `src/quantum_runtime/runtime/inspect.py`, `src/quantum_runtime/runtime/export.py`, `src/quantum_runtime/runtime/compare.py`
+- Why fragile: one flow handles workspace inference, detached-report relocation, artifact path canonicalization, QSpec lookup, replay-integrity checks, and summary generation.
+- Safe modification: change workspace-candidate precedence intentionally, keep detached-report behavior explicit, and update runtime-level plus CLI-level detached-import tests together.
+- Test coverage: `tests/test_runtime_imports.py`, `tests/test_cli_compare.py`, `tests/test_cli_export.py`, and `tests/test_cli_baseline.py` cover happy-path copied reports; there is no regression test asserting explicit workspace precedence or warning behavior when embedded provenance wins.
 
-**The repo state around core runtime files is already in-flight and unstable:**
-- Files: `src/quantum_runtime/backends/classiq_backend.py`, `src/quantum_runtime/intent/parser.py`, `src/quantum_runtime/intent/planner.py`, `src/quantum_runtime/qspec/model.py`, `src/quantum_runtime/qspec/semantics.py`, `src/quantum_runtime/reporters/writer.py`, `src/quantum_runtime/workspace/trace.py`, `src/quantum_runtime/runtime/resolve.py`
-- Why fragile: `git status --short` shows 23 modified and 8 untracked paths, including new or changed files across backend, planner, QSpec, writer, and workspace logic. The map reflects live code, but line-level details are subject to drift while parallel agents continue editing.
-- Safe modification: re-check `git status --short` and targeted diffs before editing any file listed above, and avoid assuming the current concern map matches the eventual post-refresh merge state line-for-line.
-- Test coverage: not applicable. This is a repository-state caveat rather than a feature test gap.
+**Several revision-bearing writers bypass atomic persistence helpers:**
+- Files: `src/quantum_runtime/reporters/writer.py`, `src/quantum_runtime/diagnostics/diagrams.py`, `src/quantum_runtime/lowering/qiskit_emitter.py`, `src/quantum_runtime/lowering/qasm3_emitter.py`, `src/quantum_runtime/lowering/classiq_emitter.py`, `src/quantum_runtime/runtime/pack.py`
+- Why fragile: these paths use direct `write_text()` instead of `atomic_write_text()` or `atomic_copy_file()`, but workspace recovery only scans for interrupted atomic temp files.
+- Safe modification: move all revision-bearing artifact/report writes onto the atomic helpers before extending recovery logic or adding more artifact families.
+- Test coverage: `tests/test_workspace_locking.py` covers interrupted atomic writes for bootstrap files only; there is no equivalent failure-path coverage for reports, diagrams, emitted source files, or staged bundle manifests.
+
+**IBM config persistence surface:**
+- Files: `src/quantum_runtime/runtime/ibm_access.py`, `src/quantum_runtime/cli.py`, `tests/test_cli_ibm_config.py`
+- Why fragile: one module owns config validation, persistence, service construction, and TOML serialization for a growing integration surface.
+- Safe modification: keep secrets external to `.quantum`, keep `IbmAccessProfile` non-secret, and add serializer and import-compat tests before expanding `[remote.ibm]`.
+- Test coverage: local unit and CLI tests exist, but there is no CI workflow that installs `qiskit-ibm-runtime` and exercises the real dependency surface.
 
 ## Scaling Limits
 
-**A workspace supports one active writer, with the exec lock held across the full runtime pipeline:**
-- Current capacity: one active `qrun exec` per workspace.
-- Limit: `src/quantum_runtime/runtime/executor.py` acquires the workspace lock before reserving the new revision and keeps it through simulation, artifact emission, report writing, event-log promotion, and alias updates. `tests/test_runtime_workspace_safety.py` confirms the practical outcome: one winner and one `WorkspaceConflictError`.
-- Scaling path: move expensive generation and diagnostics into per-run staging directories, then hold the workspace lock only for the final revision reservation and alias/manifest promotion step.
+**Local simulation has no width guard beyond basic schema validation:**
+- Current capacity: examples and tests concentrate on small workloads, typically 2-5 qubits and at most 16 parameter-sweep points.
+- Limit: `run_local_simulation()` evaluates each parameter point with `Statevector.from_instruction()`, so memory and runtime will grow exponentially with qubit width while `validate_target_constraints()` adds extra transpilation cost on the same path.
+- Files: `src/quantum_runtime/diagnostics/simulate.py`, `src/quantum_runtime/diagnostics/transpile_validate.py`, `src/quantum_runtime/qspec/validation.py`, `src/quantum_runtime/intent/planner.py`
+- Scaling path: add explicit local width/depth guardrails, downgrade-to-fast-mode behavior, or approximate simulation/backpressure before accepting larger planned workloads.
 
-**Observability and packaging cost grows with workspace age, not just with the selected revision:**
-- Current capacity: acceptable for short-lived local workspaces with small `events.jsonl` and `trace/events.ndjson` files.
-- Limit: long-lived workspaces pay increasingly more for exec-log promotion and pack generation because those flows rescan or rewrite full log files.
-- Scaling path: use revision-scoped event shards as the primary source of truth and add log compaction/indexing for the latest aliases.
+**Workspace history retention is effectively unlimited:**
+- Current capacity: `history_limit = 50` is metadata only; every successful exec, benchmark persistence, doctor persistence, compare history write, and pack can accumulate indefinitely.
+- Limit: disk usage and workspace scan time will continue to grow for long-lived agent workspaces and reused CI caches.
+- Files: `src/quantum_runtime/workspace/manager.py`, `src/quantum_runtime/workspace/manifest.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/diagnostics/benchmark.py`, `src/quantum_runtime/runtime/pack.py`
+- Scaling path: implement revision pruning with current-revision, baseline, and pack retention rules instead of treating history as append-only forever.
 
 ## Dependencies at Risk
 
-**Default CI does not exercise the Classiq integration path:**
-- Risk: `.github/workflows/classiq.yml` runs only via `workflow_dispatch` and only when the `run_classiq` boolean input is set. The default `.github/workflows/ci.yml` job ignores `tests/test_classiq_backend.py` and `tests/test_classiq_emitter.py`.
-- Impact: Classiq regressions can merge while the default green build still looks healthy, even though Classiq remains a supported backend in `src/quantum_runtime/backends/classiq_backend.py`.
-- Migration plan: add scheduled or pre-release Classiq runs, or add mocked contract tests for the Classiq code path into the default CI lane.
-
-**Runtime dependencies are broad-spec in `pyproject.toml`, but CI installs from live indexes instead of a frozen lock:**
-- Risk: `pyproject.toml` leaves `pydantic`, `typer`, `qiskit`, and `qiskit-aer` effectively open-ended, and `.github/workflows/ci.yml` uses `python -m pip install -e '.[dev]'` or `-e '.[dev,qiskit]'` instead of `uv sync --frozen`.
-- Impact: upstream dependency releases can change behavior or break builds even when the repository lockfile in `uv.lock` has not changed.
-- Migration plan: use `uv sync --frozen` in CI, or add upper bounds and a lockfile-enforced install path for release-critical jobs.
+**Optional integration paths are outside the default CI lane:**
+- Risk: the default workflow in `.github/workflows/ci.yml` does not install `qiskit-ibm-runtime`, and it skips `tests/test_qspec_validation.py`. `classiq` coverage only runs through the separate manual `.github/workflows/classiq.yml`.
+- Impact: core schema validation plus optional remote/backend integrations can drift without blocking pull requests.
+- Files: `.github/workflows/ci.yml`, `.github/workflows/classiq.yml`, `src/quantum_runtime/runtime/ibm_access.py`, `src/quantum_runtime/runtime/backend_list.py`, `src/quantum_runtime/runtime/doctor.py`, `tests/test_qspec_validation.py`, `tests/test_classiq_backend.py`, `tests/test_classiq_emitter.py`
+- Migration plan: move core validation back into default CI, add an IBM import-smoke lane, and make optional integration coverage at least scheduled or PR-triggered for dependency-compat regression detection.
 
 ## Missing Critical Features
 
-**There is no automated hygiene gate for conflict-copy artifacts in tracked Python paths:**
-- Problem: the repo allows `-NSConflict-` Python files to sit under `src/` and `tests/` with no pre-commit or CI guard to block them.
-- Blocks: reliable local test collection, confidence in package contents, and clean release branches when conflict copies are accidentally introduced during merges.
+**No built-in stale-lock remediation command:**
+- Problem: `workspace_conflict` surfaces holder metadata, but there is no supported unlock/reclaim flow for orphaned `.workspace.lock` files.
+- Blocks: unattended CI retries, agent loops, and crash recovery after abnormal termination.
 
-**There is no shared revision-identifier validator across all CLI entry points:**
-- Problem: `src/quantum_runtime/runtime/imports.py` enforces `rev_000001`-style revision IDs for report-history imports, but `src/quantum_runtime/cli.py` `pack` and `src/quantum_runtime/runtime/pack.py` accept arbitrary revision strings.
-- Blocks: consistent safety guarantees across the control plane, especially for commands that construct filesystem paths directly from revision input.
+**No retention/pruning workflow despite persisted retention metadata:**
+- Problem: the workspace advertises `history_limit`, but there is no runtime or maintenance command that enforces it.
+- Blocks: predictable disk usage for long-lived workspaces and shared CI caches.
+
+**No fast execution mode for control-plane-only use cases:**
+- Problem: users cannot request canonical normalization, revisioning, and artifact emission without also paying for local simulation, diagrams, and transpilation.
+- Blocks: larger workloads where FluxQ should still act as a control plane even when full local validation is impractical.
 
 ## Test Coverage Gaps
 
-**Pack input validation and destructive rerun behavior are not covered:**
-- What's not tested: malformed `--revision` values, path-escape attempts, repacking an existing revision after partial failure, and compatibility-backfill failure cases.
-- Files: `src/quantum_runtime/cli.py`, `src/quantum_runtime/runtime/pack.py`, `tests/test_pack_bundle.py`
-- Risk: destructive path handling bugs can regress without tripping the existing pack tests.
+**Core QSpec validation is excluded from default CI:**
+- What's not tested: `tests/test_qspec_validation.py` is ignored in the default pytest workflow.
+- Files: `.github/workflows/ci.yml`, `tests/test_qspec_validation.py`, `src/quantum_runtime/qspec/validation.py`
+- Risk: schema and semantic guardrails can regress without blocking pull requests.
 - Priority: High
 
-**The default CI signal excludes validation-critical suites and has no coverage gate:**
-- What's not tested: `tests/test_qspec_validation.py`, `tests/test_classiq_backend.py`, and `tests/test_classiq_emitter.py` in the main GitHub Actions pipeline. `pyproject.toml` also excludes `tests/test_qspec_validation.py` from Ruff via `extend-exclude`.
-- Files: `.github/workflows/ci.yml`, `.github/workflows/classiq.yml`, `pyproject.toml`, `tests/test_qspec_validation.py`, `tests/test_classiq_backend.py`, `tests/test_classiq_emitter.py`
-- Risk: core QSpec validation or optional-backend regressions can bypass the main green build and land without strong automated warning.
+**No malicious-bundle or symlink coverage for pack import:**
+- What's not tested: bundle roots containing symlinked `report.json`, `qspec.json`, or symlinked files under `exports/`.
+- Files: `tests/test_cli_pack_import.py`, `src/quantum_runtime/runtime/pack.py`, `src/quantum_runtime/workspace/manifest.py`
+- Risk: unsafe local file reads or copies from untrusted bundles can change unnoticed.
 - Priority: High
 
-**Workspace log growth and dirty-worktree hygiene are not exercised directly:**
-- What's not tested: the growth behavior of `append_trace_log()`, pack behavior against large event histories, and automated detection of conflict-copy files under `src/` and `tests/`.
-- Files: `src/quantum_runtime/workspace/trace.py`, `src/quantum_runtime/runtime/executor.py`, `src/quantum_runtime/runtime/pack.py`
-- Risk: performance cliffs and packaging/test-discovery surprises appear late, after workspaces or branches have already accumulated enough history or merge debris.
+**No regression test for explicit workspace precedence over detached report provenance:**
+- What's not tested: behavior when both embedded provenance and `--workspace` or `workspace_root` are present and disagree.
+- Files: `tests/test_runtime_imports.py`, `tests/test_cli_compare.py`, `tests/test_cli_export.py`, `tests/test_cli_baseline.py`, `src/quantum_runtime/runtime/imports.py`
+- Risk: detached report reuse remains ambiguous and can surprise automation or CI pipelines.
+- Priority: High
+
+**No stale-lock recovery or dead-PID reclaim test:**
+- What's not tested: reclaim behavior after an orphaned `.workspace.lock` whose `pid` is no longer alive.
+- Files: `tests/test_workspace_locking.py`, `src/quantum_runtime/workspace/locking.py`
+- Risk: workspace mutation can deadlock indefinitely after abnormal termination.
 - Priority: Medium
+
+**No interrupted-write tests for non-atomic artifact and report writers:**
+- What's not tested: failures during `write_report()`, `write_diagrams()`, `write_qiskit_program()`, `write_qasm3_program()`, `write_classiq_program()`, or staged bundle-manifest writes.
+- Files: `tests/test_workspace_locking.py`, `tests/test_report_writer.py`, `src/quantum_runtime/reporters/writer.py`, `src/quantum_runtime/diagnostics/diagrams.py`, `src/quantum_runtime/lowering/qiskit_emitter.py`, `src/quantum_runtime/lowering/qasm3_emitter.py`, `src/quantum_runtime/lowering/classiq_emitter.py`, `src/quantum_runtime/runtime/pack.py`
+- Risk: the current recovery model can miss partial files because only interrupted atomic temp files are scanned.
+- Priority: High
 
 ---
 
-*Concerns audit: 2026-04-14*
+*Concerns audit: 2026-04-18*
