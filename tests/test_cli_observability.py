@@ -846,3 +846,180 @@ def test_qrun_remote_submit_json_blocks_ibm_access_and_provider_failures(
     assert provider_payload["reason_codes"] == ["remote_submit_failed"]
     assert provider_payload["next_actions"] == ["retry_submit_when_backend_ready"]
     assert provider_payload["gate"]["ready"] is False
+
+
+def test_remote_submit_jsonl_emits_submit_lifecycle_events_with_persisted_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: {
+            "job_id": "job-123",
+            "job_status": "QUEUED",
+            "primitive": "sampler_v2",
+        },
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    events = _parse_jsonl(result.stdout)
+    assert [event["event_type"] for event in events] == [
+        "submit_started",
+        "submit_persisted",
+        "submit_completed",
+    ]
+    assert all(event["phase"] == "remote" for event in events)
+    assert "attempt_id" not in events[0]["payload"]
+    assert "job_id" not in events[0]["payload"]
+    assert str(events[1]["payload"]["attempt_id"]).startswith("attempt_")
+    assert events[1]["payload"]["job_id"] == "job-123"
+    assert events[-1]["payload"]["status"] == "ok"
+    assert events[-1]["payload"]["reason_codes"] == ["remote_submit_persisted"]
+    assert events[-1]["payload"]["decision"]["ready"] is True
+
+
+def test_remote_submit_jsonl_preserves_blocked_submit_gate_parity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: IbmAccessResolution(
+            status="error",
+            configured=True,
+            channel="ibm_quantum_platform",
+            credential_mode="env",
+            instance="crn:v1:bluemix:public:quantum-computing:us-east:a/test::",
+            token_env="QISKIT_IBM_TOKEN",
+            error_code="ibm_token_env_missing",
+            reason_codes=["ibm_token_env_missing"],
+        ),
+        raising=False,
+    )
+
+    json_result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--json",
+        ],
+    )
+    assert json_result.exit_code == 2, json_result.stdout
+    json_payload = json.loads(json_result.stdout)
+
+    jsonl_result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--jsonl",
+        ],
+    )
+    assert jsonl_result.exit_code == 2, jsonl_result.stdout
+    events = _parse_jsonl(jsonl_result.stdout)
+    assert [event["event_type"] for event in events] == ["submit_started", "submit_completed"]
+    assert "attempt_id" not in events[-1]["payload"]
+    assert "job_id" not in events[-1]["payload"]
+
+    completion = events[-1]["payload"]
+    assert completion["reason_codes"] == json_payload["reason_codes"]
+    assert completion["next_actions"] == json_payload["next_actions"]
+    assert completion["gate"] == json_payload["gate"]
+
+
+def test_remote_submit_jsonl_redacts_ibm_secret_material(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / ".quantum"
+
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.resolve_ibm_access",
+        lambda *, workspace_root: _remote_submit_ibm_resolution(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.build_ibm_service",
+        lambda *, resolution: object(),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "quantum_runtime.runtime.remote_submit.submit_ibm_job",
+        lambda *, service, backend_name, qspec, shots: (_ for _ in ()).throw(
+            IbmAccessError(
+                "ibm_backend_lookup_failed",
+                details={
+                    "backend_name": backend_name,
+                    "authorization": "Bearer super-secret-token",
+                },
+            )
+        ),
+        raising=False,
+    )
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "remote",
+            "submit",
+            "--workspace",
+            str(workspace),
+            "--backend",
+            "ibm_brisbane",
+            "--intent-text",
+            "Generate a 4-qubit GHZ circuit and measure all qubits.",
+            "--jsonl",
+        ],
+    )
+
+    assert result.exit_code == 2, result.stdout
+    assert "super-secret-token" not in result.stdout
+    assert "Authorization" not in result.stdout
+    assert "Bearer " not in result.stdout
+
+    events = _parse_jsonl(result.stdout)
+    assert events[-1]["event_type"] == "submit_completed"
+    assert events[-1]["payload"]["reason_codes"] == ["remote_backend_not_ready", "ibm_backend_lookup_failed"]
