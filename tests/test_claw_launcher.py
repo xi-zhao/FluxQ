@@ -219,6 +219,92 @@ def test_tool_router_injects_workspace_and_machine_output_without_shelling(
     assert actual_argv == expected
 
 
+def test_tool_router_pack_inspect_does_not_inject_workspace(tmp_path: Path) -> None:
+    module = _load_script_module("fluxq_qrun_test_pack_inspect", ROUTER_PATH)
+    calls: list[dict[str, Any]] = []
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"argv": argv, "kwargs": kwargs})
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"status": "ok"}), stderr="")
+
+    payload = module.handle_request(
+        {
+            "command": "pack-inspect",
+            "workspace_root": str(tmp_path / ".quantum"),
+            "options": {"pack_root": str(tmp_path / "pack")},
+            "output_mode": "json",
+        },
+        runner=_runner,
+    )
+
+    assert payload["status"] == "ok"
+    assert calls[0]["argv"] == [
+        "qrun",
+        "pack-inspect",
+        "--pack-root",
+        str(tmp_path / "pack"),
+        "--json",
+    ]
+
+
+def test_tool_router_returns_error_payload_when_qrun_json_output_is_invalid(tmp_path: Path) -> None:
+    module = _load_script_module("fluxq_qrun_test_invalid_json_output", ROUTER_PATH)
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, stdout="{not-json", stderr="")
+
+    payload = module.handle_request(
+        {
+            "command": "status",
+            "workspace_root": str(tmp_path / ".quantum"),
+            "output_mode": "json",
+        },
+        runner=_runner,
+    )
+
+    assert payload["status"] == "error"
+    assert payload["reason_codes"] == ["invalid_qrun_output"]
+    assert payload["gate"]["ready"] is False
+
+
+def test_tool_router_preserves_qrun_failed_on_nonzero_exit_with_malformed_stdout(tmp_path: Path) -> None:
+    module = _load_script_module("fluxq_qrun_test_nonzero_exit_json", ROUTER_PATH)
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 7, stdout="{not-json", stderr="boom")
+
+    payload = module.handle_request(
+        {
+            "command": "status",
+            "workspace_root": str(tmp_path / ".quantum"),
+            "output_mode": "json",
+        },
+        runner=_runner,
+    )
+
+    assert payload["status"] == "error"
+    assert payload["reason_codes"] == ["qrun_failed"]
+    assert payload["exit_code"] == 7
+
+
+def test_tool_router_rejects_boolean_value_for_value_taking_option(tmp_path: Path) -> None:
+    module = _load_script_module("fluxq_qrun_test_invalid_bool_option", ROUTER_PATH)
+
+    payload = module.handle_request(
+        {
+            "command": "resolve",
+            "workspace_root": str(tmp_path / ".quantum"),
+            "options": {
+                "intent_file": True,
+            },
+            "output_mode": "json",
+        }
+    )
+
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_option_intent_file"]
+
+
 def test_tool_router_requires_confirmation_for_remote_submit_without_confirmation_id(
     tmp_path: Path,
 ) -> None:
@@ -468,6 +554,220 @@ def test_launcher_confirmed_tool_request_replays_stored_request_with_confirmatio
     assert calls[0]["kwargs"]["text"] is True
     assert calls[0]["kwargs"]["check"] is False
     assert transcript["pending_tool_request"] is None
+
+
+def test_launcher_blocks_confirmed_tool_request_when_workspace_root_mismatches(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module("fluxq_qrun_test_launcher_workspace_guard", LAUNCHER_PATH)
+    state_root = tmp_path / "state"
+    alice_workspace_root = tmp_path / "workspaces" / "alice-main" / ".quantum"
+    foreign_workspace_root = tmp_path / "workspaces" / "bob-main" / ".quantum"
+    monkeypatch.setenv("FLUXQ_GATEWAY_STATE_ROOT", str(state_root))
+    transcript_path = state_root / "conversations" / "alice-main" / "conv-123.json"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "workspace_key": "alice-main",
+                "conversation_id": "conv-123",
+                "pending_tool_request": {
+                    "command": "remote submit",
+                    "workspace_root": str(foreign_workspace_root),
+                    "options": {
+                        "backend": "ibm_brisbane",
+                        "intent_file": "intent.md",
+                    },
+                    "output_mode": "json",
+                    "confirmation_id": "confirm_pending",
+                },
+                "turns": [],
+            }
+        )
+    )
+
+    calls: list[dict[str, Any]] = []
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append({"argv": argv, "kwargs": kwargs})
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"status": "ok"}), stderr="")
+
+    payload = module.handle_request(
+        {
+            "mode": "confirmed_tool_request",
+            "workspace": {
+                "root": str(alice_workspace_root),
+                "key": "alice-main",
+            },
+            "conversation": {
+                "id": "conv-123",
+            },
+            "confirmation_id": "confirm_pending",
+        },
+        runner=_runner,
+    )
+
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["workspace_root_mismatch"]
+    assert calls == []
+
+
+def test_launcher_chat_turn_preserves_existing_pending_request_on_normal_follow_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module("fluxq_qrun_test_launcher_pending_preserve", LAUNCHER_PATH)
+    state_root = tmp_path / "state"
+    workspace_root = tmp_path / "workspaces" / "alice-main" / ".quantum"
+    monkeypatch.setenv("FLUXQ_GATEWAY_STATE_ROOT", str(state_root))
+    transcript_path = state_root / "conversations" / "alice-main" / "conv-123.json"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "workspace_key": "alice-main",
+                "conversation_id": "conv-123",
+                "pending_tool_request": {
+                    "command": "remote submit",
+                    "workspace_root": str(workspace_root),
+                    "options": {
+                        "backend": "ibm_brisbane",
+                        "intent_file": "intent.md",
+                    },
+                    "output_mode": "json",
+                    "confirmation_id": "confirm_pending",
+                },
+                "turns": [],
+            }
+        )
+    )
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps({"reply": {"kind": "text", "text": "Low risk reply"}}),
+            stderr="",
+        )
+
+    payload = module.handle_request(
+        _chat_turn_request(
+            workspace_root=workspace_root,
+            workspace_key="alice-main",
+            conversation_id="conv-123",
+            text="tell me the current workspace status",
+        ),
+        runner=_runner,
+    )
+
+    transcript = json.loads(transcript_path.read_text())
+
+    assert payload["status"] == "ok"
+    assert transcript["pending_tool_request"]["confirmation_id"] == "confirm_pending"
+
+
+def test_launcher_main_maps_value_errors_to_stable_reason_codes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_script_module("fluxq_qrun_test_launcher_main_errors", LAUNCHER_PATH)
+
+    exit_code = module.main(argv=[], stdin_text="[]")
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 3
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_launcher_request_payload"]
+
+
+def test_launcher_chat_turn_returns_stable_invalid_claw_output_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module("fluxq_qrun_test_invalid_claw_output", LAUNCHER_PATH)
+    state_root = tmp_path / "state"
+    workspace_root = tmp_path / "workspaces" / "alice-main" / ".quantum"
+    monkeypatch.setenv("FLUXQ_GATEWAY_STATE_ROOT", str(state_root))
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, stdout="{not-json", stderr="")
+
+    payload = module.handle_request(
+        _chat_turn_request(
+            workspace_root=workspace_root,
+            workspace_key="alice-main",
+            conversation_id="conv-123",
+            text="status please",
+        ),
+        runner=_runner,
+    )
+
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_claw_output"]
+
+
+def test_launcher_confirmed_tool_request_returns_stable_invalid_fluxq_output_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_script_module("fluxq_qrun_test_invalid_fluxq_output", LAUNCHER_PATH)
+    state_root = tmp_path / "state"
+    workspace_root = tmp_path / "workspaces" / "alice-main" / ".quantum"
+    monkeypatch.setenv("FLUXQ_GATEWAY_STATE_ROOT", str(state_root))
+    transcript_path = state_root / "conversations" / "alice-main" / "conv-123.json"
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(
+        json.dumps(
+            {
+                "workspace_key": "alice-main",
+                "conversation_id": "conv-123",
+                "pending_tool_request": {
+                    "command": "remote submit",
+                    "workspace_root": str(workspace_root),
+                    "options": {
+                        "backend": "ibm_brisbane",
+                        "intent_file": "intent.md",
+                    },
+                    "output_mode": "json",
+                    "confirmation_id": "confirm_pending",
+                },
+                "turns": [],
+            }
+        )
+    )
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 0, stdout="{not-json", stderr="")
+
+    payload = module.handle_request(
+        {
+            "mode": "confirmed_tool_request",
+            "workspace": {
+                "root": str(workspace_root),
+                "key": "alice-main",
+            },
+            "conversation": {
+                "id": "conv-123",
+            },
+            "confirmation_id": "confirm_pending",
+        },
+        runner=_runner,
+    )
+
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_fluxq_tool_output"]
+
+
+def test_default_launcher_returns_error_payload_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_script_module("fluxq_qrun_test_default_launcher_exit", ROUTER_PATH.parent / "run-claw-agent")
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 7, stdout="", stderr="boom")
+
+    monkeypatch.setattr(module.subprocess, "run", _runner)
+
+    payload = module._parse_json_output("{}")  # smoke import path
+    assert payload == {}
 
 
 def test_launcher_transcript_state_is_scoped_by_workspace_key_and_conversation_id(

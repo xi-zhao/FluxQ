@@ -159,6 +159,7 @@ APPROVED_COMMANDS: dict[str, CommandSpec] = {
     "pack-inspect": CommandSpec(
         tokens=("pack-inspect",),
         allowed_options=("pack_root",),
+        requires_workspace=False,
         consequence="Inspects a portable FluxQ bundle before downstream import.",
     ),
     "pack-import": CommandSpec(
@@ -309,9 +310,7 @@ def _option_items(spec: CommandSpec, options: Mapping[str, Any]) -> list[str]:
                 if flag is not None:
                     argv.append(flag)
                 continue
-            if value:
-                argv.append(f"--{key.replace('_', '-')}")
-            continue
+            raise ValueError(f"option_{key}")
         if value is None:
             continue
         argv.extend(_flag_value_pair(key, value))
@@ -520,12 +519,32 @@ def handle_request(
                 "next_actions": ["inspect_qrun_stderr"],
             },
         }
+    try:
+        parsed_result = _parse_result(completed.stdout, output_mode=output_mode)
+    except json.JSONDecodeError:
+        return {
+            "status": "error",
+            **summary,
+            "approved_command": argv,
+            "reason_codes": ["invalid_qrun_output"],
+            "next_actions": ["inspect_qrun_stdout"],
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "gate": {
+                "ready": False,
+                "status": "error",
+                "severity": "error",
+                "recommended_action": "inspect_qrun_stdout",
+                "reason_codes": ["invalid_qrun_output"],
+                "next_actions": ["inspect_qrun_stdout"],
+            },
+        }
 
     return {
         "status": "ok",
         **summary,
         "approved_command": argv,
-        "result": _parse_result(completed.stdout, output_mode=output_mode),
+        "result": parsed_result,
         "stdout": completed.stdout,
         "stderr": completed.stderr,
         "reason_codes": ["tool_executed"],

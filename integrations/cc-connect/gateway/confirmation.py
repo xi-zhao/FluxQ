@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,7 @@ INPUT_SOURCE_FIELDS = (
 REMOTE_SUBMIT_CONSEQUENCE = (
     "May create a remote IBM job and consume provider quota on the selected backend."
 )
+CONFIRMATION_ID_PATTERN = re.compile(r"^confirm_[A-Za-z0-9]{8,64}$")
 
 
 def _utc_now() -> datetime:
@@ -55,6 +57,14 @@ def _input_source(approved_tool_request: Mapping[str, Any]) -> dict[str, str]:
         "kind": "none",
         "value": "",
     }
+
+
+def validate_confirmation_id(value: object) -> str:
+    """Validate one confirmation token before it reaches storage paths."""
+
+    if not isinstance(value, str) or not CONFIRMATION_ID_PATTERN.fullmatch(value):
+        raise ValueError("invalid_confirmation_id")
+    return value
 
 
 @dataclass(frozen=True)
@@ -154,7 +164,7 @@ class ConfirmationRequest:
         created = created_at or _utc_now()
         expires = created + timedelta(seconds=ttl_seconds)
         return cls(
-            confirmation_id=confirmation_id,
+            confirmation_id=validate_confirmation_id(confirmation_id),
             wechat_user_id=wechat_user_id,
             conversation_id=conversation_id,
             workspace_key=workspace_key,
@@ -247,7 +257,8 @@ class PendingConfirmationStore:
                 path.unlink()
 
     def _path(self, confirmation_id: str) -> Path:
-        return self.root / f"{confirmation_id}.json"
+        safe_confirmation_id = validate_confirmation_id(confirmation_id)
+        return self.root / f"{safe_confirmation_id}.json"
 
     def _write(self, request: ConfirmationRequest) -> None:
         path = self._path(request.confirmation_id)

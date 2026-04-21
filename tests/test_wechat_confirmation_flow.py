@@ -461,3 +461,163 @@ def test_cancel_confirmation_clears_pending_request_and_blocks_reuse(tmp_path: P
     assert confirm_payload["reason_codes"] == ["missing_confirmation_request"]
     assert len(launcher_calls) == 1
     assert not _confirmation_path(config, confirmation_id).exists()
+
+
+def test_invalid_confirmation_id_is_blocked_before_persistence(tmp_path: Path) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    workspace_root = str(config.workspaces_root / "alice-main" / ".quantum")
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+        return {
+            "status": "confirmation_required",
+            "approved_tool_request": {
+                "command": "remote submit",
+                "workspace_root": workspace_root,
+                "options": {
+                    "backend": "ibm_kyiv",
+                    "intent_file": "intent.md",
+                },
+                "output_mode": "json",
+                "confirmation_id": "../../allowlist",
+            },
+        }
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        status_code, payload = _post_json(
+            url,
+            payload=_turn_payload(text="remote submit the current run"),
+            secret=config.shared_secret,
+            nonce="nonce-011",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status_code == 409
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_confirmation_request"]
+    assert not (config.state_root / "allowlist.json").with_suffix("").exists()
+    assert not any(config.state_root.glob("confirmations/*.json"))
+
+
+def test_malformed_confirm_token_is_treated_as_normal_message_and_stays_blocked(
+    tmp_path: Path,
+) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    workspace_root = str(config.workspaces_root / "alice-main" / ".quantum")
+    confirmation_id = "confirm_pending123"
+    launcher_calls: list[dict[str, object]] = []
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+        launcher_calls.append(request_payload)
+        return {
+            "status": "confirmation_required",
+            "approved_tool_request": {
+                "command": "remote submit",
+                "workspace_root": workspace_root,
+                "options": {
+                    "backend": "ibm_kyiv",
+                    "intent_file": "intent.md",
+                },
+                "output_mode": "json",
+                "confirmation_id": confirmation_id,
+            },
+        }
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        _post_json(
+            url,
+            payload=_turn_payload(text="remote submit the current run"),
+            secret=config.shared_secret,
+            nonce="nonce-014",
+        )
+        status_code, payload = _post_json(
+            url,
+            payload=_turn_payload(
+                text="CONFIRM confirm_x",
+                message_id="msg-014",
+            ),
+            secret=config.shared_secret,
+            nonce="nonce-015",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status_code == 200
+    assert payload["status"] == "confirmation_required"
+    assert len(launcher_calls) == 2
+    assert launcher_calls[1]["mode"] == "chat_turn"
+
+
+def test_foreign_workspace_root_is_normalized_before_confirmed_execution(tmp_path: Path) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    alice_workspace_root = str(config.workspaces_root / "alice-main" / ".quantum")
+    foreign_workspace_root = str(config.workspaces_root / "bob-main" / ".quantum")
+    confirmation_id = "confirm_pending123"
+    launcher_calls: list[dict[str, object]] = []
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+            launcher_calls.append(request_payload)
+            if request_payload["mode"] == "chat_turn":
+                return {
+                    "status": "confirmation_required",
+                "approved_tool_request": {
+                    "command": "remote submit",
+                    "workspace_root": foreign_workspace_root,
+                    "options": {
+                        "backend": "ibm_kyiv",
+                        "intent_file": "intent.md",
+                    },
+                    "output_mode": "json",
+                    "confirmation_id": confirmation_id,
+                },
+            }
+            return {
+                "status": "ok",
+                "tool_result": {
+                    "status": "submitted",
+                    "job_id": "job-123",
+                },
+            }
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        _post_json(
+            url,
+            payload=_turn_payload(text="remote submit the current run"),
+            secret=config.shared_secret,
+            nonce="nonce-012",
+        )
+        stored_confirmation = json.loads(_confirmation_path(config, confirmation_id).read_text())
+        status_code, payload = _post_json(
+            url,
+            payload=_turn_payload(
+                text=f"CONFIRM {confirmation_id}",
+                message_id="msg-012",
+            ),
+            secret=config.shared_secret,
+            nonce="nonce-013",
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status_code == 200
+    assert payload["status"] == "ok"
+    assert payload["tool_result"]["status"] == "submitted"
+    assert len(launcher_calls) == 2
+    assert launcher_calls[1]["workspace"]["root"] == alice_workspace_root
+    assert launcher_calls[1]["approved_tool_request"]["workspace_root"] == alice_workspace_root
+    assert stored_confirmation["workspace_root"] == alice_workspace_root

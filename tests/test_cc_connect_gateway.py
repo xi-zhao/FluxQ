@@ -4,12 +4,14 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import subprocess
 import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -381,3 +383,140 @@ def test_response_envelope_exposes_reason_codes_gate_and_confirmation(tmp_path: 
     assert payload["next_actions"] == ["run_claw_launcher"]
     assert payload["gate"]["ready"] is True
     assert payload["confirmation"]["pending"] is False
+
+
+def test_default_launcher_returns_error_payload_on_nonzero_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_gateway_module()
+    launcher_path = tmp_path / "launcher.py"
+    launcher_path.write_text("print('')", encoding="utf-8")
+    monkeypatch.setenv("FLUXQ_GATEWAY_LAUNCHER_PATH", str(launcher_path))
+
+    def _runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 7, stdout="", stderr="boom")
+
+    monkeypatch.setattr(module.subprocess, "run", _runner)
+
+    payload = module.default_launcher(
+        {
+            "mode": "chat_turn",
+            "workspace": {
+                "workspace_key": "alice-main",
+                "root": str(tmp_path / "workspaces" / "alice-main" / ".quantum"),
+            },
+            "conversation": {
+                "id": "conv-123",
+            },
+        }
+    )
+
+    assert payload["status"] == "error"
+    assert payload["reason_codes"] == ["launcher_failed"]
+    assert payload["exit_code"] == 7
+    assert payload["stderr"] == "boom"
+
+
+def test_invalid_turn_payload_type_returns_blocked_payload(tmp_path: Path) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    launcher_calls: list[dict[str, object]] = []
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+        launcher_calls.append(request_payload)
+        return {}
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        payload = _base_payload()
+        payload["message"] = {
+            "text": ["not-a-string"],
+            "received_at": "2026-04-21T08:55:00Z",
+        }
+        status_code, response = _post_json(
+            url,
+            payload=payload,
+            secret=config.shared_secret,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status_code == 400
+    assert response["status"] == "blocked"
+    assert response["reason_codes"] == ["invalid_turn_payload"]
+    assert launcher_calls == []
+
+
+def test_invalid_content_length_header_returns_blocked_payload(tmp_path: Path) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    launcher_calls: list[dict[str, object]] = []
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+        launcher_calls.append(request_payload)
+        return {}
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        body = json.dumps(_base_payload()).encode("utf-8")
+        timestamp = str(int(time.time()))
+        headers = {
+            "Content-Type": "application/json",
+            "Content-Length": "abc",
+            "X-FluxQ-Timestamp": timestamp,
+            "X-FluxQ-Nonce": "nonce-invalid-length",
+            "X-FluxQ-Signature": _sign(
+                config.shared_secret,
+                timestamp=timestamp,
+                nonce="nonce-invalid-length",
+                body=body,
+            ),
+        }
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with pytest.raises(urllib.error.HTTPError) as error:
+            urllib.request.urlopen(request)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    payload = json.loads(error.value.read().decode("utf-8"))
+    assert error.value.code == 400
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_content_length_header"]
+    assert launcher_calls == []
+
+
+def test_corrupted_nonce_store_blocks_request_before_launcher_execution(tmp_path: Path) -> None:
+    module = _load_gateway_module()
+    config = _make_config(module, tmp_path)
+    launcher_calls: list[dict[str, object]] = []
+
+    def _launcher(request_payload: dict[str, object]) -> dict[str, object]:
+        launcher_calls.append(request_payload)
+        return {}
+
+    server, thread = _start_server(module, config=config, launcher=_launcher)
+    try:
+        nonce_path = config.state_root / "recent_nonces.json"
+        nonce_path.write_text("{not-json", encoding="utf-8")
+        url = f"http://127.0.0.1:{server.server_port}/v1/integrations/wechat/turn"
+        status_code, payload = _post_json(
+            url,
+            payload=_base_payload(),
+            secret=config.shared_secret,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert status_code == 500
+    assert payload["status"] == "blocked"
+    assert payload["reason_codes"] == ["invalid_nonce_store"]
+    assert launcher_calls == []

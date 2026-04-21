@@ -39,11 +39,13 @@ def _load_confirmation_module() -> Any:
 _confirmation_module = _load_confirmation_module()
 ConfirmationRequest = _confirmation_module.ConfirmationRequest
 PendingConfirmationStore = _confirmation_module.PendingConfirmationStore
+validate_confirmation_id = _confirmation_module.validate_confirmation_id
 
 
 WORKSPACE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-CONFIRM_PATTERN = re.compile(r"^(?i:confirm|确认)\s+(confirm_[A-Za-z0-9]+)$")
-CANCEL_PATTERN = re.compile(r"^(?i:cancel|取消)\s+(confirm_[A-Za-z0-9]+)$")
+CONFIRMATION_TOKEN_PATTERN = r"confirm_[A-Za-z0-9]{8,64}"
+CONFIRM_PATTERN = re.compile(rf"^(?i:confirm|确认)\s+({CONFIRMATION_TOKEN_PATTERN})$")
+CANCEL_PATTERN = re.compile(rf"^(?i:cancel|取消)\s+({CONFIRMATION_TOKEN_PATTERN})$")
 DEFAULT_LAUNCHER_PATH = SCRIPT_DIR.parent / "bin" / "run-claw-agent"
 
 
@@ -117,12 +119,9 @@ class NonceStore:
     def _load(self) -> dict[str, int]:
         if not self.path.exists():
             return {}
-        try:
-            raw_payload = json.loads(self.path.read_text())
-        except json.JSONDecodeError:
-            return {}
+        raw_payload = json.loads(self.path.read_text())
         if not isinstance(raw_payload, dict):
-            return {}
+            raise ValueError("invalid_nonce_store")
         loaded: dict[str, int] = {}
         for key, value in raw_payload.items():
             if isinstance(key, str) and isinstance(value, int):
@@ -184,7 +183,19 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        raw_body = self._read_body()
+        try:
+            raw_body = self._read_body()
+        except ValueError:
+            self._write_json(
+                status_code=HTTPStatus.BAD_REQUEST,
+                payload=self._blocked_payload(
+                    conversation=None,
+                    workspace=None,
+                    reason_codes=["invalid_content_length_header"],
+                    next_actions=["fix_gateway_request_headers"],
+                ),
+            )
+            return
         auth_failure = self._validate_auth(raw_body)
         if auth_failure is not None:
             status_code, payload = auth_failure
@@ -289,7 +300,8 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 launcher_request=launcher_request,
                 launcher_response=launcher_response,
             )
-            self._write_json(status_code=HTTPStatus.OK, payload=payload)
+            status_code = HTTPStatus.OK if payload.get("status") == "confirmation_required" else HTTPStatus.CONFLICT
+            self._write_json(status_code=status_code, payload=payload)
             return
 
         payload = self._success_payload(
@@ -304,7 +316,13 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         """Silence default request logging for CLI and test output."""
 
     def _read_body(self) -> bytes:
-        length = int(self.headers.get("Content-Length", "0"))
+        length_header = self.headers.get("Content-Length", "0")
+        try:
+            length = int(length_header)
+        except ValueError as exc:
+            raise ValueError("invalid_content_length_header") from exc
+        if length < 0:
+            raise ValueError("invalid_content_length_header")
         return self.rfile.read(length)
 
     def _validate_auth(self, raw_body: bytes) -> tuple[HTTPStatus, dict[str, object]] | None:
@@ -368,11 +386,21 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 next_actions=["synchronize_gateway_clock"],
             )
 
-        if not self.server.gateway_nonce_store.remember(
-            nonce=nonce,
-            now=now,
-            ttl_seconds=config.max_skew_seconds,
-        ):
+        try:
+            nonce_is_new = self.server.gateway_nonce_store.remember(
+                nonce=nonce,
+                now=now,
+                ttl_seconds=config.max_skew_seconds,
+            )
+        except ValueError:
+            return HTTPStatus.INTERNAL_SERVER_ERROR, self._blocked_payload(
+                conversation=None,
+                workspace=None,
+                reason_codes=["invalid_nonce_store"],
+                next_actions=["repair_gateway_state_root"],
+            )
+
+        if not nonce_is_new:
             return HTTPStatus.UNAUTHORIZED, self._blocked_payload(
                 conversation=None,
                 workspace=None,
@@ -390,7 +418,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         return payload if isinstance(payload, dict) else None
 
     def _validate_turn_payload(self, payload: dict[str, object]) -> str | None:
-        required_fields = (
+        required_string_fields = (
             ("project",),
             ("platform",),
             ("wechat_user", "id"),
@@ -400,8 +428,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
             ("message", "text"),
             ("message", "received_at"),
         )
-        for path in required_fields:
-            if _lookup(payload, *path) in (None, ""):
+        for path in required_string_fields:
+            value = _lookup(payload, *path)
+            if not isinstance(value, str) or not value.strip():
                 return "invalid_turn_payload"
         return None
 
@@ -462,8 +491,9 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 next_actions=["fix_confirmation_payload"],
             )
 
-        confirmation_id = approved_tool_request.get("confirmation_id")
-        if not isinstance(confirmation_id, str) or not confirmation_id:
+        try:
+            confirmation_id = validate_confirmation_id(approved_tool_request.get("confirmation_id"))
+        except ValueError:
             return self._blocked_payload(
                 conversation=conversation,
                 workspace=workspace,
@@ -471,13 +501,17 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 next_actions=["fix_confirmation_payload"],
             )
 
+        normalized_approved_request = dict(approved_tool_request)
+        normalized_approved_request["confirmation_id"] = confirmation_id
+        normalized_approved_request["workspace_root"] = workspace["root"]
+
         stored_request = self.server.gateway_confirmation_store.create(
             confirmation_id=confirmation_id,
             wechat_user_id=cast(str, wechat_user["id"]),
             conversation_id=cast(str, conversation["id"]),
             workspace_key=workspace["workspace_key"],
-            workspace_root=str(approved_tool_request.get("workspace_root", workspace["root"])),
-            approved_tool_request=approved_tool_request,
+            workspace_root=workspace["root"],
+            approved_tool_request=normalized_approved_request,
         )
         reply_text = _render_confirmation_reply(stored_request)
         return {
@@ -568,6 +602,18 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 pending_request=pending_request,
             )
 
+        approved_tool_request = pending_request.approved_tool_request
+        approved_workspace_root = approved_tool_request.get("workspace_root")
+        if approved_workspace_root not in {None, pending_request.workspace_root}:
+            return HTTPStatus.CONFLICT, self._confirmation_blocked_payload(
+                conversation=conversation,
+                workspace=workspace,
+                confirmation_id=confirmation_id,
+                pending_request=pending_request,
+                reason_codes=["workspace_root_mismatch"],
+                next_actions=["request_fresh_confirmation"],
+            )
+
         launcher_request = {
             "mode": "confirmed_tool_request",
             "workspace": {
@@ -578,6 +624,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 "id": pending_request.conversation_id,
             },
             "confirmation_id": pending_request.confirmation_id,
+            "approved_tool_request": approved_tool_request,
         }
         try:
             launcher_response = self.server.gateway_launcher(launcher_request)
@@ -965,6 +1012,15 @@ def default_launcher(request: dict[str, object]) -> dict[str, object]:
         shell=False,
         env=dict(os.environ),
     )
+    if completed.returncode != 0:
+        return {
+            "status": "error",
+            "reason_codes": ["launcher_failed"],
+            "next_actions": ["inspect_gateway_launcher"],
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
     payload = _parse_launcher_output(completed.stdout)
     pending_tool_request = payload.get("pending_tool_request")
     if payload.get("status") == "ok" and isinstance(pending_tool_request, Mapping):

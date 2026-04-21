@@ -59,7 +59,7 @@ def _load_request(*, request_file: str | None, stdin_text: str | None = None) ->
         raw_request = stdin_text if stdin_text is not None else sys.stdin.read()
     payload = json.loads(raw_request)
     if not isinstance(payload, dict):
-        raise ValueError("Launcher request must be a JSON object.")
+        raise ValueError("launcher_request_payload")
     return payload
 
 
@@ -243,7 +243,17 @@ def _chat_turn(request: Mapping[str, Any], *, runner: Runner) -> dict[str, Any]:
             "stderr": completed.stderr,
         }
 
-    assistant_output = _parse_json_output(completed.stdout)
+    try:
+        assistant_output = _parse_json_output(completed.stdout)
+    except json.JSONDecodeError:
+        return blocked_payload(
+            "invalid_claw_output",
+            mode="chat_turn",
+            conversation_id=conversation_id,
+            workspace_key=workspace_key,
+            conversation_state_path=str(transcript_path),
+            next_actions=["inspect_claw_stdout"],
+        )
     if not isinstance(assistant_output, Mapping):
         raise ValueError("invalid_claw_output")
     pending_tool_request = _extract_pending_tool_request(assistant_output)
@@ -260,11 +270,16 @@ def _chat_turn(request: Mapping[str, Any], *, runner: Runner) -> dict[str, Any]:
     }
     if pending_tool_request is not None:
         assistant_turn["approved_tool_request"] = pending_tool_request
+    existing_pending_tool_request = transcript.get("pending_tool_request")
     transcript = {
         "workspace_key": workspace_key,
         "conversation_id": conversation_id,
         "turns": _trim_turns([*transcript.get("turns", []), user_turn, assistant_turn]),
-        "pending_tool_request": pending_tool_request,
+        "pending_tool_request": (
+            pending_tool_request
+            if pending_tool_request is not None
+            else existing_pending_tool_request
+        ),
     }
     _write_transcript(transcript_path, transcript)
     return {
@@ -301,7 +316,11 @@ def _confirmed_tool_request(request: Mapping[str, Any], *, runner: Runner) -> di
         workspace_key=workspace_key,
         conversation_id=conversation_id,
     )
-    pending_tool_request = transcript.get("pending_tool_request")
+    approved_tool_request = request.get("approved_tool_request")
+    if isinstance(approved_tool_request, Mapping):
+        pending_tool_request = approved_tool_request
+    else:
+        pending_tool_request = transcript.get("pending_tool_request")
     if not isinstance(pending_tool_request, Mapping):
         return blocked_payload(
             "pending_tool_request_missing",
@@ -323,6 +342,19 @@ def _confirmed_tool_request(request: Mapping[str, Any], *, runner: Runner) -> di
         )
 
     approved_request = dict(pending_tool_request)
+    expected_workspace_root = workspace.get("root")
+    if not isinstance(expected_workspace_root, str) or not expected_workspace_root:
+        raise ValueError("workspace_root")
+    if approved_request.get("workspace_root") not in {None, expected_workspace_root}:
+        return blocked_payload(
+            "workspace_root_mismatch",
+            mode="confirmed_tool_request",
+            conversation_id=conversation_id,
+            workspace_key=workspace_key,
+            conversation_state_path=str(transcript_path),
+            next_actions=["request_fresh_confirmation"],
+        )
+    approved_request["workspace_root"] = expected_workspace_root
     approved_request["confirmation_id"] = confirmation_id
     completed = runner(
         ["fluxq-qrun"],
@@ -346,7 +378,17 @@ def _confirmed_tool_request(request: Mapping[str, Any], *, runner: Runner) -> di
             "stderr": completed.stderr,
         }
 
-    tool_result = _parse_json_output(completed.stdout)
+    try:
+        tool_result = _parse_json_output(completed.stdout)
+    except json.JSONDecodeError:
+        return blocked_payload(
+            "invalid_fluxq_tool_output",
+            mode="confirmed_tool_request",
+            conversation_id=conversation_id,
+            workspace_key=workspace_key,
+            conversation_state_path=str(transcript_path),
+            next_actions=["inspect_fluxq_tool_stdout"],
+        )
     transcript = {
         "workspace_key": workspace_key,
         "conversation_id": conversation_id,
@@ -414,10 +456,21 @@ def main(
     try:
         request = _load_request(request_file=parsed.request_file, stdin_text=stdin_text)
         payload = handle_request(request, runner=runner)
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError:
         payload = blocked_payload(
-            f"{exc}",
+            "invalid_launcher_request_json",
+            next_actions=["fix_launcher_request_json"],
+        )
+    except ValueError as exc:
+        reason_detail = exc.args[0] if exc.args else "launcher_request"
+        payload = blocked_payload(
+            f"invalid_{reason_detail}",
             next_actions=["fix_launcher_request"],
+        )
+    except OSError:
+        payload = blocked_payload(
+            "launcher_io_error",
+            next_actions=["inspect_launcher_io"],
         )
     print(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0 if payload["status"] == "ok" else 3
