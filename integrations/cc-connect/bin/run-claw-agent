@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""Stable launcher seam for cc-connect WeChat turns and confirmed FluxQ tool replay."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
+
+
+STATE_COMPONENT_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+MAX_TRANSCRIPT_TURNS = 12
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROMPT_PATH = SCRIPT_DIR.parent / "prompts" / "claw-system-prompt.md"
+
+
+Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+def blocked_payload(
+    reason_code: str,
+    *,
+    mode: str | None = None,
+    conversation_id: str | None = None,
+    workspace_key: str | None = None,
+    conversation_state_path: str | None = None,
+    next_actions: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Return a stable blocked payload for invalid launcher requests."""
+
+    actions = list(next_actions or ["review_launcher_request"])
+    return {
+        "status": "blocked",
+        "mode": mode,
+        "conversation_id": conversation_id,
+        "workspace_key": workspace_key,
+        "conversation_state_path": conversation_state_path,
+        "reason_codes": [reason_code],
+        "next_actions": actions,
+        "gate": {
+            "ready": False,
+            "status": "blocked",
+            "severity": "error",
+            "recommended_action": actions[0],
+            "reason_codes": [reason_code],
+            "next_actions": actions,
+        },
+    }
+
+
+def _load_request(*, request_file: str | None, stdin_text: str | None = None) -> dict[str, Any]:
+    if request_file is not None:
+        raw_request = Path(request_file).read_text()
+    else:
+        raw_request = stdin_text if stdin_text is not None else sys.stdin.read()
+    payload = json.loads(raw_request)
+    if not isinstance(payload, dict):
+        raise ValueError("Launcher request must be a JSON object.")
+    return payload
+
+
+def _state_root() -> Path:
+    state_root = os.environ.get("FLUXQ_GATEWAY_STATE_ROOT")
+    if state_root is None or not state_root.strip():
+        raise ValueError("missing_state_root_env")
+    return Path(state_root)
+
+
+def _validate_component(name: str, value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(name)
+    if any(char not in STATE_COMPONENT_CHARS for char in value):
+        raise ValueError(name)
+    return value
+
+
+def _conversation_path(*, state_root: Path, workspace_key: str, conversation_id: str) -> Path:
+    return state_root / "conversations" / workspace_key / f"{conversation_id}.json"
+
+
+def _load_transcript(path: Path, *, workspace_key: str, conversation_id: str) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "workspace_key": workspace_key,
+            "conversation_id": conversation_id,
+            "turns": [],
+            "pending_tool_request": None,
+        }
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_transcript")
+    turns = payload.get("turns", [])
+    if not isinstance(turns, list):
+        turns = []
+    pending_tool_request = payload.get("pending_tool_request")
+    return {
+        "workspace_key": payload.get("workspace_key", workspace_key),
+        "conversation_id": payload.get("conversation_id", conversation_id),
+        "turns": turns,
+        "pending_tool_request": pending_tool_request,
+    }
+
+
+def _write_transcript(path: Path, transcript: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(transcript), indent=2, ensure_ascii=True))
+
+
+def _trim_turns(turns: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(turn) for turn in list(turns)[-MAX_TRANSCRIPT_TURNS:]]
+
+
+def _render_history(turns: Sequence[Mapping[str, Any]]) -> str:
+    if not turns:
+        return "No prior turns."
+
+    rendered: list[str] = []
+    for turn in turns:
+        role = str(turn.get("role", "unknown"))
+        if role == "assistant":
+            reply = turn.get("reply")
+            if isinstance(reply, Mapping):
+                text = str(reply.get("text", ""))
+            else:
+                text = str(turn.get("text", ""))
+        elif role == "tool":
+            text = json.dumps(turn.get("result", {}), ensure_ascii=True)
+        else:
+            text = str(turn.get("text", ""))
+        rendered.append(f"- {role}: {text}")
+    return "\n".join(rendered)
+
+
+def _assemble_prompt(request: Mapping[str, Any], transcript: Mapping[str, Any]) -> str:
+    system_prompt = PROMPT_PATH.read_text()
+    workspace = request["workspace"]
+    wechat_user = request["wechat_user"]
+    conversation = request["conversation"]
+    message = request["message"]
+    history = _render_history(transcript.get("turns", []))
+    return (
+        f"{system_prompt}\n\n"
+        "Conversation envelope:\n"
+        f"- project: {request['project']}\n"
+        f"- platform: {request['platform']}\n"
+        f"- workspace_key: {workspace['key']}\n"
+        f"- workspace_root: {workspace['root']}\n"
+        f"- wechat_user_id: {wechat_user['id']}\n"
+        f"- conversation_id: {conversation['id']}\n"
+        f"- message_id: {conversation.get('message_id', '')}\n\n"
+        "Recent transcript:\n"
+        f"{history}\n\n"
+        "Current user turn:\n"
+        f"{message['text']}\n\n"
+        "Use FluxQ tools instead of bypassing the shipped qrun surface."
+    )
+
+
+def _launcher_env() -> dict[str, str]:
+    env = dict(os.environ)
+    current_path = env.get("PATH", "")
+    env["PATH"] = f"{SCRIPT_DIR}{os.pathsep}{current_path}" if current_path else str(SCRIPT_DIR)
+    return env
+
+
+def _extract_pending_tool_request(assistant_output: Mapping[str, Any]) -> dict[str, Any] | None:
+    direct_keys = ("approved_tool_request", "approved_request", "tool_request")
+    for key in direct_keys:
+        candidate = assistant_output.get(key)
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+
+    confirmation = assistant_output.get("confirmation")
+    if isinstance(confirmation, Mapping):
+        candidate = confirmation.get("approved_request")
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+    return None
+
+
+def _parse_json_output(stdout: str) -> Any:
+    if not stdout.strip():
+        return {}
+    return json.loads(stdout)
+
+
+def _validate_chat_request(request: Mapping[str, Any]) -> tuple[str, str]:
+    workspace = request.get("workspace")
+    conversation = request.get("conversation")
+    message = request.get("message")
+    wechat_user = request.get("wechat_user")
+    if not isinstance(workspace, Mapping) or not isinstance(conversation, Mapping):
+        raise ValueError("invalid_chat_request")
+    if not isinstance(message, Mapping) or not isinstance(wechat_user, Mapping):
+        raise ValueError("invalid_chat_request")
+    workspace_key = _validate_component("workspace_key", workspace.get("key"))
+    conversation_id = _validate_component("conversation_id", conversation.get("id"))
+    workspace_root = workspace.get("root")
+    if not isinstance(workspace_root, str) or not workspace_root:
+        raise ValueError("workspace_root")
+    message_text = message.get("text")
+    if not isinstance(message_text, str) or not message_text:
+        raise ValueError("message_text")
+    return workspace_key, conversation_id
+
+
+def _chat_turn(request: Mapping[str, Any], *, runner: Runner) -> dict[str, Any]:
+    workspace_key, conversation_id = _validate_chat_request(request)
+    state_root = _state_root()
+    transcript_path = _conversation_path(
+        state_root=state_root,
+        workspace_key=workspace_key,
+        conversation_id=conversation_id,
+    )
+    transcript = _load_transcript(
+        transcript_path,
+        workspace_key=workspace_key,
+        conversation_id=conversation_id,
+    )
+    prompt = _assemble_prompt(request, transcript)
+    completed = runner(
+        ["claw", "prompt", prompt, "--output-format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+        env=_launcher_env(),
+    )
+    if completed.returncode != 0:
+        return {
+            "status": "error",
+            "mode": "chat_turn",
+            "conversation_id": conversation_id,
+            "workspace_key": workspace_key,
+            "conversation_state_path": str(transcript_path),
+            "reason_codes": ["claw_prompt_failed"],
+            "next_actions": ["inspect_claw_stderr"],
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
+
+    assistant_output = _parse_json_output(completed.stdout)
+    if not isinstance(assistant_output, Mapping):
+        raise ValueError("invalid_claw_output")
+    pending_tool_request = _extract_pending_tool_request(assistant_output)
+    user_turn = {
+        "role": "user",
+        "text": request["message"]["text"],
+        "message_id": request["conversation"].get("message_id"),
+        "received_at": request["message"].get("received_at"),
+    }
+    assistant_turn = {
+        "role": "assistant",
+        "reply": assistant_output.get("reply"),
+        "tool_summaries": assistant_output.get("tool_summaries", []),
+    }
+    if pending_tool_request is not None:
+        assistant_turn["approved_tool_request"] = pending_tool_request
+    transcript = {
+        "workspace_key": workspace_key,
+        "conversation_id": conversation_id,
+        "turns": _trim_turns([*transcript.get("turns", []), user_turn, assistant_turn]),
+        "pending_tool_request": pending_tool_request,
+    }
+    _write_transcript(transcript_path, transcript)
+    return {
+        "status": "ok",
+        "mode": "chat_turn",
+        "conversation_id": conversation_id,
+        "workspace_key": workspace_key,
+        "conversation_state_path": str(transcript_path),
+        "reply": assistant_output.get("reply"),
+        "tool_summaries": assistant_output.get("tool_summaries", []),
+        "pending_tool_request": pending_tool_request,
+        "assistant_output": assistant_output,
+    }
+
+
+def _confirmed_tool_request(request: Mapping[str, Any], *, runner: Runner) -> dict[str, Any]:
+    workspace = request.get("workspace")
+    conversation = request.get("conversation")
+    if not isinstance(workspace, Mapping) or not isinstance(conversation, Mapping):
+        raise ValueError("invalid_confirmed_request")
+    workspace_key = _validate_component("workspace_key", workspace.get("key"))
+    conversation_id = _validate_component("conversation_id", conversation.get("id"))
+    confirmation_id = request.get("confirmation_id")
+    if not isinstance(confirmation_id, str) or not confirmation_id:
+        raise ValueError("confirmation_id")
+    state_root = _state_root()
+    transcript_path = _conversation_path(
+        state_root=state_root,
+        workspace_key=workspace_key,
+        conversation_id=conversation_id,
+    )
+    transcript = _load_transcript(
+        transcript_path,
+        workspace_key=workspace_key,
+        conversation_id=conversation_id,
+    )
+    pending_tool_request = transcript.get("pending_tool_request")
+    if not isinstance(pending_tool_request, Mapping):
+        return blocked_payload(
+            "pending_tool_request_missing",
+            mode="confirmed_tool_request",
+            conversation_id=conversation_id,
+            workspace_key=workspace_key,
+            conversation_state_path=str(transcript_path),
+            next_actions=["rerun_chat_turn_for_confirmation"],
+        )
+    expected_confirmation_id = pending_tool_request.get("confirmation_id")
+    if expected_confirmation_id != confirmation_id:
+        return blocked_payload(
+            "confirmation_id_mismatch",
+            mode="confirmed_tool_request",
+            conversation_id=conversation_id,
+            workspace_key=workspace_key,
+            conversation_state_path=str(transcript_path),
+            next_actions=["request_fresh_confirmation"],
+        )
+
+    approved_request = dict(pending_tool_request)
+    approved_request["confirmation_id"] = confirmation_id
+    completed = runner(
+        ["fluxq-qrun"],
+        input=json.dumps(approved_request, ensure_ascii=True),
+        capture_output=True,
+        text=True,
+        check=False,
+        shell=False,
+        env=_launcher_env(),
+    )
+    if completed.returncode != 0:
+        return {
+            "status": "error",
+            "mode": "confirmed_tool_request",
+            "conversation_id": conversation_id,
+            "workspace_key": workspace_key,
+            "conversation_state_path": str(transcript_path),
+            "reason_codes": ["fluxq_tool_failed"],
+            "next_actions": ["inspect_fluxq_tool_stderr"],
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+        }
+
+    tool_result = _parse_json_output(completed.stdout)
+    transcript = {
+        "workspace_key": workspace_key,
+        "conversation_id": conversation_id,
+        "turns": _trim_turns(
+            [
+                *transcript.get("turns", []),
+                {
+                    "role": "tool",
+                    "tool": "fluxq-qrun",
+                    "result": tool_result,
+                },
+            ]
+        ),
+        "pending_tool_request": None,
+    }
+    _write_transcript(transcript_path, transcript)
+    return {
+        "status": "ok",
+        "mode": "confirmed_tool_request",
+        "conversation_id": conversation_id,
+        "workspace_key": workspace_key,
+        "conversation_state_path": str(transcript_path),
+        "tool_result": tool_result,
+    }
+
+
+def handle_request(
+    request: Mapping[str, Any],
+    *,
+    runner: Runner = subprocess.run,
+) -> dict[str, Any]:
+    """Handle one launcher request in either chat or confirmed-tool mode."""
+
+    mode = request.get("mode")
+    if mode == "chat_turn":
+        return _chat_turn(request, runner=runner)
+    if mode == "confirmed_tool_request":
+        return _confirmed_tool_request(request, runner=runner)
+    return blocked_payload(
+        "unsupported_launcher_mode",
+        mode=None if not isinstance(mode, str) else mode,
+        next_actions=["use_chat_turn_or_confirmed_tool_request"],
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--request-file",
+        help="Read the launcher request from a JSON file instead of stdin.",
+    )
+    return parser
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    stdin_text: str | None = None,
+    runner: Runner = subprocess.run,
+) -> int:
+    """Run the launcher CLI and emit one machine-readable response payload."""
+
+    parser = build_parser()
+    parsed = parser.parse_args(list(argv) if argv is not None else None)
+    try:
+        request = _load_request(request_file=parsed.request_file, stdin_text=stdin_text)
+        payload = handle_request(request, runner=runner)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        payload = blocked_payload(
+            f"{exc}",
+            next_actions=["fix_launcher_request"],
+        )
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+    return 0 if payload["status"] == "ok" else 3
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
