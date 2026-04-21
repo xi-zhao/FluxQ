@@ -77,7 +77,10 @@ def test_tool_router_approved_commands_cover_shipped_surface() -> None:
     assert set(module.APPROVED_COMMANDS) == expected_commands
 
 
-def test_tool_router_rejects_unshipped_remote_lifecycle_verbs(tmp_path: Path) -> None:
+# blocked payload contract for unshipped remote lifecycle verbs
+def test_tool_router_rejects_unshipped_remote_lifecycle_verbs_with_blocked_payload(
+    tmp_path: Path,
+) -> None:
     module = _load_script_module("fluxq_qrun_test_router_blocked", ROUTER_PATH)
 
     payload = module.handle_request(
