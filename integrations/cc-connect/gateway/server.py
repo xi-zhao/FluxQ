@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -19,10 +20,25 @@ from typing import Any, Callable, Mapping, cast
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+CONFIRMATION_MODULE_PATH = SCRIPT_DIR / "confirmation.py"
 
-from confirmation import ConfirmationRequest, PendingConfirmationStore
+
+def _load_confirmation_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "cc_connect_gateway_confirmation",
+        CONFIRMATION_MODULE_PATH,
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_confirmation_module = _load_confirmation_module()
+ConfirmationRequest = _confirmation_module.ConfirmationRequest
+PendingConfirmationStore = _confirmation_module.PendingConfirmationStore
 
 
 WORKSPACE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
