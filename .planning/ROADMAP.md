@@ -111,3 +111,14 @@ Plans:
 | 11. Remote Lifecycle Control | v1.1 | 0/TBD | Not started | - |
 | 12. Terminal Result Materialization | v1.1 | 0/TBD | Not started | - |
 | 13. Fail-Closed Remote Observability | v1.1 | 0/TBD | Not started | - |
+
+## Backlog
+
+### Phase 999.1: WeChat personal ilink -> cc-connect -> claw-code -> Qcli integration (BACKLOG)
+
+**Goal:** Capture a future integration path that lets FluxQ be driven from personal WeChat through ilink, cc-connect, and claw-code while keeping Qcli as the runtime control plane.
+**Requirements:** TBD
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (promote with /gsd-review-backlog when ready)
