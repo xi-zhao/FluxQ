@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import importlib.util
 import json
+import sys
 import threading
 import time
 import urllib.error
@@ -23,6 +24,7 @@ def _load_gateway_module():
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
