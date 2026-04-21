@@ -117,8 +117,10 @@ Plans:
 ### Phase 999.1: WeChat personal ilink -> cc-connect -> claw-code -> Qcli integration (BACKLOG)
 
 **Goal:** Capture a future integration path that lets FluxQ be driven from personal WeChat through ilink, cc-connect, and claw-code while keeping Qcli as the runtime control plane.
-**Requirements:** TBD
-**Plans:** 0 plans
+**Requirements:** WX-01, WX-02, WX-03
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (promote with /gsd-review-backlog when ready)
+- [ ] 999.1-01-PLAN.md — `cc-connect` fork config plus thin HTTP gateway contract for allowlisted transport, HMAC auth, and per-user workspace routing
+- [ ] 999.1-02-PLAN.md — stable launcher seam and whitelisted FluxQ tool router that keep `qrun ... --json/--jsonl` external, including `remote submit`
+- [ ] 999.1-03-PLAN.md — conversational confirmation state, operator runbook, and live personal WeChat smoke verification

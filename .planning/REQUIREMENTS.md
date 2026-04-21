@@ -55,6 +55,16 @@ Deferred until the first remote provider path is trustworthy.
 | Provider-private or destructive remote mutation flows | FluxQ should not weaken replayability or auditability before retention semantics are explicit |
 | Full optimizer platform in v1.1 | Remote submission and lifecycle trust come first |
 
+## Backlog Integration Requirements
+
+Requirements defined for backlog phases that extend FluxQ through external agent hosts while keeping `qrun` as the runtime control plane.
+
+### Personal WeChat Through `cc-connect` + `claw-code`
+
+- [ ] **WX-01**: Allowlisted personal WeChat users can reach FluxQ through `ilink -> cc-connect(fork) -> claw agent -> thin HTTP gateway` with per-user workspace resolution on a separate execution host
+- [ ] **WX-02**: The execution-side launcher and tool surface keep FluxQ external by routing approved operations through `qrun ... --json/--jsonl`, including `remote submit`, rather than embedding Qcli internals
+- [ ] **WX-03**: Conversational WeChat flows stay explanatory by default and require an explicit second-step confirmation with the standard summary before high-risk operations execute
+
 ## Traceability
 
 Which phases cover which requirements. Updated during roadmap creation.
@@ -68,6 +78,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REMT-03 | Phase 11 | Pending |
 | REMT-04 | Phase 12 | Pending |
 | OBSV-01 | Phase 13 | Pending |
+| WX-01 | Phase 999.1 | Backlog planned |
+| WX-02 | Phase 999.1 | Backlog planned |
+| WX-03 | Phase 999.1 | Backlog planned |
 
 **Coverage:**
 - v1.1 requirements: 7 total
