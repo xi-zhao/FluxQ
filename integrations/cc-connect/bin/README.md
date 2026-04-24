@@ -63,6 +63,21 @@ The shipped matrix is:
 
 The wrapper rejects truly unshipped remote lifecycle verbs such as `remote cancel`, `remote poll`, `remote reopen`, or `remote finalize`. It also rejects raw shell fragments in the command field instead of trying to interpret them.
 
+## Feishu Bridge Wrapper
+
+`run-lark-cli-bridge` is a local executable shim for the official `lark-cli`
+polling route. It loads `integrations/cc-connect/lark_cli_bridge.py` by file path
+so the `cc-connect` directory name does not have to become an importable Python
+package.
+
+Example:
+
+```bash
+export FLUXQ_GATEWAY_SHARED_SECRET=replace-with-random-secret
+export FLUXQ_LARK_CHAT_ID=oc_feishu_chat_id
+integrations/cc-connect/bin/run-lark-cli-bridge --poll-interval-seconds 2
+```
+
 ## High-Risk Confirmation
 
 `remote submit` is currently the high-risk FluxQ action because it may create a remote IBM job and may spend quota. A request without a matching `confirmation_id` returns:

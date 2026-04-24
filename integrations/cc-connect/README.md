@@ -65,6 +65,60 @@ Expected response:
 {"status":"ok","service":"fluxq_cc_gateway"}
 ```
 
+## Feishu via `lark-cli`
+
+For the single-machine Feishu path, use the official `lark-cli` app as the
+transport shim:
+
+`Feishu personal chat -> lark-cli polling bridge -> HTTP gateway -> run-claw-agent -> fluxq-qrun -> qrun`
+
+This keeps FluxQ and the agent launcher external to Feishu. The bridge only
+polls a bot chat, forwards user messages to the existing signed gateway turn
+endpoint, then sends the gateway reply back with `lark-cli`.
+
+Prerequisites:
+
+- `lark-cli doctor` passes.
+- The CLI app can read chat history as user and send messages as bot.
+- The target chat id is known, for example `oc_feishu_chat_id`.
+- The gateway env vars above are exported on the same machine.
+- The allowlist includes the Feishu sender `open_id`. The gateway still uses
+  the historical `wechat_users` key for compatibility:
+
+```json
+{
+  "wechat_users": {
+    "ou_feishu_open_id": {
+      "workspace_key": "owner-main",
+      "display_name": "Owner"
+    }
+  }
+}
+```
+
+Run one catch-up poll, useful after sending a test message before the bridge is
+started:
+
+```bash
+export FLUXQ_GATEWAY_SHARED_SECRET=replace-with-random-secret
+integrations/cc-connect/bin/run-lark-cli-bridge \
+  --chat-id oc_feishu_chat_id \
+  --process-existing \
+  --once
+```
+
+Run continuously:
+
+```bash
+export FLUXQ_GATEWAY_SHARED_SECRET=replace-with-random-secret
+export FLUXQ_LARK_CHAT_ID=oc_feishu_chat_id
+integrations/cc-connect/bin/run-lark-cli-bridge --poll-interval-seconds 2
+```
+
+By default, the first continuous poll checkpoints existing chat history instead
+of replaying it. Use `--process-existing` only when you intentionally want to
+process the most recent existing user messages.
+
 ## Allowlist And Workspace Isolation
 
 The allowlist is server-side JSON keyed by personal WeChat user id:
