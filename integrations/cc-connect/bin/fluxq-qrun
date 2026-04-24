@@ -1,0 +1,604 @@
+#!/usr/bin/env python3
+"""Shipped-surface FluxQ tool router for the cc-connect claw integration."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Mapping, Sequence
+
+
+SAFE_OPTION_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+SHELL_FRAGMENT_PATTERN = re.compile(r"[;&|`<>]|\$\(|\n")
+
+
+Runner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    """Approved `qrun` command family metadata."""
+
+    tokens: tuple[str, ...]
+    allowed_options: tuple[str, ...] = ()
+    bool_flags: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
+    positional_arg_count: int = 0
+    requires_workspace: bool = True
+    machine_outputs: tuple[str, ...] = ("json",)
+    may_create_remote_job: bool = False
+    may_spend: bool = False
+    consequence: str = "Runs the shipped FluxQ control-plane command without bypassing qrun."
+
+
+APPROVED_COMMANDS: dict[str, CommandSpec] = {
+    "init": CommandSpec(tokens=("init",), consequence="Initializes the selected FluxQ workspace."),
+    "prompt": CommandSpec(
+        tokens=("prompt",),
+        positional_arg_count=1,
+        requires_workspace=False,
+        consequence="Normalizes a natural-language request without mutating the workspace.",
+    ),
+    "resolve": CommandSpec(
+        tokens=("resolve",),
+        allowed_options=("intent_file", "intent_json_file", "qspec_file", "report_file", "revision", "intent_text"),
+        consequence="Resolves ingress into canonical FluxQ runtime objects.",
+    ),
+    "plan": CommandSpec(
+        tokens=("plan",),
+        allowed_options=("intent_file", "intent_json_file", "qspec_file", "report_file", "revision", "intent_text"),
+        consequence="Builds a dry-run execution plan for the selected FluxQ input.",
+    ),
+    "status": CommandSpec(tokens=("status",), allowed_options=(), consequence="Returns the thin workspace status summary."),
+    "show": CommandSpec(
+        tokens=("show",),
+        allowed_options=("revision", "latest"),
+        bool_flags={"latest": ("--latest", "--no-latest")},
+        consequence="Shows the current or requested FluxQ revision.",
+    ),
+    "schema": CommandSpec(
+        tokens=("schema",),
+        positional_arg_count=1,
+        requires_workspace=False,
+        machine_outputs=(),
+        consequence="Returns the JSON schema for a shipped FluxQ contract.",
+    ),
+    "baseline set": CommandSpec(
+        tokens=("baseline", "set"),
+        allowed_options=("report_file", "revision"),
+        consequence="Persists the selected runtime input as the workspace baseline.",
+    ),
+    "baseline show": CommandSpec(
+        tokens=("baseline", "show"),
+        allowed_options=(),
+        consequence="Shows the current workspace baseline.",
+    ),
+    "baseline clear": CommandSpec(
+        tokens=("baseline", "clear"),
+        allowed_options=(),
+        consequence="Clears the current workspace baseline pointer.",
+    ),
+    "exec": CommandSpec(
+        tokens=("exec",),
+        allowed_options=("intent_file", "intent_json_file", "qspec_file", "report_file", "revision", "intent_text"),
+        machine_outputs=("json", "jsonl"),
+        consequence="Executes the selected FluxQ input through the deterministic runtime pipeline.",
+    ),
+    "inspect": CommandSpec(
+        tokens=("inspect",),
+        allowed_options=(),
+        consequence="Inspects the current workspace revision and artifacts.",
+    ),
+    "compare": CommandSpec(
+        tokens=("compare",),
+        allowed_options=(
+            "left_report_file",
+            "left_revision",
+            "right_report_file",
+            "right_revision",
+            "baseline",
+            "expect",
+            "fail_on",
+            "allow_report_drift",
+            "forbid_backend_regressions",
+            "forbid_replay_integrity_regressions",
+            "detail",
+        ),
+        bool_flags={"allow_report_drift": ("--allow-report-drift", "--forbid-report-drift")},
+        machine_outputs=("json", "jsonl"),
+        consequence="Compares trusted FluxQ runtime inputs and policy outcomes.",
+    ),
+    "doctor": CommandSpec(
+        tokens=("doctor",),
+        allowed_options=("fix", "ci"),
+        machine_outputs=("json", "jsonl"),
+        consequence="Checks workspace and environment health for the selected FluxQ workspace.",
+    ),
+    "backend list": CommandSpec(
+        tokens=("backend", "list"),
+        allowed_options=(),
+        consequence="Lists available runtime backends and readiness information.",
+    ),
+    "ibm configure": CommandSpec(
+        tokens=("ibm", "configure"),
+        allowed_options=("credential_mode", "instance", "token_env", "saved_account_name"),
+        consequence="Configures IBM credential references for the selected FluxQ workspace.",
+    ),
+    "bench": CommandSpec(
+        tokens=("bench",),
+        allowed_options=(
+            "backends",
+            "report_file",
+            "revision",
+            "baseline",
+            "require_comparable",
+            "forbid_status_regressions",
+            "max_width_regression",
+            "max_depth_regression",
+            "max_two_qubit_regression",
+            "max_measure_regression",
+        ),
+        machine_outputs=("json", "jsonl"),
+        consequence="Runs structural backend benchmarks on the selected FluxQ workload.",
+    ),
+    "export": CommandSpec(
+        tokens=("export",),
+        allowed_options=("format", "profile", "report_file", "revision"),
+        consequence="Exports one artifact from the current FluxQ runtime object.",
+    ),
+    "pack": CommandSpec(
+        tokens=("pack",),
+        allowed_options=("revision",),
+        consequence="Packages one FluxQ revision into a portable runtime bundle.",
+    ),
+    "pack-inspect": CommandSpec(
+        tokens=("pack-inspect",),
+        allowed_options=("pack_root",),
+        requires_workspace=False,
+        consequence="Inspects a portable FluxQ bundle before downstream import.",
+    ),
+    "pack-import": CommandSpec(
+        tokens=("pack-import",),
+        allowed_options=("pack_root",),
+        consequence="Imports a verified FluxQ bundle into the selected workspace.",
+    ),
+    "remote submit": CommandSpec(
+        tokens=("remote", "submit"),
+        allowed_options=("backend", "intent_file", "intent_json_file", "qspec_file", "report_file", "revision", "intent_text"),
+        machine_outputs=("json", "jsonl"),
+        may_create_remote_job=True,
+        may_spend=True,
+        consequence="May create a remote IBM job and consume provider quota on the selected backend.",
+    ),
+}
+
+
+def blocked_payload(
+    reason_code: str,
+    *,
+    action: str | None = None,
+    input_source: dict[str, str] | None = None,
+    workspace: str | None = None,
+    backend: str | None = None,
+    instance: str | None = None,
+    may_create_remote_job: bool = False,
+    may_spend: bool = False,
+    consequence: str | None = None,
+    next_actions: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Return a stable blocked payload for unsupported or unsafe requests."""
+
+    actions = list(next_actions or [])
+    if not actions:
+        actions = ["review_fluxq_tool_request"]
+    return {
+        "status": "blocked",
+        "action": action,
+        "input_source": input_source,
+        "workspace": workspace,
+        "backend": backend,
+        "instance": instance,
+        "may_create_remote_job": may_create_remote_job,
+        "may_spend": may_spend,
+        "consequence": consequence,
+        "reason_codes": [reason_code],
+        "next_actions": actions,
+        "gate": {
+            "ready": False,
+            "status": "blocked",
+            "severity": "error",
+            "recommended_action": actions[0],
+            "reason_codes": [reason_code],
+            "next_actions": actions,
+        },
+    }
+
+
+def _load_request(*, request_file: str | None, stdin_text: str | None = None) -> dict[str, Any]:
+    if request_file is not None:
+        raw_request = Path(request_file).read_text()
+    else:
+        raw_request = stdin_text if stdin_text is not None else sys.stdin.read()
+    payload = json.loads(raw_request)
+    if not isinstance(payload, dict):
+        raise ValueError("Tool request must be a JSON object.")
+    return payload
+
+
+def _normalize_command_key(command: Any) -> tuple[str, CommandSpec] | dict[str, Any]:
+    if isinstance(command, str):
+        normalized = " ".join(command.strip().lower().split())
+        if SHELL_FRAGMENT_PATTERN.search(command):
+            return blocked_payload(
+                "shell_fragment_blocked",
+                next_actions=["remove_shell_fragments"],
+            )
+    elif isinstance(command, Sequence) and not isinstance(command, (bytes, bytearray)):
+        tokens: list[str] = []
+        for item in command:
+            if not isinstance(item, str):
+                return blocked_payload(
+                    "invalid_command_tokens",
+                    next_actions=["fix_tool_command"],
+                )
+            tokens.append(item.strip().lower())
+        normalized = " ".join(tokens)
+    else:
+        return blocked_payload(
+            "invalid_command_format",
+            next_actions=["fix_tool_command"],
+        )
+
+    if normalized in APPROVED_COMMANDS:
+        return normalized, APPROVED_COMMANDS[normalized]
+    if normalized.startswith("remote "):
+        return blocked_payload(
+            "unshipped_remote_lifecycle_verb",
+            action=normalized,
+            next_actions=["use_remote_submit_only"],
+        )
+    return blocked_payload(
+        "unsupported_command",
+        action=normalized,
+        next_actions=["use_shipped_fluxq_command"],
+    )
+
+
+def _workspace_root(request: Mapping[str, Any], *, requires_workspace: bool) -> str | None:
+    root = request.get("workspace_root")
+    if root is None and isinstance(request.get("workspace"), Mapping):
+        root = request["workspace"].get("root")
+    if root is None:
+        if requires_workspace:
+            raise ValueError("workspace_root")
+        return None
+    if not isinstance(root, str) or not root.strip():
+        raise ValueError("workspace_root")
+    return root
+
+
+def _normalize_args(request: Mapping[str, Any], *, spec: CommandSpec) -> list[str]:
+    args = request.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise ValueError("args")
+    if len(args) != spec.positional_arg_count:
+        raise ValueError("args")
+    return list(args)
+
+
+def _option_items(spec: CommandSpec, options: Mapping[str, Any]) -> list[str]:
+    unknown = sorted(set(options) - set(spec.allowed_options))
+    if unknown:
+        raise KeyError(unknown[0])
+
+    argv: list[str] = []
+    for key in spec.allowed_options:
+        if key not in options:
+            continue
+        if not SAFE_OPTION_PATTERN.match(key):
+            raise KeyError(key)
+        value = options[key]
+        true_flag, false_flag = spec.bool_flags.get(key, (None, None))
+        if isinstance(value, bool):
+            if true_flag is not None or false_flag is not None:
+                flag = true_flag if value else false_flag
+                if flag is not None:
+                    argv.append(flag)
+                continue
+            raise ValueError(f"option_{key}")
+        if value is None:
+            continue
+        argv.extend(_flag_value_pair(key, value))
+    return argv
+
+
+def _flag_value_pair(key: str, value: Any) -> list[str]:
+    flag = f"--{key.replace('_', '-')}"
+    if isinstance(value, (str, int, float)):
+        return [flag, str(value)]
+    if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
+        argv: list[str] = []
+        for item in value:
+            argv.extend([flag, str(item)])
+        return argv
+    raise ValueError(key)
+
+
+def _resolve_output_mode(request: Mapping[str, Any], spec: CommandSpec) -> str | None:
+    if not spec.machine_outputs:
+        return None
+    output_mode = request.get("output_mode", spec.machine_outputs[0])
+    if output_mode is None:
+        return None
+    if output_mode not in spec.machine_outputs:
+        raise ValueError("output_mode")
+    return str(output_mode)
+
+
+def _input_source(command_key: str, args: list[str], options: Mapping[str, Any], workspace_root: str | None) -> dict[str, str]:
+    source_fields = (
+        "intent_file",
+        "intent_json_file",
+        "qspec_file",
+        "report_file",
+        "revision",
+        "intent_text",
+    )
+    for field in source_fields:
+        if field in options and options[field] is not None:
+            return {"kind": field, "value": str(options[field])}
+    if command_key == "prompt" and args:
+        return {"kind": "prompt_text", "value": args[0]}
+    if command_key == "schema" and args:
+        return {"kind": "schema_name", "value": args[0]}
+    if workspace_root is not None:
+        return {"kind": "workspace", "value": workspace_root}
+    return {"kind": "none", "value": ""}
+
+
+def _summary(command_key: str, spec: CommandSpec, *, args: list[str], options: Mapping[str, Any], workspace_root: str | None) -> dict[str, Any]:
+    backend = options.get("backend")
+    if backend is None and options.get("backends") is not None:
+        backend = options.get("backends")
+    instance = options.get("instance")
+    return {
+        "action": command_key,
+        "input_source": _input_source(command_key, args, options, workspace_root),
+        "workspace": workspace_root,
+        "backend": None if backend is None else str(backend),
+        "instance": None if instance is None else str(instance),
+        "may_create_remote_job": spec.may_create_remote_job,
+        "may_spend": spec.may_spend,
+        "consequence": spec.consequence,
+    }
+
+
+def _canonical_confirmation_request(
+    request: Mapping[str, Any],
+    *,
+    command_key: str,
+    args: list[str],
+    options: Mapping[str, Any],
+    workspace_root: str | None,
+    output_mode: str | None,
+) -> dict[str, Any]:
+    return {
+        "command": command_key,
+        "args": args,
+        "options": {key: options[key] for key in sorted(options)},
+        "workspace_root": workspace_root,
+        "output_mode": output_mode,
+    }
+
+
+def _confirmation_id(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"confirm_{hashlib.sha256(encoded).hexdigest()[:16]}"
+
+
+def _parse_result(stdout: str, *, output_mode: str | None) -> Any:
+    if not stdout.strip():
+        return None
+    if output_mode == "json":
+        return json.loads(stdout)
+    if output_mode == "jsonl":
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        return [json.loads(line) for line in lines]
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout
+
+
+def handle_request(
+    request: Mapping[str, Any],
+    *,
+    runner: Runner = subprocess.run,
+    qrun_executable: str = "qrun",
+) -> dict[str, Any]:
+    """Validate one tool request and either execute it or return a gate payload."""
+
+    normalized_command = _normalize_command_key(request.get("command"))
+    if isinstance(normalized_command, dict):
+        return normalized_command
+    command_key, spec = normalized_command
+
+    try:
+        workspace_root = _workspace_root(request, requires_workspace=spec.requires_workspace)
+        args = _normalize_args(request, spec=spec)
+        raw_options = request.get("options", {})
+        if not isinstance(raw_options, Mapping):
+            raise ValueError("options")
+        options = {str(key): value for key, value in raw_options.items()}
+        output_mode = _resolve_output_mode(request, spec)
+        option_argv = _option_items(spec, options)
+    except ValueError as exc:
+        return blocked_payload(
+            f"invalid_{exc.args[0]}",
+            action=command_key,
+            next_actions=["fix_tool_request"],
+        )
+    except KeyError as exc:
+        return blocked_payload(
+            "unsupported_option",
+            action=command_key,
+            next_actions=[f"remove_option_{exc.args[0]}"],
+        )
+
+    summary = _summary(command_key, spec, args=args, options=options, workspace_root=workspace_root)
+    confirmation_payload = _canonical_confirmation_request(
+        request,
+        command_key=command_key,
+        args=args,
+        options=options,
+        workspace_root=workspace_root,
+        output_mode=output_mode,
+    )
+    if spec.may_create_remote_job or spec.may_spend:
+        expected_confirmation_id = _confirmation_id(confirmation_payload)
+        provided_confirmation_id = request.get("confirmation_id")
+        if provided_confirmation_id is None:
+            approved_request = dict(confirmation_payload)
+            approved_request["confirmation_id"] = expected_confirmation_id
+            return {
+                "status": "confirmation_required",
+                **summary,
+                "confirmation_id": expected_confirmation_id,
+                "approved_request": approved_request,
+                "reason_codes": ["confirmation_required"],
+                "next_actions": ["request_explicit_confirmation"],
+                "gate": {
+                    "ready": False,
+                    "status": "confirmation_required",
+                    "severity": "warning",
+                    "recommended_action": "request_explicit_confirmation",
+                    "reason_codes": ["confirmation_required"],
+                    "next_actions": ["request_explicit_confirmation"],
+                },
+            }
+        if provided_confirmation_id != expected_confirmation_id:
+            return blocked_payload(
+                "confirmation_id_mismatch",
+                next_actions=["reconfirm_high_risk_action"],
+                **summary,
+            )
+
+    argv = [qrun_executable, *spec.tokens, *args, *option_argv]
+    if spec.requires_workspace and workspace_root is not None:
+        argv.extend(["--workspace", workspace_root])
+    if output_mode is not None:
+        argv.append(f"--{output_mode}")
+
+    completed = runner(
+        argv,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return {
+            "status": "error",
+            **summary,
+            "approved_command": argv,
+            "reason_codes": ["qrun_failed"],
+            "next_actions": ["inspect_qrun_stderr"],
+            "exit_code": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "gate": {
+                "ready": False,
+                "status": "error",
+                "severity": "error",
+                "recommended_action": "inspect_qrun_stderr",
+                "reason_codes": ["qrun_failed"],
+                "next_actions": ["inspect_qrun_stderr"],
+            },
+        }
+    try:
+        parsed_result = _parse_result(completed.stdout, output_mode=output_mode)
+    except json.JSONDecodeError:
+        return {
+            "status": "error",
+            **summary,
+            "approved_command": argv,
+            "reason_codes": ["invalid_qrun_output"],
+            "next_actions": ["inspect_qrun_stdout"],
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "gate": {
+                "ready": False,
+                "status": "error",
+                "severity": "error",
+                "recommended_action": "inspect_qrun_stdout",
+                "reason_codes": ["invalid_qrun_output"],
+                "next_actions": ["inspect_qrun_stdout"],
+            },
+        }
+
+    return {
+        "status": "ok",
+        **summary,
+        "approved_command": argv,
+        "result": parsed_result,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "reason_codes": ["tool_executed"],
+        "next_actions": [],
+        "gate": {
+            "ready": True,
+            "status": "open",
+            "severity": "info",
+            "recommended_action": "continue",
+            "reason_codes": ["tool_executed"],
+            "next_actions": [],
+        },
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--request-file",
+        help="Read the structured FluxQ tool request from a JSON file instead of stdin.",
+    )
+    return parser
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    stdin_text: str | None = None,
+    runner: Runner = subprocess.run,
+    qrun_executable: str = "qrun",
+) -> int:
+    """Run the router CLI and print one machine-readable response payload."""
+
+    parser = build_parser()
+    parsed = parser.parse_args(list(argv) if argv is not None else None)
+    try:
+        request = _load_request(request_file=parsed.request_file, stdin_text=stdin_text)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        payload = blocked_payload(
+            "invalid_tool_request_json",
+            next_actions=["fix_tool_request_json"],
+        )
+        payload["details"] = str(exc)
+        print(json.dumps(payload, indent=2, ensure_ascii=True))
+        return 3
+
+    payload = handle_request(
+        request,
+        runner=runner,
+        qrun_executable=qrun_executable,
+    )
+    print(json.dumps(payload, indent=2, ensure_ascii=True))
+    return 0 if payload["status"] in {"ok", "confirmation_required"} else 3
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

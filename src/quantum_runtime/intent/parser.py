@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from .markdown import parse_section_blocks, split_front_matter
@@ -34,6 +35,19 @@ def parse_intent_text(text: str) -> IntentModel:
         shots=_as_int(front_matter.get("shots"), default=1024),
         notes=sections.get("notes"),
     )
+
+
+def parse_intent_json_file(path: Path) -> IntentModel:
+    """Parse a structured JSON intent file from disk."""
+    return parse_intent_json_text(path.read_text())
+
+
+def parse_intent_json_text(text: str) -> IntentModel:
+    """Parse a structured JSON intent payload."""
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("Structured intent JSON must be an object.")
+    return IntentModel.model_validate(payload)
 
 
 def _as_optional_str(value: object) -> str | None:

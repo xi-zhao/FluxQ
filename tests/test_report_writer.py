@@ -52,6 +52,7 @@ def test_write_report_persists_latest_report(tmp_path: Path) -> None:
         backend_reports={},
         warnings=[],
         errors=[],
+        promote_latest=True,
     )
 
     latest_path = handle.root / "reports" / "latest.json"
@@ -133,6 +134,12 @@ def test_write_report_records_revision_artifact_provenance(tmp_path: Path) -> No
     )
 
     artifact_provenance = report["provenance"]["artifacts"]
+    assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qspec"] == str(handle.root / "specs" / "history" / f"{revision}.json")
+    assert report["artifacts"]["report"] == str(handle.root / "reports" / "history" / f"{revision}.json")
+    assert report["artifacts"]["qiskit_code"] == str(qiskit_snapshot)
+    assert report["diagnostics"]["diagram"]["text_path"] == str(diagram_txt_snapshot)
+    assert report["diagnostics"]["diagram"]["png_path"] == str(diagram_png_snapshot)
     assert artifact_provenance["snapshot_root"] == str(snapshot_root)
     assert artifact_provenance["current_root"] == str(handle.root / "artifacts")
     assert artifact_provenance["paths"]["qiskit_code"] == str(qiskit_snapshot)
@@ -286,6 +293,40 @@ def test_summarize_report_keeps_key_signals_short(tmp_path: Path) -> None:
     assert normalized_summary == golden
 
 
+def test_summarize_report_includes_backend_benchmark_modes() -> None:
+    report = {
+        "status": "degraded",
+        "revision": "rev_000123",
+        "qspec": {"path": "/tmp/specs/history/rev_000123.json"},
+        "semantics": {"pattern": "ghz", "parameter_count": 0},
+        "artifacts": {},
+        "diagnostics": {"simulation": {"status": "ok"}},
+        "backend_reports": {
+            "qiskit-local": {
+                "status": "ok",
+                "details": {
+                    "benchmark_mode": "target_aware",
+                },
+            },
+            "classiq": {
+                "status": "ok",
+                "details": {
+                    "benchmark_mode": "synthesis_backed",
+                    "target_parity": "partial",
+                },
+            },
+        },
+        "warnings": [],
+        "errors": [],
+        "suggestions": [],
+    }
+
+    summary = summarize_report(report)
+
+    assert "qiskit-local:ok[target_aware]" in summary
+    assert "classiq:ok[synthesis_backed,partial]" in summary
+
+
 def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
     handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
     revision = handle.reserve_revision()
@@ -311,5 +352,6 @@ def test_write_report_adds_backend_specific_suggestions(tmp_path: Path) -> None:
     )
 
     assert report["status"] == "degraded"
+    assert report["qspec"]["path"] == str(handle.root / "specs" / "history" / f"{revision}.json")
     assert any("classiq" in suggestion.lower() for suggestion in report["suggestions"])
     assert any("install" in suggestion.lower() for suggestion in report["suggestions"])

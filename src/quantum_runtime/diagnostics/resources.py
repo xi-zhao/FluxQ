@@ -21,9 +21,13 @@ class ResourceReport(BaseModel):
     parameter_names: list[str] = Field(default_factory=list)
 
 
-def estimate_resources(qspec: QSpec) -> ResourceReport:
+def estimate_resources(
+    qspec: QSpec,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> ResourceReport:
     """Estimate basic structural metrics from the generated Qiskit circuit."""
-    circuit = build_qiskit_circuit(qspec)
+    circuit = build_qiskit_circuit(qspec, parameter_bindings=parameter_bindings)
     gate_histogram = {
         str(name): int(count)
         for name, count in sorted(circuit.count_ops().items())

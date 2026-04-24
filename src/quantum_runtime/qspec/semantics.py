@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any
 
+from .parameter_workflow import summarize_parameter_workflow
 from .model import PatternNode, QSpec
 
 
@@ -13,6 +14,10 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
     """Return a host-friendly semantic summary of the active QSpec."""
     pattern_node = _first_pattern(qspec)
     parameter_records = [_normalize_parameter(parameter) for parameter in qspec.parameters]
+    observable_records = [_normalize_value(observable) for observable in qspec.observables]
+    parameter_workflow = summarize_parameter_workflow(qspec)
+    runtime = qspec.runtime.model_dump(mode="json")
+    workload_id = _workload_id(qspec, pattern_node=pattern_node)
     summary: dict[str, Any] = {
         "program_id": qspec.program_id,
         "pattern": pattern_node.pattern,
@@ -22,6 +27,10 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
         "pattern_args": _normalize_value(pattern_node.args),
         "parameter_count": len(parameter_records),
         "parameters": parameter_records,
+        "observable_count": len(observable_records),
+        "observables": observable_records,
+        "parameter_workflow_mode": parameter_workflow["mode"],
+        "parameter_workflow": parameter_workflow,
         "constraints": {
             "max_width": qspec.constraints.max_width,
             "max_depth": qspec.constraints.max_depth,
@@ -33,6 +42,14 @@ def summarize_qspec_semantics(qspec: QSpec) -> dict[str, Any]:
             "optimization_level": qspec.constraints.optimization_level,
         },
         "backend_preferences": list(qspec.backend_preferences),
+        "workload_id": workload_id,
+        "algorithm_family": runtime.get("algorithm_family") or pattern_node.pattern,
+        "problem": _normalize_value(runtime.get("problem") or {}),
+        "parameter_space": _normalize_value(runtime.get("parameter_space") or {}),
+        "objective": _normalize_value(runtime.get("objective") or {}),
+        "export_requirements": _normalize_value(runtime.get("export_requirements") or {}),
+        "policy_hints": _normalize_value(runtime.get("policy_hints") or {}),
+        "provenance": _normalize_value(runtime.get("provenance") or {}),
     }
     summary["workload_hash"] = _hash_payload(_workload_payload(summary))
     summary["execution_hash"] = _hash_payload(_execution_payload(summary))
@@ -84,6 +101,8 @@ def _optional_int(value: object) -> int | None:
 
 def _workload_payload(summary: dict[str, Any]) -> dict[str, Any]:
     return {
+        "workload_id": summary["workload_id"],
+        "algorithm_family": summary["algorithm_family"],
         "pattern": summary["pattern"],
         "register": summary["register"],
         "width": summary["width"],
@@ -91,6 +110,11 @@ def _workload_payload(summary: dict[str, Any]) -> dict[str, Any]:
         "pattern_args": summary["pattern_args"],
         "parameter_count": summary["parameter_count"],
         "parameters": summary["parameters"],
+        "observable_count": summary["observable_count"],
+        "observables": summary["observables"],
+        "problem": summary["problem"],
+        "parameter_space": summary["parameter_space"],
+        "objective": summary["objective"],
     }
 
 
@@ -106,3 +130,14 @@ def _hash_payload(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"
+
+
+def _workload_id(qspec: QSpec, *, pattern_node: PatternNode) -> str:
+    runtime_workload_id = qspec.runtime.workload_id
+    if runtime_workload_id:
+        return str(runtime_workload_id)
+    width = qspec.registers[0].size if qspec.registers else 0
+    layers = pattern_node.args.get("layers")
+    if layers is None:
+        return f"{pattern_node.pattern}:{width}q"
+    return f"{pattern_node.pattern}:{width}q:{int(layers)}l"

@@ -19,11 +19,19 @@ class DiagramArtifacts(BaseModel):
     png_path: Path
 
 
-def write_diagrams(qspec: QSpec, workspace: WorkspaceHandle) -> DiagramArtifacts:
+def write_diagrams(
+    qspec: QSpec,
+    workspace: WorkspaceHandle,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+    output_dir: Path | None = None,
+) -> DiagramArtifacts:
     """Write `circuit.txt` and `circuit.png` into the workspace figures directory."""
-    circuit = build_qiskit_circuit(qspec)
-    text_path = workspace.root / "figures" / "circuit.txt"
-    png_path = workspace.root / "figures" / "circuit.png"
+    circuit = build_qiskit_circuit(qspec, parameter_bindings=parameter_bindings)
+    figures_dir = output_dir if output_dir is not None else workspace.root / "figures"
+    text_path = figures_dir / "circuit.txt"
+    png_path = figures_dir / "circuit.png"
+    figures_dir.mkdir(parents=True, exist_ok=True)
 
     text_diagram = str(circuit.draw(output="text"))
     text_path.write_text(text_diagram)

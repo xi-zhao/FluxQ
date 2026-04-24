@@ -1,0 +1,17 @@
+project = "fluxq-personal"
+platform = "weixin"
+agent_type = "claw"
+
+[ilink]
+# Populate these with the output from:
+# cc-connect weixin setup --project fluxq-personal
+token = "replace-with-ilink-token"
+base_url = "https://ilink.example.invalid"
+account_id = "replace-with-ilink-account-id"
+
+[claw]
+gateway_url = "https://execution-host.example/v1/integrations/wechat/turn"
+shared_secret_env = "FLUXQ_GATEWAY_SHARED_SECRET"
+timestamp_header = "X-FluxQ-Timestamp"
+nonce_header = "X-FluxQ-Nonce"
+signature_header = "X-FluxQ-Signature"

@@ -1,4 +1,5 @@
 {
+  "schema_version": "0.3.0",
   "version": "0.1",
   "program_id": "prog_qaoa_ansatz_4",
   "title": "QAOA MaxCut",
@@ -98,7 +99,49 @@
       ]
     }
   ],
-  "observables": [],
+  "observables": [
+    {
+      "name": "maxcut_cost",
+      "kind": "pauli_sum",
+      "objective": "maximize",
+      "constant": 2.0,
+      "source": "qaoa_maxcut",
+      "terms": [
+        {
+          "pauli": "ZZ",
+          "qubits": [
+            0,
+            1
+          ],
+          "coefficient": -0.5
+        },
+        {
+          "pauli": "ZZ",
+          "qubits": [
+            1,
+            2
+          ],
+          "coefficient": -0.5
+        },
+        {
+          "pauli": "ZZ",
+          "qubits": [
+            2,
+            3
+          ],
+          "coefficient": -0.5
+        },
+        {
+          "pauli": "ZZ",
+          "qubits": [
+            3,
+            0
+          ],
+          "coefficient": -0.5
+        }
+      ]
+    }
+  ],
   "constraints": {
     "max_width": 4,
     "max_depth": 128,
@@ -117,6 +160,97 @@
   "backend_preferences": [
     "qiskit-local"
   ],
+  "runtime": {
+    "workload_id": "qaoa_ansatz:4q:2l",
+    "algorithm_family": "qaoa_ansatz",
+    "problem": {
+      "kind": "maxcut",
+      "definition": {
+        "problem": "maxcut",
+        "cost_edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            3,
+            0
+          ]
+        ]
+      }
+    },
+    "parameter_space": {
+      "mode": "static",
+      "parameters": [
+        {
+          "name": "gamma_0",
+          "kind": "angle",
+          "family": "qaoa_ansatz",
+          "role": "cost",
+          "layer": 0,
+          "default": 0.4
+        },
+        {
+          "name": "beta_0",
+          "kind": "angle",
+          "family": "qaoa_ansatz",
+          "role": "mixer",
+          "layer": 0,
+          "default": 0.3
+        },
+        {
+          "name": "gamma_1",
+          "kind": "angle",
+          "family": "qaoa_ansatz",
+          "role": "cost",
+          "layer": 1,
+          "default": 0.45
+        },
+        {
+          "name": "beta_1",
+          "kind": "angle",
+          "family": "qaoa_ansatz",
+          "role": "mixer",
+          "layer": 1,
+          "default": 0.34
+        }
+      ],
+      "workflow": {}
+    },
+    "objective": {
+      "kind": "expectation_value",
+      "observable": "maxcut_cost",
+      "goal": "maximize",
+      "evaluation_method": "exact_statevector"
+    },
+    "export_requirements": {
+      "formats": [
+        "qiskit",
+        "qasm3"
+      ],
+      "profiles": [
+        "qiskit-native",
+        "qasm3-generic"
+      ]
+    },
+    "policy_hints": {
+      "fail_on": [],
+      "compare_expectation": "same-subject",
+      "allow_report_drift": true
+    },
+    "provenance": {
+      "ingress_kind": "intent",
+      "ingress_source": "planner"
+    }
+  },
   "metadata": {
     "source": "intent"
   }

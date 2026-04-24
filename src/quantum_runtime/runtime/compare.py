@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from quantum_runtime.runtime.imports import ImportResolution
+from quantum_runtime.errors import WorkspaceConflictError, WorkspaceRecoveryRequiredError
+from quantum_runtime.runtime.contracts import ensure_schema_payload
+from quantum_runtime.runtime.observability import gate_block, next_actions_for_reason_codes, normalize_reason_codes
+from quantum_runtime.runtime.imports import (
+    ImportResolution,
+    resolve_workspace_baseline,
+    resolve_workspace_current,
+)
+from quantum_runtime.workspace import (
+    WorkspaceLockConflict,
+    acquire_workspace_lock,
+    atomic_write_text,
+    pending_atomic_write_files,
+)
 
 
 CompareExpectation = Literal[
@@ -16,6 +31,14 @@ CompareExpectation = Literal[
     "different-qspec",
     "same-report",
     "different-report",
+]
+
+CompareFailOn = Literal[
+    "subject_drift",
+    "qspec_drift",
+    "report_drift",
+    "backend_regression",
+    "replay_integrity_regression",
 ]
 
 
@@ -55,8 +78,12 @@ class CompareResult(BaseModel):
     report_drift_detected: bool = False
     backend_regressions: list[str] = Field(default_factory=list)
     replay_integrity_regressions: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    gate: dict[str, Any] = Field(default_factory=dict)
     policy: dict[str, Any] = Field(default_factory=dict)
     verdict: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] | None = None
     left: CompareSide
     right: CompareSide
 
@@ -65,6 +92,7 @@ class ComparePolicy(BaseModel):
     """Optional guardrail policy for compare results."""
 
     expect: CompareExpectation | None = None
+    fail_on: list[CompareFailOn] = Field(default_factory=list)
     allow_report_drift: bool = True
     forbid_backend_regressions: bool = False
     forbid_replay_integrity_regressions: bool = False
@@ -77,6 +105,32 @@ class CompareVerdict(BaseModel):
     summary: str
     failed_checks: list[str] = Field(default_factory=list)
     passed_checks: list[str] = Field(default_factory=list)
+
+
+def compare_workspace_baseline(
+    workspace_root: Path,
+    *,
+    policy: ComparePolicy | None = None,
+) -> CompareResult:
+    """Compare the saved workspace baseline against the current workspace state."""
+    baseline = resolve_workspace_baseline(workspace_root)
+    current = resolve_workspace_current(workspace_root)
+    result = compare_import_resolutions(
+        baseline.resolution,
+        current,
+        policy=policy,
+    )
+    return result.model_copy(
+        update={
+            "baseline": {
+                "side": "left",
+                "path": str(baseline.record_path),
+                "source_kind": baseline.record.source_kind,
+                "source": baseline.record.source,
+                "revision": baseline.record.revision,
+            }
+        }
+    )
 
 
 def compare_import_resolutions(
@@ -148,6 +202,20 @@ def compare_import_resolutions(
         backend_regressions=backend_regressions,
         replay_integrity_regressions=replay_integrity_regressions,
     )
+    reason_codes = _reason_codes(
+        differences=differences,
+        replay_integrity_regressions=replay_integrity_regressions,
+        verdict=verdict.model_dump(mode="json"),
+    )
+    next_actions = next_actions_for_reason_codes(reason_codes) or (["review_compare"] if differences else [])
+    gate_ready = same_subject and not replay_integrity_regressions and verdict.status != "fail"
+    severity: Literal["info", "warning", "error"]
+    if verdict.status == "fail":
+        severity = "error"
+    elif differences or replay_integrity_regressions:
+        severity = "warning"
+    else:
+        severity = "info"
 
     return CompareResult(
         status="same_subject" if same_subject else "different_subject",
@@ -165,11 +233,47 @@ def compare_import_resolutions(
         report_drift_detected=report_drift_detected,
         backend_regressions=backend_regressions,
         replay_integrity_regressions=replay_integrity_regressions,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+        gate=gate_block(
+            ready=gate_ready,
+            severity=severity,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+        ),
         policy=policy.model_dump(mode="json") if policy is not None else {},
         verdict=verdict.model_dump(mode="json"),
         left=_compare_side(left),
         right=_compare_side(right),
     )
+
+
+def persist_compare_result(*, workspace_root: Path, result: CompareResult) -> dict[str, str]:
+    """Persist the latest compare result into the workspace."""
+    compare_root = workspace_root / "compare"
+    history_root = compare_root / "history"
+    latest_path = compare_root / "latest.json"
+    history_path = history_root / f"{_compare_history_name(result)}.json"
+    serialized = json.dumps(ensure_schema_payload(result), indent=2, ensure_ascii=True)
+    try:
+        with acquire_workspace_lock(workspace_root, command="qrun compare"):
+            pending_files = pending_atomic_write_files(latest_path)
+            if pending_files:
+                raise WorkspaceRecoveryRequiredError(
+                    workspace=workspace_root.resolve(),
+                    pending_files=pending_files,
+                    last_valid_revision=None,
+                )
+            history_root.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(latest_path, serialized)
+            atomic_write_text(history_path, serialized)
+    except WorkspaceLockConflict as exc:
+        raise WorkspaceConflictError(
+            workspace=workspace_root.resolve(),
+            lock_path=Path(exc.lock_path),
+            holder=exc.holder.model_dump(mode="json"),
+        ) from exc
+    return {"latest_path": str(latest_path), "history_path": str(history_path)}
 
 
 def _compare_side(resolution: ImportResolution) -> CompareSide:
@@ -190,8 +294,42 @@ def _compare_side(resolution: ImportResolution) -> CompareSide:
     )
 
 
+def _compare_history_name(result: CompareResult) -> str:
+    if result.baseline is not None:
+        return f"baseline__{result.right.revision}"
+    return f"{result.left.revision}__{result.right.revision}"
+
+
+def _reason_codes(
+    *,
+    differences: list[str],
+    replay_integrity_regressions: list[str],
+    verdict: dict[str, Any],
+) -> list[str]:
+    codes: list[str] = []
+    for difference in differences:
+        if difference.startswith("semantic_subject_changed"):
+            codes.append("semantic_subject_changed")
+        else:
+            codes.append(f"compare_difference:{difference}")
+    if replay_integrity_regressions:
+        codes.append("replay_integrity_regressed")
+    if verdict.get("status") == "fail":
+        codes.append("compare_policy_failed")
+    return normalize_reason_codes(codes)
+
+
 def _semantic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    fields = ("pattern", "width", "layers", "parameter_count", "workload_hash", "execution_hash")
+    fields = (
+        "pattern",
+        "width",
+        "layers",
+        "parameter_count",
+        "observable_count",
+        "parameter_workflow_mode",
+        "workload_hash",
+        "execution_hash",
+    )
     changed_fields = [
         field
         for field in fields
@@ -240,17 +378,38 @@ def _diagnostic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
     left_resources = left.get("resource_summary")
     right_resources = right.get("resource_summary")
     fields = ("width", "depth", "two_qubit_gates", "measure_count", "parameter_count")
+    execution_fields = (
+        "parameter_mode",
+        "representative_point_label",
+        "representative_bindings_hash",
+        "representative_expectations_hash",
+        "best_point_hash",
+        "export_point_label",
+        "export_parameter_mode",
+        "export_bindings_hash",
+    )
     changed_fields = [
         field
         for field in fields
         if _resource_value(left_resources, field) != _resource_value(right_resources, field)
     ]
+    execution_fields_changed = [
+        field
+        for field in execution_fields
+        if left.get(field) != right.get(field)
+    ]
     return {
         "simulation_status_changed": left.get("simulation_status") != right.get("simulation_status"),
         "transpile_status_changed": left.get("transpile_status") != right.get("transpile_status"),
         "resource_fields_changed": changed_fields,
+        "execution_fields_changed": execution_fields_changed,
         "left": {
             "simulation_status": left.get("simulation_status"),
+            "parameter_mode": left.get("parameter_mode"),
+            "representative_point_label": left.get("representative_point_label"),
+            "representative_expectations": left.get("representative_expectations"),
+            "best_point": left.get("best_point"),
+            "export_point_label": left.get("export_point_label"),
             "transpile_status": left.get("transpile_status"),
             "resources": {
                 field: _resource_value(left_resources, field)
@@ -259,6 +418,11 @@ def _diagnostic_delta(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         },
         "right": {
             "simulation_status": right.get("simulation_status"),
+            "parameter_mode": right.get("parameter_mode"),
+            "representative_point_label": right.get("representative_point_label"),
+            "representative_expectations": right.get("representative_expectations"),
+            "best_point": right.get("best_point"),
+            "export_point_label": right.get("export_point_label"),
             "transpile_status": right.get("transpile_status"),
             "resources": {
                 field: _resource_value(right_resources, field)
@@ -356,6 +520,9 @@ def _report_drift_detected(
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:
         return True
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        return True
     status_changed = backend_delta.get("status_changed")
     if isinstance(status_changed, dict) and status_changed:
         return True
@@ -437,6 +604,9 @@ def _differences(
     resource_fields_changed = diagnostic_delta.get("resource_fields_changed")
     if isinstance(resource_fields_changed, list) and resource_fields_changed:
         differences.append("resource_metrics_changed:" + ",".join(str(field) for field in resource_fields_changed))
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        differences.append("execution_diagnostics_changed")
     status_changed = backend_delta.get("status_changed")
     if isinstance(status_changed, dict) and status_changed:
         differences.append("backend_status_changed")
@@ -518,6 +688,27 @@ def _highlights(
         )
         highlights.append(f"Structural diagnostics changed: {fields}.")
 
+    execution_fields_changed = diagnostic_delta.get("execution_fields_changed")
+    if isinstance(execution_fields_changed, list) and execution_fields_changed:
+        left_best_raw = diagnostic_delta.get("left", {}).get("best_point")
+        right_best_raw = diagnostic_delta.get("right", {}).get("best_point")
+        left_best = left_best_raw if isinstance(left_best_raw, dict) else {}
+        right_best = right_best_raw if isinstance(right_best_raw, dict) else {}
+        left_name = left_best.get("objective_observable")
+        right_name = right_best.get("objective_observable")
+        left_value = left_best.get("objective_value")
+        right_value = right_best.get("objective_value")
+        if left_name and right_name and left_value is not None and right_value is not None:
+            highlights.append(
+                f"Best sweep point changed: {left_name} {left_value} -> {right_value}."
+            )
+        else:
+            left_label = diagnostic_delta.get("left", {}).get("representative_point_label")
+            right_label = diagnostic_delta.get("right", {}).get("representative_point_label")
+            highlights.append(
+                f"Representative execution point changed: {left_label} -> {right_label}."
+            )
+
     backend_status_changed = backend_delta.get("status_changed")
     if isinstance(backend_status_changed, dict) and backend_status_changed:
         fragments = ", ".join(
@@ -575,6 +766,33 @@ def _evaluate_policy(
             passed_checks.append(f"expect:{policy.expect}")
         else:
             failed_checks.append(f"expect:{policy.expect}")
+
+    for gate in policy.fail_on:
+        if gate == "subject_drift":
+            if same_subject:
+                passed_checks.append("subject_drift")
+            else:
+                failed_checks.append("subject_drift")
+        elif gate == "qspec_drift":
+            if same_qspec:
+                passed_checks.append("qspec_drift")
+            else:
+                failed_checks.append("qspec_drift")
+        elif gate == "report_drift":
+            if report_drift_detected:
+                failed_checks.append("report_drift")
+            else:
+                passed_checks.append("report_drift")
+        elif gate == "backend_regression":
+            if backend_regressions:
+                failed_checks.append("backend_regression")
+            else:
+                passed_checks.append("backend_regression")
+        elif gate == "replay_integrity_regression":
+            if replay_integrity_regressions:
+                failed_checks.append("replay_integrity_regression")
+            else:
+                passed_checks.append("replay_integrity_regression")
 
     if policy.allow_report_drift:
         passed_checks.append("report_drift:allowed")

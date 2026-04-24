@@ -10,12 +10,16 @@ from qiskit import QuantumCircuit
 from quantum_runtime.qspec import MeasureNode, PatternNode, QSpec
 
 
-def emit_qiskit_source(qspec: QSpec) -> str:
+def emit_qiskit_source(
+    qspec: QSpec,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> str:
     """Render a standalone Python program for the given QSpec."""
     pattern_node = _first_pattern(qspec)
     measure_node = _first_measure(qspec)
     needs_math = pattern_node.pattern == "qft"
-    parameter_defaults = _parameter_defaults(qspec)
+    parameter_defaults = _parameter_defaults(qspec, parameter_bindings=parameter_bindings)
 
     imports = [
         "from __future__ import annotations",
@@ -59,20 +63,29 @@ def emit_qiskit_source(qspec: QSpec) -> str:
     return "\n".join(imports + body_lines) + "\n"
 
 
-def write_qiskit_program(qspec: QSpec, output_path: Path) -> Path:
+def write_qiskit_program(
+    qspec: QSpec,
+    output_path: Path,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> Path:
     """Write the emitted Qiskit program to disk."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(emit_qiskit_source(qspec))
+    output_path.write_text(emit_qiskit_source(qspec, parameter_bindings=parameter_bindings))
     return output_path
 
 
-def build_qiskit_circuit(qspec: QSpec) -> QuantumCircuit:
+def build_qiskit_circuit(
+    qspec: QSpec,
+    *,
+    parameter_bindings: dict[str, float] | None = None,
+) -> QuantumCircuit:
     """Build an in-memory Qiskit circuit from QSpec."""
     pattern_node = _first_pattern(qspec)
     measure_node = _first_measure(qspec)
     size = qspec.registers[0].size
     circuit = QuantumCircuit(size, size)
-    parameter_defaults = _parameter_defaults(qspec)
+    parameter_defaults = _parameter_defaults(qspec, parameter_bindings=parameter_bindings)
 
     if pattern_node.pattern == "ghz":
         circuit.h(0)
@@ -106,8 +119,8 @@ def build_qiskit_circuit(qspec: QSpec) -> QuantumCircuit:
         for qubit in range(size):
             circuit.h(qubit)
         for layer in range(layers):
-            gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}", fallback=round(0.4 + (0.05 * layer), 3))
-            beta = _lookup_parameter(parameter_defaults, f"beta_{layer}", fallback=round(0.3 + (0.04 * layer), 3))
+            gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}")
+            beta = _lookup_parameter(parameter_defaults, f"beta_{layer}")
             for left, right in cost_edges:
                 circuit.cx(left, right)
                 circuit.rz(2 * gamma, right)
@@ -214,8 +227,8 @@ def _render_qaoa_ansatz(
     for qubit in range(size):
         lines.append(f"    qc.h({qubit})")
     for layer in range(layers):
-        gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}", fallback=round(0.4 + (0.05 * layer), 3))
-        beta = _lookup_parameter(parameter_defaults, f"beta_{layer}", fallback=round(0.3 + (0.04 * layer), 3))
+        gamma = _lookup_parameter(parameter_defaults, f"gamma_{layer}")
+        beta = _lookup_parameter(parameter_defaults, f"beta_{layer}")
         for left, right in cost_edges:
             lines.append(f"    qc.cx({left}, {right})")
             lines.append(f"    qc.rz({_format_float(2 * gamma)}, {right})")
@@ -225,7 +238,10 @@ def _render_qaoa_ansatz(
     return lines
 
 
-def _parameter_defaults(qspec: QSpec) -> dict[str, float]:
+def _parameter_defaults(
+    qspec: QSpec,
+    parameter_bindings: dict[str, float] | None = None,
+) -> dict[str, float]:
     defaults: dict[str, float] = {}
     for parameter in qspec.parameters:
         name = str(parameter.get("name", "")).strip()
@@ -237,6 +253,8 @@ def _parameter_defaults(qspec: QSpec) -> dict[str, float]:
                 defaults[name] = float(default)
             except ValueError:
                 continue
+    if parameter_bindings:
+        defaults.update({name: float(value) for name, value in parameter_bindings.items()})
     return defaults
 
 
@@ -268,22 +286,13 @@ def _lookup_hea_angle(
     return _lookup_parameter(
         defaults,
         f"theta_{gate}_l{layer}_q{qubit}",
-        fallback=_fallback_hea_angle(gate=gate, layer=layer, qubit=qubit),
     )
 
 
-def _lookup_parameter(defaults: dict[str, float], name: str, *, fallback: float) -> float:
-    return defaults.get(name, fallback)
-
-
-def _fallback_hea_angle(*, gate: str, layer: int, qubit: int) -> float:
-    base_by_gate = {
-        "rx": 0.38,
-        "ry": 0.5,
-        "rz": 0.25,
-    }
-    base = base_by_gate.get(gate, 0.2)
-    return round(base + (0.05 * layer) + (0.02 * qubit), 3)
+def _lookup_parameter(defaults: dict[str, float], name: str) -> float:
+    if name not in defaults:
+        raise ValueError(f"Missing parameter binding for {name}")
+    return defaults[name]
 
 
 def _apply_rotation(circuit: QuantumCircuit, *, gate: str, angle: float, qubit: int) -> None:

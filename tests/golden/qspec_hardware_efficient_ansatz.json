@@ -1,4 +1,5 @@
 {
+  "schema_version": "0.3.0",
   "version": "0.1",
   "program_id": "prog_hardware_efficient_ansatz_3",
   "title": "HEA Pattern Test",
@@ -179,6 +180,165 @@
   "backend_preferences": [
     "qiskit-local"
   ],
+  "runtime": {
+    "workload_id": "hardware_efficient_ansatz:3q:2l",
+    "algorithm_family": "hardware_efficient_ansatz",
+    "problem": {
+      "kind": "hardware_efficient_ansatz",
+      "definition": {
+        "entanglement": "linear",
+        "entanglement_edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    },
+    "parameter_space": {
+      "mode": "static",
+      "parameters": [
+        {
+          "name": "theta_ry_l0_q0",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 0,
+          "qubit": 0,
+          "default": 0.5
+        },
+        {
+          "name": "theta_rz_l0_q0",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 0,
+          "qubit": 0,
+          "default": 0.25
+        },
+        {
+          "name": "theta_ry_l0_q1",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 0,
+          "qubit": 1,
+          "default": 0.52
+        },
+        {
+          "name": "theta_rz_l0_q1",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 0,
+          "qubit": 1,
+          "default": 0.27
+        },
+        {
+          "name": "theta_ry_l0_q2",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 0,
+          "qubit": 2,
+          "default": 0.54
+        },
+        {
+          "name": "theta_rz_l0_q2",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 0,
+          "qubit": 2,
+          "default": 0.29
+        },
+        {
+          "name": "theta_ry_l1_q0",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 1,
+          "qubit": 0,
+          "default": 0.55
+        },
+        {
+          "name": "theta_rz_l1_q0",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 1,
+          "qubit": 0,
+          "default": 0.3
+        },
+        {
+          "name": "theta_ry_l1_q1",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 1,
+          "qubit": 1,
+          "default": 0.57
+        },
+        {
+          "name": "theta_rz_l1_q1",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 1,
+          "qubit": 1,
+          "default": 0.32
+        },
+        {
+          "name": "theta_ry_l1_q2",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "ry",
+          "layer": 1,
+          "qubit": 2,
+          "default": 0.59
+        },
+        {
+          "name": "theta_rz_l1_q2",
+          "kind": "angle",
+          "family": "hardware_efficient_ansatz",
+          "gate": "rz",
+          "layer": 1,
+          "qubit": 2,
+          "default": 0.34
+        }
+      ],
+      "workflow": {}
+    },
+    "objective": {
+      "kind": "state_distribution",
+      "observable": null,
+      "goal": null,
+      "evaluation_method": "measurement_counts"
+    },
+    "export_requirements": {
+      "formats": [
+        "qiskit",
+        "qasm3"
+      ],
+      "profiles": [
+        "qiskit-native",
+        "qasm3-generic"
+      ]
+    },
+    "policy_hints": {
+      "fail_on": [],
+      "compare_expectation": "same-subject",
+      "allow_report_drift": true
+    },
+    "provenance": {
+      "ingress_kind": "intent",
+      "ingress_source": "planner"
+    }
+  },
   "metadata": {
     "source": "intent"
   }

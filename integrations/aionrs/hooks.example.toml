@@ -1,2 +1,2 @@
 [hooks.post_tool_use]
-command = "bash -lc 'if [ -f .quantum/specs/current.json ]; then qrun doctor --workspace .quantum >/dev/null 2>&1 || true; fi'"
+command = "bash -lc 'if [ -f .quantum/specs/current.json ]; then qrun doctor --workspace .quantum --json --ci >/dev/null 2>&1 || true; fi'"

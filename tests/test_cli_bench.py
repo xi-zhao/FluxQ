@@ -16,6 +16,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNNER = CliRunner()
 
 
+def _binding_only_qaoa_qspec():
+    qspec = plan_to_qspec(parse_intent_file(PROJECT_ROOT / "examples" / "intent-qaoa-maxcut.md"))
+    qspec.metadata["parameter_workflow"] = {
+        "mode": "binding",
+        "bindings": {
+            "gamma_0": 0.2,
+            "beta_0": 0.1,
+            "gamma_1": 0.45,
+            "beta_1": 0.35,
+        },
+    }
+    for parameter in qspec.parameters:
+        parameter.pop("default", None)
+    return qspec
+
+
 def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
     tmp_path: Path,
     monkeypatch,
@@ -29,7 +45,7 @@ def test_qrun_bench_json_reads_current_qspec_and_emits_structural_report(
 
     monkeypatch.setattr(
         "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
+        lambda qspec, workspace, backends, **kwargs: BenchmarkReport(
             status="degraded",
             backends={
                 "qiskit-local": BackendBenchmark(
@@ -86,7 +102,7 @@ def test_qrun_bench_json_accepts_report_file_input(
 
     monkeypatch.setattr(
         "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
+        lambda qspec, workspace, backends, **kwargs: BenchmarkReport(
             status="ok",
             backends={
                 "qiskit-local": BackendBenchmark(
@@ -186,7 +202,7 @@ def test_qrun_bench_json_accepts_history_revision_input(
 
     monkeypatch.setattr(
         "quantum_runtime.cli.run_structural_benchmark",
-        lambda qspec, workspace, backends: BenchmarkReport(
+        lambda qspec, workspace, backends, **kwargs: BenchmarkReport(
             status="ok",
             backends={
                 "qiskit-local": BackendBenchmark(
@@ -246,7 +262,12 @@ def test_qrun_bench_json_returns_exit_code_7_when_classiq_is_missing(tmp_path: P
     assert result.exit_code == 7, result.stdout
     payload = json.loads(result.stdout)
     assert payload["status"] == "degraded"
+    assert payload["backends"]["qiskit-local"]["details"]["benchmark_mode"] == "structural_only"
+    assert payload["backends"]["qiskit-local"]["details"]["comparable"] is False
     assert payload["backends"]["classiq"]["status"] == "dependency_missing"
+    assert payload["backends"]["classiq"]["details"]["benchmark_mode"] == "unavailable"
+    assert payload["backends"]["classiq"]["details"]["comparable"] is False
+    assert payload["backends"]["classiq"]["details"]["fallback_reason"] == "classiq_not_installed"
     assert payload["subject"]["pattern"] == "ghz"
     assert payload["subject"]["parameter_count"] == 0
 
@@ -315,3 +336,82 @@ def test_qrun_bench_json_returns_exit_code_3_for_invalid_report_input(tmp_path: 
     payload = json.loads(result.stdout)
     assert payload["status"] == "error"
     assert payload["reason"] == "report_qspec_path_missing"
+
+
+def test_qrun_bench_json_defaults_to_qiskit_local_for_qiskit_only_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / ".quantum"
+
+    exec_result = RUNNER.invoke(
+        app,
+        [
+            "exec",
+            "--workspace",
+            str(workspace),
+            "--intent-file",
+            str(PROJECT_ROOT / "examples" / "intent-ghz.md"),
+            "--json",
+        ],
+    )
+    assert exec_result.exit_code == 0, exec_result.stdout
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(workspace),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert set(payload["backends"]) == {"qiskit-local"}
+
+
+def test_qrun_bench_json_accepts_binding_only_parameter_workflow_qspec(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    qspec = _binding_only_qaoa_qspec()
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--backends",
+            "qiskit-local",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert payload["backends"]["qiskit-local"]["depth"] > 0
+    assert payload["backends"]["qiskit-local"]["two_qubit_gates"] == 16
+
+
+def test_qrun_bench_json_defaults_include_requested_classiq_backend(tmp_path: Path) -> None:
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+    (handle.root / "specs" / "current.json").write_text(qspec.model_dump_json(indent=2))
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "bench",
+            "--workspace",
+            str(handle.root),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 7, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["backends"]["qiskit-local"]["status"] == "ok"
+    assert payload["backends"]["classiq"]["status"] == "dependency_missing"

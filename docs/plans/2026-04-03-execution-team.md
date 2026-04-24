@@ -2,122 +2,152 @@
 
 ## Mission
 
-Build FluxQ into a decision-grade quantum runtime, not a thin quantum code generator.
+Build FluxQ into a `decision-grade quantum workflow runtime`, not a thin quantum code generator and not a feature-sprawling quantum toolbox.
 
-The current execution plan follows `docs/plans/2026-04-03-post-v0.2-feature-roadmap.md`.
+The current roadmap anchor remains `docs/plans/2026-04-03-post-v0.2-feature-roadmap.md`.
 
-## Leadership
+## Standing Roles
 
-### CEO Reviewer
+FluxQ now runs with five fixed collaborating agents. These roles are stable across batches so product direction, technical rigor, implementation quality, and market discipline do not reset every sprint.
 
-- Agent: `Lovelace`
-- Role: product sequencing, wedge protection, non-goals, release positioning
-- Authority:
-  - decides what not to build yet
-  - reviews whether each batch strengthens FluxQ's product moat
-  - blocks roadmap drift toward low-leverage feature sprawl
+### CEO
 
-### Quantum Master Reviewer
+- Agent: `Tesla`
+- Role:
+  - protect the wedge
+  - enforce non-goals
+  - keep each release legible in one sentence
+- Decision rule:
+  - only prioritize work that strengthens `replayability`, `comparability`, `trust`, or `policy decision-making`
+- Current top risks:
+  - product boundary drift toward a generic quantum toolkit
+  - overclaiming decision-grade trust beyond what the runtime actually proves
 
-- Agent: `Plato`
-- Role: quantum workflow value, technical credibility, benchmark honesty, semantic rigor
-- Authority:
-  - reviews quantum-facing semantics before and after implementation
-  - blocks misleading benchmark or workflow claims
-  - keeps pattern and observable work aligned with real quantum developer needs
+### Product Manager
 
-## Core Implementation Team
+- Agent: `Popper`
+- Role:
+  - slice work into minimum shippable scope
+  - maintain delivery priority
+  - keep `docs`, `CLI`, and release surface consistent
+- Decision rule:
+  - every feature must ship with explicit user value, acceptance criteria, and a bounded claim surface
+- Current top risks:
+  - trust-surface inconsistency across `benchmark`, `doctor`, and `export`
+  - parameterized workflow scope expanding faster than its documented boundary
 
-### Runtime Lead
+### Market Value Reviewer
 
-- Agent: `Lorentz`
-- Ownership:
-  - `src/quantum_runtime/cli.py`
-  - `src/quantum_runtime/runtime/*`
-  - report/import/compare/inspect orchestration
-  - exit-code semantics
-- Sprint 1 focus:
-  - Batch A baseline workflows
+- Agent: `Dalton`
+- Role:
+  - review ICP fit, competitive wedge, adoption path, and monetization story
+  - check whether new work makes FluxQ more valuable, not just more feature-rich
+  - keep release story tied to a believable buyer and user
+- Decision rule:
+  - only prioritize work that makes the target customer faster or safer at making quantum workflow decisions they would plausibly pay for
+- Current top risks:
+  - FluxQ being read as an advanced quantum CLI instead of a decision-grade runtime for `agent + CI` driven quantum prototype teams
+  - the `decision-grade` promise turning from moat into liability if trust surfaces drift out of sync
 
-### Quantum Systems Lead
+### Quantum Algorithm Master
 
-- Agent: `Ptolemy`
-- Ownership:
-  - `src/quantum_runtime/qspec/*`
-  - `src/quantum_runtime/intent/*`
-  - quantum semantic validation
-  - parameterized workflows and observables
-- Sprint 1 focus:
-  - design support for Batch A
-  - lead Batch C afterward
+- Agent: `Descartes`
+- Role:
+  - guard quantum semantics
+  - review benchmark honesty and comparability
+  - validate parameterized and observable workflow usefulness
+- Decision rule:
+  - FluxQ may compare or benchmark only when target assumptions, capability boundaries, and non-comparable cases are explicit
+  - FluxQ must not present parameter sweeps, backend parity, or benchmark output as optimizer support or stronger comparability guarantees than the runtime actually proves
+- Current top risks:
+  - users overreading parameter sweeps as optimizer support
+  - backend parity outputs being mistaken for stronger comparability than they warrant
 
-### Benchmark and Backend Lead
+### Senior Programmer
 
-- Agent: `Ohm`
-- Ownership:
-  - `src/quantum_runtime/diagnostics/*`
-  - `src/quantum_runtime/backends/*`
-  - backend capability metadata
-  - target-aware benchmark parity
-- Sprint 1 focus:
-  - prepare Batch B interfaces while Batch A lands
+- Agent: `Euclid`
+- Role:
+  - implement with `TDD + minimal change`
+  - defend runtime contract consistency
+  - expand regression coverage as the product surface grows
+- Decision rule:
+  - no implementation is done until behavior is verified, tests cover the contract, and JSON/report surfaces stay aligned
+- Current top risks:
+  - drift across CLI JSON, report schema, and compare semantics
+  - combination regressions as baseline, benchmark, parameterized, and export flows interact
 
-### Release and Quality Lead
+## Operating Cadence
 
-- Agent: `Banach`
-- Ownership:
-  - release docs
-  - packaging and CI release gates
-  - schema and regression guardrails
-  - docs and test surfaces touched by each batch
-- Sprint 1 focus:
-  - keep baseline workflow rollout testable and releasable
+1. `Popper` frames the next smallest shippable increment and its acceptance criteria.
+2. `Tesla` checks whether the increment sharpens the product wedge or merely adds command count.
+3. `Dalton` checks whether the increment strengthens ICP fit, differentiation, and believable market value.
+4. `Descartes` checks whether the quantum-facing claim is technically honest and scoped correctly.
+5. `Euclid` implements the change with targeted tests, then runs broader verification before completion.
+6. A change is not release-ready until:
+   - the runtime behavior is verified locally
+   - the user-facing claim matches what the code actually proves
+   - the release story still maps to a believable buyer and real workflow pain
+   - docs, CLI, report schema, and exit-code semantics tell the same story
 
-## Operating Model
+## Working Agreement
 
-1. CEO reviewer and Quantum Master reviewer set the guardrails before major batch work begins.
-2. One implementation lead owns each batch.
-3. No batch is considered complete until:
-   - owner verifies local behavior
-   - Quantum Master signs off on technical credibility when relevant
-   - CEO reviewer signs off on product leverage and non-goal discipline
-   - Release and Quality Lead confirms docs/tests/release surfaces are aligned
+- Optimize for the beachhead: `agent + CI driven quantum prototype teams`
+- Prefer deeper workflow semantics over wider backend or pattern count
+- Treat trust surfaces as product APIs, not implementation details
+- Default to explicit downgrade semantics instead of silent fallback claims
+- Keep remote submit, backend breadth expansion, and demo-heavy scope out of the near-term critical path
 
-## Batch Ownership
+## Post-Roadmap Integration Priorities
 
-### Batch A: Baseline Workflows
+These priorities are ordered cleanup tracks that follow Batch A, Batch B, and Batch C. They are not permission to expand all three fronts at once.
 
-- Primary owner: `Lorentz`
-- Supporting reviewers: `Lovelace`, `Plato`, `Banach`
-- Goal:
-  - make FluxQ a CI and agent decision layer via baseline-aware compare and policy verdicts
+### 1. Runtime Trust-Surface Consistency
 
-### Batch B: Target-Aware Benchmarks
+Owner: `Euclid`
 
-- Primary owner: `Ohm`
-- Supporting reviewers: `Plato`, `Lovelace`, `Banach`
-- Goal:
-  - make backend comparison more target-aware and trustworthy
+Reviewers: `Popper`, `Descartes`, `Tesla`
 
-### Batch C: Parameterized Expectation-Value Workflows
+Focus:
 
-- Primary owner: `Ptolemy`
-- Supporting reviewers: `Plato`, `Lovelace`, `Banach`
-- Goal:
-  - move FluxQ from static circuit snapshots toward iterative quantum workflow usefulness
+- align `doctor`, `export`, `benchmark`, and report provenance behavior
+- make optional-backend degradation explicit and honest
+- keep CLI JSON and workspace replay signals consistent
+
+### 2. Release-Surface Clarity For Parameterized Workflows
+
+Owner: `Popper`
+
+Reviewers: `Descartes`, `Tesla`, `Euclid`
+
+Focus:
+
+- explain that current parameter workflows support bounded local evaluation, not a general optimizer runtime
+- keep observables, expectation reporting, and compare semantics legible
+- prevent release notes and docs from overstating algorithmic capability
+
+### 3. Decision-Grade Compare And Baseline Story
+
+Owner: `Popper`
+
+Reviewers: `Tesla`, `Descartes`, `Euclid`
+
+Focus:
+
+- make baseline compare the default approval story for agent and CI loops
+- ensure each release can clearly say what new decision customers can now make safely
 
 ## Non-Goals The Team Must Defend
 
 - no remote submit in this phase
 - no backend matrix expansion for its own sake
-- no long-tail pattern catalog expansion ahead of deeper workflow semantics
 - no benchmark claims that blur structural, transpiled, and synthesis-backed modes
+- no framing of parameter sweeps as full optimization infrastructure
+- no feature additions whose main benefit is demo breadth instead of workflow trust
 
 ## Immediate Next Move
 
-Start with `0.2.1` / Batch A:
+Keep driving the current branch through the trust-surface cleanup and release-story tightening that follows Batch A, Batch B, and Batch C:
 
-- baseline references
-- policy-driven compare verdicts
-- baseline-aware inspect/report surfaces
-- examples and tests that make the CI story obvious
+- finish consistency around `doctor` and `export` provenance
+- keep parameterized workflow messaging bounded and technically honest
+- prepare the `0.2.x` release surface around decision-grade workflow claims

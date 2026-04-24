@@ -16,10 +16,12 @@ from quantum_runtime.artifact_provenance import (
     select_accessible_artifact_paths,
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
-from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
+from quantum_runtime.runtime.run_manifest import RunManifestIntegrityError, load_run_manifest
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, WorkspacePaths
 
 
 ImportSourceKind = Literal["workspace_current", "report_file", "report_revision"]
+_REVISION_PATTERN = re.compile(r"rev_\d{6}")
 
 
 class ImportSourceError(ValueError):
@@ -78,6 +80,25 @@ class ImportResolution(BaseModel):
         return json.loads(self.report_path.read_text())
 
 
+class WorkspaceBaselineResolution(BaseModel):
+    """Resolved workspace baseline plus its underlying runtime input."""
+
+    record_path: Path
+    record: WorkspaceBaseline
+    resolution: ImportResolution
+
+
+def validate_revision(revision: str, *, source: str | None = None) -> str:
+    """Validate one immutable revision identifier."""
+    if not _REVISION_PATTERN.fullmatch(revision):
+        raise ImportSourceError(
+            "invalid_revision",
+            source=source or revision,
+            details={"expected_pattern": "rev_000001"},
+        )
+    return revision
+
+
 def resolve_import_reference(reference: ImportReference) -> ImportResolution:
     """Resolve the best matching import source from a generic request."""
     if reference.report_file is not None and reference.revision is not None:
@@ -114,7 +135,11 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
     workspace_json = paths.workspace_json
 
     manifest = _load_manifest(workspace_json)
-    report_path = workspace_root / manifest.active_report
+    report_path, report_resolution_source = _resolve_workspace_current_report_path(
+        workspace_root=workspace_root,
+        manifest=manifest,
+    )
+    prefer_history = manifest.current_revision != "rev_000000"
 
     report_payload = _load_json_file(
         report_path,
@@ -130,7 +155,12 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         provenance=report_payload.get("provenance"),
         source=str(report_path),
     )
-    qspec_path = (workspace_root / manifest.active_spec).resolve()
+    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
+        report_path=report_path,
+        report_payload=report_payload,
+        workspace_root=workspace_root,
+        prefer_history=prefer_history,
+    )
     qspec = _load_qspec_file(
         qspec_path,
         missing_code="current_qspec_missing",
@@ -149,7 +179,54 @@ def resolve_workspace_current(workspace_root: Path) -> ImportResolution:
         qspec_path=qspec_path,
         report_payload=report_payload,
         qspec=qspec,
-        provenance={"workspace_source": "manifest"},
+        provenance={
+            "workspace_source": "manifest",
+            "report_resolution_source": report_resolution_source,
+            "qspec_resolution_source": qspec_resolution_source,
+        },
+    )
+
+
+def resolve_workspace_baseline(workspace_root: Path) -> WorkspaceBaselineResolution:
+    """Resolve the persisted workspace baseline into a runtime input."""
+    paths = WorkspacePaths(root=workspace_root)
+    record_path = paths.baseline_current_json.resolve()
+    if not record_path.exists():
+        raise ImportSourceError(
+            "baseline_missing",
+            source=str(record_path),
+        )
+
+    try:
+        record = WorkspaceBaseline.load(record_path)
+    except ValidationError as exc:
+        raise ImportSourceError(
+            "baseline_invalid",
+            source=str(record_path),
+            details={"errors": exc.errors()},
+        ) from exc
+
+    resolution = resolve_report_file(
+        Path(record.report_path),
+        workspace_root=Path(record.workspace_root),
+    )
+    mismatches: list[str] = []
+    if resolution.revision != record.revision:
+        mismatches.append("revision")
+    if resolution.report_hash != record.report_hash:
+        mismatches.append("report_hash")
+    if resolution.qspec_hash != record.qspec_hash:
+        mismatches.append("qspec_hash")
+    if mismatches:
+        raise ImportSourceError(
+            "baseline_integrity_invalid",
+            source=str(record_path),
+            details={"mismatches": mismatches},
+        )
+    return WorkspaceBaselineResolution(
+        record_path=record_path,
+        record=record,
+        resolution=resolution,
     )
 
 
@@ -163,66 +240,48 @@ def resolve_report_file(report_file: Path, *, workspace_root: Path | None = None
         invalid_payload_code="report_file_invalid_payload",
         source=str(report_path),
     )
-    inferred_root, workspace_source = _resolve_report_workspace_root(
+    candidates = _resolve_report_workspace_candidates(
         report_path=report_path,
         report_payload=report_payload,
         workspace_root=workspace_root,
     )
-    if inferred_root is None or workspace_source is None:
+    if not candidates:
         raise ImportSourceError(
             "workspace_root_required_for_report_file",
             source=str(report_path),
         )
 
-    workspace_root_path = inferred_root.resolve()
-    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
-        report_path=report_path,
-        report_payload=report_payload,
-        workspace_root=workspace_root_path,
-        prefer_history=report_path.parent.name == "history",
-    )
-    _extract_artifact_provenance(
-        workspace_root=workspace_root_path,
-        revision=_report_revision(report_payload, fallback=report_path.stem),
-        artifacts=report_payload.get("artifacts"),
-        provenance=report_payload.get("provenance"),
-        source=str(report_path),
-    )
-    qspec = _load_qspec_file(
-        qspec_path,
-        missing_code="report_qspec_missing",
-        invalid_json_code="report_qspec_invalid_json",
-        source=str(qspec_path),
-    )
-    manifest = _load_manifest(workspace_root_path / "workspace.json")
+    last_error: ImportSourceError | None = None
+    for candidate_root, workspace_source, relocated in candidates:
+        try:
+            candidate_payload = (
+                _relocate_report_payload_for_workspace(
+                    report_payload=report_payload,
+                    workspace_root=candidate_root,
+                    revision=_report_revision(report_payload, fallback=report_path.stem),
+                )
+                if relocated
+                else report_payload
+            )
+            return _resolve_report_file_against_workspace(
+                report_path=report_path,
+                report_payload=candidate_payload,
+                workspace_root=candidate_root,
+                workspace_source=workspace_source,
+            )
+        except ImportSourceError as exc:
+            last_error = exc
+            if exc.code not in _report_resolution_retryable_codes():
+                raise
+            continue
 
-    return _build_resolution(
-        source_kind="report_file",
-        source=f"report_file:{report_path}",
-        workspace_root=workspace_root_path,
-        workspace_manifest_path=workspace_root_path / "workspace.json",
-        workspace_project_id=manifest.project_id,
-        revision=_report_revision(report_payload, fallback=report_path.stem),
-        report_path=report_path,
-        qspec_path=qspec_path,
-        report_payload=report_payload,
-        qspec=qspec,
-        provenance={
-            "workspace_source": workspace_source,
-            "qspec_resolution_source": qspec_resolution_source,
-        },
-    )
+    assert last_error is not None
+    raise last_error
 
 
 def resolve_report_revision(workspace_root: Path, revision: str) -> ImportResolution:
     """Resolve a report history revision inside a workspace."""
-    if not re.fullmatch(r"rev_\d{6}", revision):
-        raise ImportSourceError(
-            "invalid_revision",
-            source=revision,
-            details={"expected_pattern": "rev_000001"},
-        )
-
+    revision = validate_revision(revision, source=revision)
     paths = WorkspacePaths(root=workspace_root)
     workspace_root = paths.root.resolve()
     workspace_json = paths.workspace_json
@@ -312,6 +371,21 @@ def _build_resolution(
     report_summary["replay_integrity_warnings"] = replay_integrity["warnings"]
     report_summary["replay_integrity_missing_artifacts"] = replay_integrity["missing_artifacts"]
     report_summary["replay_integrity_mismatched_artifacts"] = replay_integrity["mismatched_artifacts"]
+    paths = WorkspacePaths(root=workspace_root)
+    expected_qspec_history_path = paths.root / "specs" / "history" / f"{revision}.json"
+    expected_report_history_path = paths.root / "reports" / "history" / f"{revision}.json"
+    manifest_payload = _load_run_manifest_if_present(
+        workspace_root=workspace_root,
+        revision=revision,
+        expected_qspec_path=expected_qspec_history_path,
+        expected_report_path=expected_report_history_path,
+        source=str(paths.manifest_history_json(revision)),
+    )
+    report_summary["manifest_path"] = (
+        str(paths.manifest_history_json(revision))
+        if manifest_payload is not None
+        else None
+    )
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     input_mode = input_block.get("mode") if isinstance(input_block, dict) else None
     input_path = input_block.get("path") if isinstance(input_block, dict) else None
@@ -346,10 +420,147 @@ def _build_resolution(
             "report_hash": report_hash,
             "qspec_hash": qspec_hash,
             "revision": revision,
+            "run_manifest_path": report_summary.get("manifest_path"),
             "artifacts": artifact_provenance,
             "replay_integrity": replay_integrity,
         },
     )
+
+
+def _resolve_report_file_against_workspace(
+    *,
+    report_path: Path,
+    report_payload: dict[str, Any],
+    workspace_root: Path,
+    workspace_source: str,
+) -> ImportResolution:
+    workspace_root_path = workspace_root.resolve()
+    qspec_path, qspec_resolution_source = _resolve_qspec_path_from_report(
+        report_path=report_path,
+        report_payload=report_payload,
+        workspace_root=workspace_root_path,
+        prefer_history=report_path.parent.name == "history",
+    )
+    _extract_artifact_provenance(
+        workspace_root=workspace_root_path,
+        revision=_report_revision(report_payload, fallback=report_path.stem),
+        artifacts=report_payload.get("artifacts"),
+        provenance=report_payload.get("provenance"),
+        source=str(report_path),
+    )
+    qspec = _load_qspec_file(
+        qspec_path,
+        missing_code="report_qspec_missing",
+        invalid_json_code="report_qspec_invalid_json",
+        source=str(qspec_path),
+    )
+    manifest = _load_manifest(workspace_root_path / "workspace.json")
+
+    return _build_resolution(
+        source_kind="report_file",
+        source=f"report_file:{report_path}",
+        workspace_root=workspace_root_path,
+        workspace_manifest_path=workspace_root_path / "workspace.json",
+        workspace_project_id=manifest.project_id,
+        revision=_report_revision(report_payload, fallback=report_path.stem),
+        report_path=report_path,
+        qspec_path=qspec_path,
+        report_payload=report_payload,
+        qspec=qspec,
+        provenance={
+            "workspace_source": workspace_source,
+            "qspec_resolution_source": qspec_resolution_source,
+        },
+    )
+
+
+def _load_run_manifest_if_present(
+    *,
+    workspace_root: Path,
+    revision: str,
+    expected_qspec_path: Path,
+    expected_report_path: Path,
+    source: str,
+) -> dict[str, Any] | None:
+    try:
+        return load_run_manifest(
+            workspace_root=workspace_root,
+            revision=revision,
+            expected_qspec_path=expected_qspec_path,
+            expected_report_path=expected_report_path,
+        )
+    except RunManifestIntegrityError as exc:
+        raise ImportSourceError(
+            "run_manifest_integrity_invalid",
+            source=source,
+            details=exc.details or {"mismatches": exc.mismatches},
+        ) from exc
+    except (ValidationError, json.JSONDecodeError, ValueError) as exc:
+        raise ImportSourceError(
+            "run_manifest_invalid",
+            source=source,
+            details={"error": str(exc)},
+        ) from exc
+
+
+def _resolve_workspace_current_report_path(
+    *,
+    workspace_root: Path,
+    manifest: WorkspaceManifest,
+) -> tuple[Path, str]:
+    active_report_path = (workspace_root / manifest.active_report).resolve()
+    if manifest.current_revision != "rev_000000":
+        history_report_path = workspace_root / "reports" / "history" / f"{manifest.current_revision}.json"
+        if history_report_path.exists():
+            return history_report_path.resolve(), "workspace_history"
+    return active_report_path, "workspace_manifest_alias"
+
+
+def _relocate_report_payload_for_workspace(
+    *,
+    report_payload: dict[str, Any],
+    workspace_root: Path,
+    revision: str,
+) -> dict[str, Any]:
+    relocated = json.loads(json.dumps(report_payload))
+    normalized_root = Path(workspace_root).resolve()
+
+    qspec_block = relocated.get("qspec")
+    if not isinstance(qspec_block, dict):
+        qspec_block = {}
+        relocated["qspec"] = qspec_block
+    qspec_block["path"] = str(normalized_root / "specs" / "history" / f"{revision}.json")
+
+    artifacts = relocated.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    relocated_artifacts = dict(artifacts)
+    relocated_artifacts["qspec"] = str(normalized_root / "specs" / "history" / f"{revision}.json")
+    relocated_artifacts["report"] = str(normalized_root / "reports" / "history" / f"{revision}.json")
+
+    artifact_mapping = {
+        "qiskit_code": normalized_root / "artifacts" / "history" / revision / "qiskit" / "main.py",
+        "qasm3": normalized_root / "artifacts" / "history" / revision / "qasm" / "main.qasm",
+        "classiq_code": normalized_root / "artifacts" / "history" / revision / "classiq" / "main.py",
+        "classiq_results": normalized_root / "artifacts" / "history" / revision / "classiq" / "synthesis.json",
+        "diagram_txt": normalized_root / "artifacts" / "history" / revision / "figures" / "circuit.txt",
+        "diagram_png": normalized_root / "artifacts" / "history" / revision / "figures" / "circuit.png",
+    }
+    for artifact_name, candidate_path in artifact_mapping.items():
+        if artifact_name in relocated_artifacts:
+            relocated_artifacts[artifact_name] = str(candidate_path)
+    relocated["artifacts"] = relocated_artifacts
+
+    provenance = relocated.get("provenance")
+    if not isinstance(provenance, dict):
+        provenance = {}
+    else:
+        provenance = dict(provenance)
+    provenance["workspace_root"] = str(normalized_root)
+    provenance.pop("artifacts", None)
+    relocated["provenance"] = provenance
+
+    return relocated
 
 
 def _extract_artifact_provenance(
@@ -415,13 +626,16 @@ def _evaluate_replay_integrity(
         )
 
     stored_digests = replay_block.get("artifact_output_digests") if isinstance(replay_block, dict) else None
-    artifact_output_digests = _string_mapping(stored_digests)
+    artifact_output_digests = {
+        name: expected_digest
+        for name, expected_digest in _string_mapping(stored_digests).items()
+        if expected_digest is not None
+    }
+    trust_level: Literal["trusted", "legacy"] = "trusted" if artifact_output_digests else "legacy"
     verified_artifacts: list[str] = []
     missing_artifacts: list[str] = []
     mismatched_artifacts: list[str] = []
     for name, expected_digest in sorted(artifact_output_digests.items()):
-        if expected_digest is None:
-            continue
         raw_path = resolved_artifacts.get(name)
         if raw_path is None:
             missing_artifacts.append(name)
@@ -436,29 +650,85 @@ def _evaluate_replay_integrity(
             continue
         verified_artifacts.append(name)
 
-    warnings: list[str] = []
-    if not artifact_output_digests:
-        warnings.append("artifact_output_digests_missing")
     if missing_artifacts:
-        warnings.append("artifact_outputs_missing")
+        raise ImportSourceError(
+            "artifact_outputs_missing",
+            source=str(report_path),
+            details=_replay_integrity_payload(
+                status="ok",
+                trust_level=trust_level,
+                qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+                qspec_semantic_hash_matches=(
+                    expected_semantic_hash is None
+                    or actual_semantic_hash is None
+                    or actual_semantic_hash == expected_semantic_hash
+                ),
+                artifact_digests_present=bool(artifact_output_digests),
+                verified_artifacts=verified_artifacts,
+                missing_artifacts=missing_artifacts,
+                mismatched_artifacts=mismatched_artifacts,
+                warnings=["artifact_outputs_missing"],
+            ),
+        )
     if mismatched_artifacts:
-        warnings.append("artifact_outputs_mismatched")
+        raise ImportSourceError(
+            "artifact_outputs_mismatched",
+            source=str(report_path),
+            details=_replay_integrity_payload(
+                status="ok",
+                trust_level=trust_level,
+                qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+                qspec_semantic_hash_matches=(
+                    expected_semantic_hash is None
+                    or actual_semantic_hash is None
+                    or actual_semantic_hash == expected_semantic_hash
+                ),
+                artifact_digests_present=bool(artifact_output_digests),
+                verified_artifacts=verified_artifacts,
+                missing_artifacts=missing_artifacts,
+                mismatched_artifacts=mismatched_artifacts,
+                warnings=["artifact_outputs_mismatched"],
+            ),
+        )
 
-    status: Literal["ok", "legacy", "degraded"]
-    if warnings:
-        status = "legacy" if warnings == ["artifact_output_digests_missing"] else "degraded"
-    else:
-        status = "ok"
+    status: Literal["ok", "legacy"] = "legacy" if trust_level == "legacy" else "ok"
+    warnings = ["artifact_output_digests_missing"] if trust_level == "legacy" else []
 
-    return {
-        "status": status,
-        "qspec_hash_matches": expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
-        "qspec_semantic_hash_matches": (
+    return _replay_integrity_payload(
+        status=status,
+        trust_level=trust_level,
+        qspec_hash_matches=expected_qspec_hash is None or qspec_hash == expected_qspec_hash,
+        qspec_semantic_hash_matches=(
             expected_semantic_hash is None
             or actual_semantic_hash is None
             or actual_semantic_hash == expected_semantic_hash
         ),
-        "artifact_digests_present": bool(artifact_output_digests),
+        artifact_digests_present=bool(artifact_output_digests),
+        verified_artifacts=verified_artifacts,
+        missing_artifacts=missing_artifacts,
+        mismatched_artifacts=mismatched_artifacts,
+        warnings=warnings,
+    )
+
+
+def _replay_integrity_payload(
+    *,
+    status: str,
+    trust_level: str,
+    qspec_hash_matches: bool,
+    qspec_semantic_hash_matches: bool,
+    artifact_digests_present: bool,
+    verified_artifacts: list[str],
+    missing_artifacts: list[str],
+    mismatched_artifacts: list[str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "trust_level": trust_level,
+        "qspec_hash_matches": qspec_hash_matches,
+        "qspec_semantic_hash_matches": qspec_semantic_hash_matches,
+        "artifact_digests_present": artifact_digests_present,
         "verified_artifacts": verified_artifacts,
         "missing_artifacts": missing_artifacts,
         "mismatched_artifacts": mismatched_artifacts,
@@ -599,24 +869,46 @@ def _infer_workspace_root_from_report_path(report_path: Path) -> Path | None:
     return None
 
 
-def _resolve_report_workspace_root(
+def _resolve_report_workspace_candidates(
     *,
     report_path: Path,
     report_payload: dict[str, Any],
     workspace_root: Path | None,
-) -> tuple[Path | None, str | None]:
+) -> list[tuple[Path, str, bool]]:
+    candidates: list[tuple[Path, str, bool]] = []
+    seen: set[tuple[Path, bool]] = set()
+
+    def add_candidate(path: Path | None, source: str | None, relocated: bool = False) -> None:
+        if path is None or source is None:
+            return
+        resolved = Path(path).resolve()
+        key = (resolved, relocated)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append((resolved, source, relocated))
+
     payload_root, payload_source = _infer_workspace_root_from_report_payload(report_payload)
-    if payload_root is not None and payload_source is not None:
-        return payload_root, payload_source
+    add_candidate(payload_root, payload_source)
 
     path_root = _infer_workspace_root_from_report_path(report_path)
-    if path_root is not None:
-        return path_root, "inferred_from_report_path"
+    add_candidate(path_root, "inferred_from_report_path" if path_root is not None else None)
 
     if workspace_root is not None:
-        return Path(workspace_root), "workspace_option"
+        explicit_root = Path(workspace_root)
+        add_candidate(explicit_root, "workspace_option")
+        add_candidate(explicit_root, "workspace_option_relocated_report", relocated=True)
 
-    return None, None
+    return candidates
+
+
+def _report_resolution_retryable_codes() -> set[str]:
+    return {
+        "workspace_manifest_missing",
+        "workspace_manifest_invalid",
+        "report_qspec_missing",
+        "artifact_provenance_invalid",
+    }
 
 
 def _infer_workspace_root_from_report_payload(report_payload: dict[str, Any]) -> tuple[Path | None, str | None]:
@@ -704,8 +996,19 @@ def _summarize_report(
     input_block = report_payload.get("input") if isinstance(report_payload, dict) else {}
     diagnostics = report_payload.get("diagnostics") if isinstance(report_payload, dict) else {}
     simulation = diagnostics.get("simulation") if isinstance(diagnostics, dict) else {}
+    exports = diagnostics.get("exports") if isinstance(diagnostics, dict) else {}
     transpile = diagnostics.get("transpile") if isinstance(diagnostics, dict) else {}
     resources = diagnostics.get("resources") if isinstance(diagnostics, dict) else {}
+    representative_expectations = _summarize_expectation_values(
+        simulation.get("expectation_values") if isinstance(simulation, dict) else None
+    )
+    best_point = _summarize_best_point(
+        simulation.get("best_point") if isinstance(simulation, dict) else None
+    )
+    representative_bindings = _float_mapping(
+        simulation.get("representative_bindings") if isinstance(simulation, dict) else None
+    )
+    export_bindings = _float_mapping(exports.get("bindings") if isinstance(exports, dict) else None)
 
     artifact_outputs = _summarize_artifact_outputs(resolved_artifacts)
     artifact_paths = artifact_provenance.get("paths", {})
@@ -725,6 +1028,19 @@ def _summarize_report(
         if isinstance(backend_reports, dict)
         else {},
         "simulation_status": simulation.get("status") if isinstance(simulation, dict) else None,
+        "parameter_mode": simulation.get("parameter_mode") if isinstance(simulation, dict) else None,
+        "representative_point_label": (
+            simulation.get("representative_point_label") if isinstance(simulation, dict) else None
+        ),
+        "representative_bindings": representative_bindings,
+        "representative_bindings_hash": _hash_payload(representative_bindings),
+        "representative_expectations": representative_expectations,
+        "representative_expectations_hash": _hash_payload(representative_expectations),
+        "best_point": best_point,
+        "best_point_hash": _hash_payload(best_point),
+        "export_point_label": exports.get("point_label") if isinstance(exports, dict) else None,
+        "export_parameter_mode": exports.get("parameter_mode") if isinstance(exports, dict) else None,
+        "export_bindings_hash": _hash_payload(export_bindings),
         "transpile_status": transpile.get("status") if isinstance(transpile, dict) else None,
         "resource_summary": {
             key: resources.get(key)
@@ -760,10 +1076,14 @@ def _summarize_qspec(qspec: QSpec) -> dict[str, Any]:
         "width": semantics["width"],
         "layers": semantics["layers"],
         "parameter_count": semantics["parameter_count"],
+        "observable_count": semantics["observable_count"],
         "workload_hash": semantics["workload_hash"],
         "execution_hash": semantics["execution_hash"],
         "semantic_hash": semantics["semantic_hash"],
         "pattern_args": semantics["pattern_args"],
+        "observables": semantics["observables"],
+        "parameter_workflow_mode": semantics["parameter_workflow_mode"],
+        "parameter_workflow": semantics["parameter_workflow"],
         "registers": {
             "qubits": qspec.registers[0].size,
             "cbits": qspec.registers[1].size,
@@ -811,7 +1131,56 @@ def _summarize_artifact_outputs(resolved_artifacts: dict[str, str]) -> dict[str,
     }
 
 
-def _hash_payload(payload: dict[str, Any]) -> str:
+def _summarize_expectation_values(value: object) -> dict[str, float]:
+    if not isinstance(value, list):
+        return {}
+    summary: dict[str, float] = {}
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name", "")).strip()
+        if not name:
+            continue
+        raw_value = entry.get("value")
+        if raw_value is None:
+            continue
+        try:
+            summary[name] = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+    return summary
+
+
+def _summarize_best_point(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    summary: dict[str, Any] = {}
+    for key in ("label", "objective_observable", "objective"):
+        raw = value.get(key)
+        if raw is not None:
+            summary[key] = str(raw)
+    raw_objective_value = value.get("objective_value")
+    if raw_objective_value is not None:
+        try:
+            summary["objective_value"] = float(raw_objective_value)
+        except (TypeError, ValueError):
+            pass
+    return summary or None
+
+
+def _float_mapping(value: object) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    summary: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            summary[str(key)] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return summary
+
+
+def _hash_payload(payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"

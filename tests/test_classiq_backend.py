@@ -74,7 +74,10 @@ def test_run_classiq_backend_synthesizes_with_fake_sdk(
         "two_qubit_gates": 3,
         "measure_count": 4,
     }
-    assert report.warnings == ["synthetic warning"]
+    assert report.warnings == [
+        "synthetic warning",
+        "Unsupported target constraints were ignored by the Classiq backend.",
+    ]
     assert json.loads(report.results_path.read_text()) == {
         "program_id": "fake-program",
         "warnings": ["synthetic warning"],
@@ -85,10 +88,48 @@ def test_run_classiq_backend_synthesizes_with_fake_sdk(
     }
     assert report.details["synthesis_source"].endswith("synthesis.json")
     assert report.details["synthesis_metrics"] == report.synthesis_metrics
+    assert report.details["target_assumptions"]["applied_constraints"] == {"max_width": 4}
+    assert report.details["target_assumptions"]["applied_preferences"] == {
+        "optimization_level": 1,
+        "backend_service_provider": "fake-cloud",
+        "backend_name": "fake-backend",
+    }
+    assert report.details["target_assumptions"]["unsupported_constraints"] == ["max_depth"]
     assert fake_classiq.last_constraints.max_width == 4
     assert fake_classiq.last_preferences.backend_service_provider == "fake-cloud"
     assert fake_classiq.last_preferences.backend_name == "fake-backend"
     assert fake_classiq.last_preferences.optimization_level == 1
+
+
+def test_run_classiq_backend_surfaces_unsupported_target_constraints(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    intent = parse_intent_file(PROJECT_ROOT / "examples" / "intent-ghz.md")
+    qspec = plan_to_qspec(intent)
+    qspec.backend_preferences.append("classiq")
+    qspec.constraints.max_width = 4
+    qspec.constraints.max_depth = 32
+    qspec.constraints.basis_gates = ["h", "cx", "measure"]
+    qspec.constraints.connectivity_map = [(0, 1), (1, 2), (2, 3)]
+    handle = WorkspaceManager.load_or_init(tmp_path / ".quantum")
+
+    fake_classiq = _build_fake_classiq_module()
+    monkeypatch.setattr(
+        "quantum_runtime.backends.classiq_backend._load_classiq_module",
+        lambda: fake_classiq,
+    )
+
+    report = run_classiq_backend(qspec, handle)
+
+    assert report.status == "ok"
+    assert report.details["target_assumptions"]["applied_constraints"] == {"max_width": 4}
+    assert report.details["target_assumptions"]["unsupported_constraints"] == [
+        "max_depth",
+        "basis_gates",
+        "connectivity_map",
+    ]
+    assert any("unsupported target constraints" in warning.lower() for warning in report.warnings)
 
 
 def _build_fake_classiq_module() -> SimpleNamespace:

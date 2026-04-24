@@ -12,6 +12,7 @@ EXIT_UNSUPPORTED = 4
 EXIT_COMPILE_FAILURE = 5
 EXIT_SIMULATION_FAILURE = 6
 EXIT_DEPENDENCY_MISSING = 7
+WORKSPACE_SAFETY_ERROR_CODES = frozenset({"workspace_conflict", "workspace_recovery_required"})
 
 
 def exit_code_for_exec(result: Any) -> int:
@@ -37,6 +38,13 @@ def exit_code_for_exec(result: Any) -> int:
 
 def exit_code_for_benchmark(result: Any) -> int:
     """Map a benchmark report to the documented CLI exit codes."""
+    verdict = _as_mapping(getattr(result, "verdict", None))
+    verdict_status = str(verdict.get("status")) if verdict else None
+    if verdict_status == "pass":
+        return EXIT_OK
+    if verdict_status == "fail":
+        return EXIT_DEGRADED
+
     backends = _as_mapping(getattr(result, "backends", None))
     statuses = {_status_of(report) for report in backends.values()}
     statuses.discard(None)
@@ -55,6 +63,13 @@ def exit_code_for_benchmark(result: Any) -> int:
 
 def exit_code_for_doctor(result: Any) -> int:
     """Map a doctor report to the documented CLI exit codes."""
+    verdict = _as_mapping(getattr(result, "verdict", None))
+    verdict_status = str(verdict.get("status")) if verdict else None
+    if verdict_status == "pass":
+        return EXIT_OK
+    if verdict_status == "fail":
+        return EXIT_DEGRADED
+
     issues = list(getattr(result, "issues", []) or [])
     workspace_ok = bool(getattr(result, "workspace_ok", True))
 
@@ -107,6 +122,23 @@ def exit_code_for_compare(result: Any, *, structured: bool = False) -> int:
     if _detached_report_inputs(result):
         return EXIT_DEGRADED
     return EXIT_OK
+
+
+def exit_code_for_control_plane(result: Any) -> int:
+    """Map generic control-plane result payloads to stable CLI exit codes."""
+    status = str(getattr(result, "status", "ok"))
+    if status == "ok":
+        return EXIT_OK
+    if status == "degraded":
+        return EXIT_DEGRADED
+    return EXIT_INVALID_INPUT
+
+
+def exit_code_for_workspace_safety(error_code: str) -> int:
+    """Map workspace-safety failures to deterministic CLI exit codes."""
+    if error_code in WORKSPACE_SAFETY_ERROR_CODES:
+        return EXIT_INVALID_INPUT
+    return EXIT_INVALID_INPUT
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:

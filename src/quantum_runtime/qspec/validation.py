@@ -7,6 +7,8 @@ from typing import Any
 
 from quantum_runtime.errors import StructuredQuantumRuntimeError
 
+from .observables import normalize_observable_specs
+from .parameter_workflow import normalize_parameter_workflow
 from .model import MeasureNode, PatternNode, QSpec
 
 
@@ -53,6 +55,11 @@ def normalize_qspec(qspec: QSpec) -> QSpec:
         constraints["connectivity_map"] = _normalize_connectivity_map(connectivity_map)
     payload["constraints"] = constraints
     payload["parameters"] = [_normalize_parameter(parameter) for parameter in payload.get("parameters", [])]
+    payload["observables"] = normalize_observable_specs(payload.get("observables"))
+    metadata = dict(payload.get("metadata", {}))
+    if "parameter_workflow" in metadata:
+        metadata["parameter_workflow"] = normalize_parameter_workflow(metadata.get("parameter_workflow"))
+    payload["metadata"] = metadata
 
     return QSpec.model_validate(payload)
 
@@ -86,6 +93,9 @@ def validate_qspec(qspec: QSpec) -> QSpec:
     _validate_optimization_level(qspec.constraints.optimization_level, issues)
     _validate_constraint_bounds(qspec, issues)
     _validate_parameters(qspec, issues)
+    _validate_observables(qspec, issues)
+    _validate_parameter_workflow(qspec, issues)
+    _validate_parameter_coverage(qspec, issues)
 
     if issues:
         raise QSpecValidationError("QSpec validation failed", issues=issues)
@@ -205,6 +215,131 @@ def _validate_parameters(qspec: QSpec, issues: list[str]) -> None:
             beta_count = _count_parameter_role(qspec, family="qaoa_ansatz", role="mixer")
             if gamma_count != layers or beta_count != layers:
                 issues.append("qaoa_ansatz must define one gamma and one beta parameter per layer")
+
+
+def _validate_observables(qspec: QSpec, issues: list[str]) -> None:
+    qubit_size = qspec.registers[0].size if qspec.registers else 0
+    objective_names: list[str] = []
+    for index, observable in enumerate(qspec.observables):
+        name = str(observable.get("name", "")).strip()
+        if not name:
+            issues.append(f"observables[{index}].name must be non-empty")
+        kind = str(observable.get("kind", "")).strip().lower()
+        if kind != "pauli_sum":
+            issues.append("observable kind must be pauli_sum")
+        terms = observable.get("terms")
+        if not isinstance(terms, list) or not terms:
+            issues.append("observable terms must be a non-empty list")
+            continue
+        objective = observable.get("objective")
+        if objective is not None and str(objective) not in {"maximize", "minimize"}:
+            issues.append("observable objective must be maximize or minimize when provided")
+        elif objective is not None:
+            objective_names.append(name or f"observables[{index}]")
+        for term_index, term in enumerate(terms):
+            if not isinstance(term, dict):
+                issues.append(f"observables[{index}].terms[{term_index}] must be an object")
+                continue
+            pauli = str(term.get("pauli", "")).upper()
+            qubits = term.get("qubits", [])
+            if not pauli or any(axis not in {"X", "Y", "Z"} for axis in pauli):
+                issues.append("observable pauli terms must be explicit X/Y/Z Pauli strings")
+            if not isinstance(qubits, list) or len(qubits) != len(pauli):
+                issues.append("observable qubits must match the pauli arity")
+                continue
+            for qubit in qubits:
+                if int(qubit) < 0 or int(qubit) >= qubit_size:
+                    issues.append("observable qubit indices must fit within the qubit register")
+            try:
+                float(term.get("coefficient", 1.0))
+            except (TypeError, ValueError):
+                issues.append("observable term coefficients must be numeric")
+    if len(objective_names) > 1:
+        issues.append("exact local evaluation currently supports at most one objective observable")
+
+
+def _validate_parameter_workflow(qspec: QSpec, issues: list[str]) -> None:
+    workflow = qspec.metadata.get("parameter_workflow")
+    if workflow is None:
+        return
+    if not isinstance(workflow, dict):
+        issues.append("metadata.parameter_workflow must be an object")
+        return
+
+    mode = str(workflow.get("mode", "")).strip().lower()
+    valid_names = {str(parameter.get("name", "")).strip() for parameter in qspec.parameters}
+    if mode not in {"binding", "sweep"}:
+        issues.append("metadata.parameter_workflow.mode must be binding or sweep")
+        return
+
+    bindings = workflow.get("bindings")
+    grid = workflow.get("grid")
+    if mode == "binding":
+        if grid:
+            issues.append("metadata.parameter_workflow cannot declare both bindings and grid")
+        if not isinstance(bindings, dict) or not bindings:
+            issues.append("metadata.parameter_workflow.bindings must be a non-empty object")
+            return
+        for name, value in bindings.items():
+            if str(name) not in valid_names:
+                issues.append("metadata.parameter_workflow contains an unknown parameter name")
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                issues.append("metadata.parameter_workflow bindings must be numeric")
+    if mode == "sweep":
+        if bindings:
+            issues.append("metadata.parameter_workflow cannot declare both bindings and grid")
+        if not isinstance(grid, dict) or not grid:
+            issues.append("metadata.parameter_workflow.grid must be a non-empty object")
+            return
+        point_count = 1
+        for name, values in grid.items():
+            if str(name) not in valid_names:
+                issues.append("metadata.parameter_workflow contains an unknown parameter name")
+            if not isinstance(values, list) or not values:
+                issues.append("metadata.parameter_workflow.grid entries must be non-empty lists")
+                continue
+            point_count *= len(values)
+            for value in values:
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    issues.append("metadata.parameter_workflow sweep values must be numeric")
+        if point_count > 16:
+            issues.append("metadata.parameter_workflow sweep grid must stay at or below 16 points")
+
+
+def _validate_parameter_coverage(qspec: QSpec, issues: list[str]) -> None:
+    workflow = qspec.metadata.get("parameter_workflow")
+    covered_names: set[str] = set()
+    if isinstance(workflow, dict):
+        bindings = workflow.get("bindings")
+        if isinstance(bindings, dict):
+            covered_names.update(str(name).strip() for name in bindings)
+        grid = workflow.get("grid")
+        if isinstance(grid, dict):
+            covered_names.update(str(name).strip() for name in grid)
+
+    missing_names: list[str] = []
+    for parameter in qspec.parameters:
+        name = str(parameter.get("name", "")).strip()
+        if not name:
+            continue
+        default = parameter.get("default")
+        if default is not None:
+            try:
+                float(default)
+                continue
+            except (TypeError, ValueError):
+                pass
+        if name not in covered_names:
+            missing_names.append(name)
+
+    if missing_names:
+        issues.append(
+            "all declared parameters must have numeric defaults or be covered by metadata.parameter_workflow"
+        )
 
 
 def _validate_edge_pairs(

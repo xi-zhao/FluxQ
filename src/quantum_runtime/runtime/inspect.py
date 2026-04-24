@@ -14,9 +14,19 @@ from quantum_runtime.artifact_provenance import (
     select_accessible_artifact_paths,
 )
 from quantum_runtime.qspec import QSpec, summarize_qspec_semantics
+from quantum_runtime.runtime.compare import compare_workspace_baseline
 from quantum_runtime.runtime.doctor import collect_backend_capabilities
-from quantum_runtime.runtime.imports import ImportSourceError, resolve_report_file
-from quantum_runtime.workspace import WorkspaceManifest, WorkspacePaths
+from quantum_runtime.runtime.observability import (
+    decision_block,
+    next_actions_for_reason_codes,
+    normalize_reason_codes,
+)
+from quantum_runtime.runtime.imports import (
+    ImportSourceError,
+    resolve_report_file,
+    resolve_workspace_baseline,
+)
+from quantum_runtime.workspace import WorkspaceBaseline, WorkspaceManifest, WorkspacePaths
 
 
 class InspectReport(BaseModel):
@@ -28,7 +38,12 @@ class InspectReport(BaseModel):
     provenance: dict[str, Any] = Field(default_factory=dict)
     qspec: dict[str, Any]
     artifacts: dict[str, Any] = Field(default_factory=dict)
+    baseline: dict[str, Any] = Field(default_factory=dict)
     replay_integrity: dict[str, Any] = Field(default_factory=dict)
+    health: dict[str, Any] = Field(default_factory=dict)
+    reason_codes: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    decision: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     backend_capabilities: dict[str, dict[str, Any]] = Field(default_factory=dict)
     issues: list[str] = Field(default_factory=list)
@@ -102,8 +117,17 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
     )
     issues.extend(replay_issues)
     errors.extend(replay_errors)
+    baseline, baseline_issues = _load_baseline_summary(workspace_root=normalized_root)
+    issues.extend(baseline_issues)
 
     status: Literal["ok", "degraded", "error"] = "error" if errors else "degraded" if issues else "ok"
+    reason_codes = normalize_reason_codes(errors + issues)
+    next_actions = next_actions_for_reason_codes(reason_codes)
+    health = {
+        "workspace": {"status": "ok" if workspace_info.get("exists") else "missing"},
+        "baseline": {"status": str(baseline.get("status", "unknown"))},
+        "replay": {"status": "degraded" if replay_integrity.get("status") not in {None, "ok"} else "ok"},
+    }
 
     return InspectReport(
         status=status,
@@ -112,7 +136,17 @@ def inspect_workspace(workspace_root: Path) -> InspectReport:
         provenance=provenance,
         qspec=qspec_summary,
         artifacts=canonical_artifacts,
+        baseline=baseline,
         replay_integrity=replay_integrity,
+        health=health,
+        reason_codes=reason_codes,
+        next_actions=next_actions,
+        decision=decision_block(
+            status="degraded" if status == "error" and reason_codes and any(code.startswith("run_manifest_") for code in reason_codes) else status,
+            reason_codes=reason_codes,
+            next_actions=next_actions,
+            ready_when_ok=True,
+        ),
         diagnostics=latest_report.get("diagnostics", {}) if isinstance(latest_report, dict) else {},
         backend_capabilities=collect_backend_capabilities(),
         issues=issues,
@@ -142,12 +176,15 @@ def _load_qspec_summary(path: Path) -> tuple[dict[str, Any], list[str]]:
             "pattern": semantics["pattern"],
             "layers": semantics["layers"],
             "parameter_count": semantics["parameter_count"],
+            "observable_count": semantics["observable_count"],
             "semantic_hash": semantics["semantic_hash"],
             "registers": {
                 "qubits": qspec.registers[0].size,
                 "cbits": qspec.registers[1].size,
             },
             "parameters": semantics["parameters"],
+            "observables": semantics["observables"],
+            "parameter_workflow": semantics["parameter_workflow"],
             "pattern_args": semantics["pattern_args"],
             "body_nodes": len(qspec.body),
         },
@@ -265,6 +302,15 @@ def _load_replay_integrity(
     try:
         resolution = resolve_report_file(active_report_path, workspace_root=workspace_root)
     except ImportSourceError as exc:
+        degrade_only_codes = {
+            "run_manifest_invalid",
+            "run_manifest_integrity_invalid",
+            "report_qspec_missing",
+            "report_qspec_hash_mismatch",
+            "report_qspec_semantic_hash_mismatch",
+        }
+        issue_list: list[str] = [exc.code] if exc.code in degrade_only_codes else []
+        error_list: list[str] = [] if exc.code in degrade_only_codes else [exc.code]
         return (
             {
                 "status": "error",
@@ -272,8 +318,8 @@ def _load_replay_integrity(
                 "warnings": [],
                 "errors": [exc.code],
             },
-            [],
-            [exc.code],
+            issue_list,
+            error_list,
         )
 
     replay_integrity = (
@@ -288,6 +334,54 @@ def _load_replay_integrity(
     elif status == "degraded":
         issues.append("replay_integrity_degraded")
     return replay_integrity, issues, []
+
+
+def _load_baseline_summary(*, workspace_root: Path) -> tuple[dict[str, Any], list[str]]:
+    record_path = WorkspacePaths(root=workspace_root).baseline_current_json.resolve()
+    if not record_path.exists():
+        return {
+            "status": "not_set",
+            "path": str(record_path),
+        }, []
+
+    metadata = _load_baseline_record_metadata(record_path)
+    try:
+        baseline_resolution = resolve_workspace_baseline(workspace_root)
+        comparison = compare_workspace_baseline(workspace_root)
+    except ImportSourceError as exc:
+        payload = {
+            "status": "degraded",
+            "path": str(record_path),
+            "reason": exc.code,
+        }
+        payload.update(metadata)
+        return payload, [f"baseline_invalid:{exc.code}"]
+
+    return {
+        "status": "ok",
+        "path": str(record_path),
+        "source_kind": baseline_resolution.record.source_kind,
+        "source": baseline_resolution.record.source,
+        "revision": baseline_resolution.record.revision,
+        "same_subject": comparison.same_subject,
+        "same_qspec": comparison.same_qspec,
+        "same_report": comparison.same_report,
+        "compare_status": comparison.status,
+        "highlight": comparison.highlights[0] if comparison.highlights else None,
+    }, []
+
+
+def _load_baseline_record_metadata(record_path: Path) -> dict[str, Any]:
+    try:
+        record = WorkspaceBaseline.load(record_path)
+    except Exception:
+        return {}
+
+    return {
+        "source_kind": record.source_kind,
+        "source": record.source,
+        "revision": record.revision,
+    }
 
 
 def _inspect_qspec_provenance(*, latest_report: dict[str, Any], active_spec_path: Path) -> dict[str, Any]:

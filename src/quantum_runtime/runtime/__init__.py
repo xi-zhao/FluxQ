@@ -1,20 +1,71 @@
 """Execution flows for the Quantum Runtime CLI."""
 
 from .backend_list import BackendListReport, list_backends
-from .compare import ComparePolicy, CompareResult, CompareVerdict, compare_import_resolutions
+from .compare import (
+    ComparePolicy,
+    CompareResult,
+    CompareVerdict,
+    compare_import_resolutions,
+    compare_workspace_baseline,
+    persist_compare_result,
+)
+from .control_plane import (
+    PlanResult,
+    ResolveResult,
+    SchemaResult,
+    ShowResult,
+    StatusResult,
+    build_execution_plan,
+    build_execution_plan_from_resolved,
+    resolve_runtime_object,
+    schema_contract,
+    show_run,
+    workspace_status,
+)
 from .doctor import DoctorReport, collect_backend_capabilities, run_doctor
 from .executor import (
     ExecResult,
     ReportImportError,
     execute_intent,
+    execute_intent_json,
     execute_intent_text,
     execute_qspec,
     execute_report,
     load_qspec_from_report,
 )
 from .export import ExportResult, export_artifact, export_artifact_from_report, export_artifact_from_resolution
-from .imports import ImportReference, ImportResolution, ImportSourceError, resolve_import_reference
+from .ibm_access import (
+    IbmAccessProfile,
+    IbmAccessResolution,
+    IbmConfigureResult,
+    build_ibm_service,
+    load_ibm_profile,
+    resolve_ibm_access,
+    write_ibm_profile,
+)
+from .imports import (
+    ImportReference,
+    ImportResolution,
+    ImportSourceError,
+    WorkspaceBaselineResolution,
+    resolve_import_reference,
+    validate_revision,
+    resolve_workspace_baseline,
+)
 from .inspect import InspectReport, inspect_workspace
+from .pack import PackImportResult, PackInspectionResult, PackResult, import_pack_bundle, inspect_pack_bundle, pack_revision
+from .resolve import IntentResolution, intent_resolution_from_prompt, resolve_runtime_input
+from .remote_attempts import (
+    RemoteAttemptArtifactPaths,
+    RemoteAttemptBackend,
+    RemoteAttemptJob,
+    RemoteAttemptRecord,
+    load_remote_attempt,
+    persist_remote_attempt,
+    reserve_attempt_id,
+)
+from .remote_submit import RemoteSubmitResult, submit_remote_input
+from .run_manifest import RunManifestArtifact, RunReportArtifact
 
 __all__ = [
     "BackendListReport",
@@ -24,14 +75,39 @@ __all__ = [
     "DoctorReport",
     "ExecResult",
     "ExportResult",
+    "IbmAccessProfile",
+    "IbmAccessResolution",
+    "IbmConfigureResult",
     "ImportReference",
     "ImportResolution",
     "ImportSourceError",
+    "IntentResolution",
     "InspectReport",
+    "PackResult",
+    "PackImportResult",
+    "PackInspectionResult",
+    "PlanResult",
     "ReportImportError",
+    "RemoteAttemptArtifactPaths",
+    "RemoteAttemptBackend",
+    "RemoteAttemptJob",
+    "RemoteAttemptRecord",
+    "RemoteSubmitResult",
+    "ResolveResult",
+    "RunManifestArtifact",
+    "RunReportArtifact",
+    "SchemaResult",
+    "ShowResult",
+    "StatusResult",
+    "build_execution_plan",
+    "build_execution_plan_from_resolved",
     "collect_backend_capabilities",
     "compare_import_resolutions",
+    "compare_workspace_baseline",
+    "build_ibm_service",
+    "persist_compare_result",
     "execute_intent",
+    "execute_intent_json",
     "execute_intent_text",
     "execute_qspec",
     "execute_report",
@@ -39,8 +115,27 @@ __all__ = [
     "export_artifact_from_report",
     "export_artifact_from_resolution",
     "inspect_workspace",
+    "intent_resolution_from_prompt",
     "list_backends",
     "load_qspec_from_report",
+    "load_remote_attempt",
+    "pack_revision",
+    "import_pack_bundle",
+    "inspect_pack_bundle",
+    "persist_remote_attempt",
+    "reserve_attempt_id",
+    "resolve_runtime_input",
+    "resolve_runtime_object",
+    "resolve_ibm_access",
     "resolve_import_reference",
+    "resolve_workspace_baseline",
     "run_doctor",
+    "schema_contract",
+    "show_run",
+    "submit_remote_input",
+    "validate_revision",
+    "load_ibm_profile",
+    "workspace_status",
+    "WorkspaceBaselineResolution",
+    "write_ibm_profile",
 ]
